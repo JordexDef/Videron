@@ -27,6 +27,8 @@ type App struct {
 	resumeNote           string
 	disk                 os.FileInfo
 	diskDigest           [sha256.Size]byte
+	catalogIndex         *indexedCatalog
+	lastCatalogPatch     savePatchReceipt
 	sessionLockPending   atomic.Bool
 	sessionLockListening atomic.Bool
 	stopSessionMonitor   func()

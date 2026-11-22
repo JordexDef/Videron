@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compareIncoming, preservesOpenNote, commitIncoming } from '../frontend/workspace-reconcile.js';
+import { compareIncoming, preservesOpenNote, commitIncoming, commitPreparedMerge } from '../frontend/workspace-reconcile.js';
+import { WorkspaceRecords } from '../frontend/workspace-records.js';
+import { saveSpaceFolder } from '../frontend/workspace-storage.js';
 
 function documents() {
   const note = id => ({ id, title: id, body: [], links: [], tags: [] });
@@ -38,6 +40,32 @@ test('a superseded merge leaves the live workspace and the autosave baseline alo
   const bridge = { CommitFolderMerge: async () => { throw new Error('VD_CHANGED'); } };
   await assert.rejects(commitIncoming(bridge, session, incoming, merged, 'writing'), /VD_CHANGED/);
   assert.deepEqual(session, previous);
+});
+
+test('native merge keeps live typing, sends only choices and advances the autosave baseline', async () => {
+  const {session}=documents(), [open,other]=session.data.notes, notes=session.data.notes;
+  session.records=new WorkspaceRecords(session.data);
+  const proposal={prepared:true,token:'local:remote',conflicts:[],changedNotes:[other.id]};
+  assert.ok(preservesOpenNote(session,proposal,open.id));
+  assert.ok(!preservesOpenNote(session,proposal,other.id));
+  let resolveWrite;
+  const choices={'note:elsewhere':'remote'};
+  const pending=commitPreparedMerge({CommitFolderMergeChoices(...args){
+    assert.deepEqual(args,[session.folder,proposal.token,choices]);
+    return new Promise(resolve=>{resolveWrite=resolve});
+  }},session,proposal,choices);
+  open.title='typed while the merge was on disk';session.records.mark({notes:[open]});
+  resolveWrite({head:'merged',lists:{notes:{upsert:[{...other,title:'remote value'}],order:[other.id,open.id]}}});
+  await pending;
+  assert.equal(notes,session.data.notes);assert.equal(notes[1],open);
+  assert.equal(notes[0].title,'remote value');
+  let requests=0;
+  await saveSpaceFolder({SaveFolderPatch:async (_dir,head,raw)=>{
+    assert.equal(head,'merged');
+    assert.deepEqual(JSON.parse(raw),{notes:{put:[open]}});
+    requests++;return 'after-typing';
+  }},session);
+  assert.equal(requests,1);assert.equal(session.head,'after-typing');
 });
 
 test('merging a note keeps the server project title separate from the document', async () => {

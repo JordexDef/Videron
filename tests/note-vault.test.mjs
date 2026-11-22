@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { openNoteSession, isProtectedNote } from '../frontend/note-vault.js'
 import { newLibrary, readLibrary, serializeLibrary } from '../frontend/data.js'
+import { WorkspaceRecords } from '../frontend/workspace-records.js'
 
 test('protected notes require a vault-aware reader until the last one is removed', () => {
   const lib = newLibrary()
@@ -60,6 +61,23 @@ test('data note language and full document stay inside the envelope across edits
   session = await f.open()
   assert.equal(session.note.dataText,'{"value":"updated"}')
   assert.equal(session.note.dataLanguage,'json')
+  assert.ok(await session.beforeClose())
+})
+
+test('sealing an edit marks the new envelope even after the map record was acknowledged', async () => {
+  const f=fixture(), space={notes:[f.record],areas:[]}
+  let records
+  const session=await f.open({dirty:()=>records?.mark({notes:[f.record]})})
+  await session.manageProtection()
+  records=new WorkspaceRecords(space)
+  const previous=f.record.sealed
+  session.changed({plain:'private edit'})
+  records.prepare(space).commit()
+  await session.flush()
+  const next=records.prepare(space)
+  assert.equal(next.patch.notes.put[0].sealed,f.record.sealed)
+  assert.notEqual(f.record.sealed,previous)
+  assert.doesNotMatch(JSON.stringify(next.patch),/private edit/)
   assert.ok(await session.beforeClose())
 })
 

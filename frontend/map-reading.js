@@ -211,7 +211,7 @@ export function mountMapReading({stage, getNote, getMetric, isActive = () => tru
     if (isPinned()) delete note.mapExcerpt;
     else note.mapExcerpt = {key:fragment.key, path:fragment.path, kind:fragment.kind};
     paintControls();
-    onChange?.();
+    onChange?.(note);
   });
   head.append(title, close);
   foot.append(prev, count, next, pin);

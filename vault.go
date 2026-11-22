@@ -288,6 +288,7 @@ func (a *App) cacheNoteKey(id string, key *vaultKey) {
 }
 
 func (a *App) dropKeys() {
+	a.clearCatalogIndex()
 	// A pending connection carries a verified server credential. Expire it
 	// together with the vault session, including verifications still in flight.
 	a.serverTickets.reset()

@@ -151,6 +151,9 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
     if(busy)return
     const opts={...flags,query:query.value,area:area.value,language:getLanguage()}
     if(opts.area && opts.area!=='_none')opts.areaIds=[...descendantAreaIds(areas,opts.area)]
+    // The initial recent-notes list uses only metadata and short excerpts.
+    // Defer cloning full data-note text to the worker until a query needs it.
+    if(!opts.query){display(findNotes(source,opts));return}
     if(unavailable){
       if(opts.regex && opts.query) display({error:tr('Не удалось запустить обработчик регулярных выражений в этом окне.','Could not start the regular expression worker in this window.')})
       else display(findNotes(source,opts))

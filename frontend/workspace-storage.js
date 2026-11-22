@@ -1,4 +1,5 @@
 import { checkWorkspace, isFolderSpace, spaceNames, validSpaceName } from './data.js';
+import { WorkspaceRecords } from './workspace-records.js';
 
 export function spaceTitle(id,space){
   return space?.name || spaceNames[id];
@@ -15,8 +16,23 @@ export function folderEntry(spaces,path){
   return Object.entries(spaces).find(([,s])=>isFolderSpace(s) && key(s.folder)===key(path));
 }
 
-function session(folder,encrypted,data,raw){
-  return {folder,encrypted,data,raw,link:{folder,encrypted,name:data.name}};
+async function session(bridge,folder,encrypted,data,raw,opening){
+  const result={folder,encrypted,data,link:{folder,encrypted,name:data.name}};
+  if(bridge.SaveFolderPatch && bridge.FolderPatchRevision){
+    // Track the disk representation before validation repairs legacy grid slots or routes.
+    result.records=new WorkspaceRecords(data);
+    if(opening){
+      checkWorkspace(data);
+      result.records.mark();
+      const repairs=result.records.prepare(data);
+      if(!repairs.patch)repairs.commit();
+    }
+    result.head=await bridge.FolderPatchRevision(folder);
+  }else{
+    if(opening)checkWorkspace(data);
+    result.raw=opening?JSON.stringify(data):raw;
+  }
+  return result;
 }
 
 export async function readSpaceFolder(bridge,info,prompt,knownLink){
@@ -28,8 +44,7 @@ export async function readSpaceFolder(bridge,info,prompt,knownLink){
     try{
       const data=JSON.parse(raw);
       if(isFolderSpace(data) || !validSpaceName(data?.name))throw new Error('VD_INVALID');
-      checkWorkspace(data);
-      result=session(info.folder,info.encrypted,data,JSON.stringify(data));
+      result=await session(bridge,info.folder,info.encrypted,data,raw,true);
       if(bridge.ServerConnection && knownLink?.name)result.link.name=knownLink.name;
     }catch(error){await bridge.CloseFolderSpace(info.folder);throw error}
   }
@@ -47,11 +62,22 @@ export async function createSpaceFolder(bridge,info,data,password){
   if(info.exists)throw new Error('VD_SPACE_EXISTS');
   const raw=JSON.stringify(data);
   await bridge.CreateFolderSpace(info.folder,raw,password);
-  return session(info.folder,!!password,data,raw);
+  return session(bridge,info.folder,!!password,data,raw,false);
 }
 
 export async function saveSpaceFolder(bridge,session){
   if(!session)return;
+  if(session.records){
+    let wrote=false;
+    // Retry an unacknowledged request before submitting edits made during the write.
+    for(;;){
+      const tx=session.pendingPatch??session.records.prepare(session.data);
+      if(!tx.patch){tx.commit();return wrote}
+      session.pendingPatch=tx;
+      session.head=await bridge.SaveFolderPatch(session.folder,session.head,JSON.stringify(tx.patch));
+      tx.commit();session.pendingPatch=null;wrote=true;
+    }
+  }
   const raw=JSON.stringify(session.data);
   if(raw===session.raw)return;
   if(bridge.SaveFolderBranch)await bridge.SaveFolderBranch(session.folder,raw);

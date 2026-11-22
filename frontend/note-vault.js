@@ -87,6 +87,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
         if (typeof sealed !== 'string' || !sealed) throw new Error('VD_INVALID')
         record.sealed = sealed
         sealedRevision = saving
+        dirty() // The ciphertext can finish after an earlier record snapshot was captured.
       }
     })().finally(() => { pendingSeal = null })
     return pendingSeal

@@ -48,6 +48,8 @@ type spaceReplica struct {
 	fullRead        time.Time
 	settledHead     string
 	settledCount    int
+	mergePlan       *workspaceMergePlan
+	lastMerge       savePatchReceipt
 }
 type FolderSpaceUpdate struct {
 	Token  string `json:"token"`
@@ -160,6 +162,8 @@ func (s *folderSpaceSession) advance(m spaceSyncMeta, data string) error {
 	if _, err = writeAtomic(p, b, ".sync-cursor-*.tmp"); err != nil {
 		return fmt.Errorf("VD_WRITE|%w", err)
 	}
+	s.sync.mergePlan = nil
+	s.sync.lastMerge = savePatchReceipt{}
 	s.sync.meta = m
 	s.sync.payload = data
 	return nil
@@ -671,35 +675,10 @@ func (a *App) pollFolderSpace(folder string, force bool, knownToken string) (Fol
 	if err != nil {
 		return u, err
 	}
-	if err = s.initReplica(); err != nil {
+	token, tip, base, err := s.pollCandidate(force)
+	if err != nil || token == "" {
 		return u, err
 	}
-	if err = s.importMain(force); err != nil {
-		return u, err
-	}
-	if err = s.scan(force); err != nil {
-		return u, err
-	}
-	if !force && s.sync.diskHead == s.sync.meta.Head && s.sync.settledHead == s.sync.meta.Head && s.sync.settledCount == len(s.sync.parents) {
-		return u, nil
-	}
-	tip, base, err := s.candidate()
-	if err != nil || tip == "" {
-		if err == nil {
-			// Recover the canonical snapshot after a crash between publishing
-			// its immutable branch and atomically replacing Videron.space, or
-			// after a sync client re-delivers an older ancestor.
-			if s.sync.diskHead != s.sync.meta.Head && ancestorOf(s.sync.diskHead, s.sync.meta.Head, s.sync.parents) {
-				if e := withSpaceWriteLock(s.path, func() error { return s.publishMain(s.sync.payload, s.sync.meta) }); e != nil {
-					return u, e
-				}
-			}
-			s.sync.settledHead = s.sync.meta.Head
-			s.sync.settledCount = len(s.sync.parents)
-		}
-		return u, err
-	}
-	token := s.sync.meta.Head + ":" + tip
 	if token == knownToken {
 		return FolderSpaceUpdate{Token: token}, nil
 	}
@@ -725,6 +704,37 @@ func (a *App) pollFolderSpace(folder string, force bool, knownToken string) (Fol
 		}
 	}
 	return FolderSpaceUpdate{token, previous, remote}, nil
+}
+func (s *folderSpaceSession) pollCandidate(force bool) (token, tip, base string, err error) {
+	if err := s.initReplica(); err != nil {
+		return "", "", "", err
+	}
+	if err := s.importMain(force); err != nil {
+		return "", "", "", err
+	}
+	if err := s.scan(force); err != nil {
+		return "", "", "", err
+	}
+	if !force && s.sync.diskHead == s.sync.meta.Head && s.sync.settledHead == s.sync.meta.Head && s.sync.settledCount == len(s.sync.parents) {
+		return "", "", "", nil
+	}
+	tip, base, err = s.candidate()
+	if err != nil || tip == "" {
+		if err == nil {
+			// Recover the canonical snapshot after a crash between publishing
+			// its immutable branch and atomically replacing Videron.space, or
+			// after a sync client re-delivers an older ancestor.
+			if s.sync.diskHead != s.sync.meta.Head && ancestorOf(s.sync.diskHead, s.sync.meta.Head, s.sync.parents) {
+				if e := withSpaceWriteLock(s.path, func() error { return s.publishMain(s.sync.payload, s.sync.meta) }); e != nil {
+					return "", "", "", e
+				}
+			}
+			s.sync.settledHead = s.sync.meta.Head
+			s.sync.settledCount = len(s.sync.parents)
+		}
+		return "", "", "", err
+	}
+	return s.sync.meta.Head + ":" + tip, tip, base, nil
 }
 func (a *App) SaveFolderBranch(folder, payload string) error {
 	return a.commitFolderBranch(folder, "", payload)

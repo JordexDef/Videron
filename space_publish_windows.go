@@ -50,7 +50,7 @@ func publishNewSpaceFile(temp, path string) error {
 // drivers cannot atomically replace an open target. The marker has no content,
 // is created exclusively and is removed by Windows even if the process exits.
 func withSpaceWriteLock(path string, action func() error) error {
-	name, err := windows.UTF16PtrFromString(filepath.Join(filepath.Dir(path), "~$Videron.space.lock.tmp"))
+	name, err := windows.UTF16PtrFromString(filepath.Join(filepath.Dir(path), "~$"+filepath.Base(path)+".lock.tmp"))
 	if err != nil {
 		return err
 	}

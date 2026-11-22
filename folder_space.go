@@ -27,11 +27,12 @@ type SpaceFolderInfo struct {
 }
 
 type folderSpaceSession struct {
-	path   string
-	info   os.FileInfo
-	digest [sha256.Size]byte
-	key    *vaultKey
-	sync   spaceReplica
+	path      string
+	info      os.FileInfo
+	digest    [sha256.Size]byte
+	key       *vaultKey
+	sync      spaceReplica
+	lastPatch savePatchReceipt
 }
 
 type folderSpaceDocument struct {

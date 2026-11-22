@@ -310,11 +310,16 @@ func (a *App) writeSnapshot(payload string, key *vaultKey) error {
 	if !validWorkspace(data) {
 		return errInvalid
 	}
-	path, err := workspacePath()
-	if err != nil {
+	if err := a.writeCatalogBytes(data, key); err != nil {
 		return err
 	}
-	if err := a.verifyCatalog(path); err != nil {
+	a.clearCatalogIndex()
+	return nil
+}
+
+func (a *App) writeCatalogBytes(data []byte, key *vaultKey) error {
+	path, err := workspacePath()
+	if err != nil {
 		return err
 	}
 	if key != nil {
@@ -323,16 +328,36 @@ func (a *App) writeSnapshot(payload string, key *vaultKey) error {
 			return err
 		}
 	}
-	if err := removeWorkspaceTemps(filepath.Dir(path)); err != nil {
+	dir := filepath.Dir(path)
+	write := func() error {
+		if err := a.verifyCatalog(path); err != nil {
+			return err
+		}
+		if err := removeWorkspaceTemps(dir); err != nil {
+			return fmt.Errorf("VD_WRITE|%w", err)
+		}
+		publish := os.Rename
+		if a.disk == nil {
+			publish = publishNewSpaceFile
+		}
+		written, err := writeAtomicInDir(path, data, ".workspace-*.tmp", publish)
+		if errors.Is(err, os.ErrExist) {
+			return errChanged
+		}
+		if err != nil {
+			return fmt.Errorf("VD_WRITE|%w", err)
+		}
+		a.disk = written
+		a.diskDigest = sha256.Sum256(data)
+		return nil
+	}
+	if a.disk != nil {
+		return withSpaceWriteLock(path, write)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("VD_WRITE|%w", err)
 	}
-	written, err := writeAtomic(path, data, ".workspace-*.tmp")
-	if err != nil {
-		return fmt.Errorf("VD_WRITE|%w", err)
-	}
-	a.disk = written
-	a.diskDigest = sha256.Sum256(data)
-	return nil
+	return write()
 }
 
 func (a *App) Save(payload string) error {

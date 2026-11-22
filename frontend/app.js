@@ -15,9 +15,10 @@ import { openExtensions, dismissExtensions } from './extensions.js';
 import { openAppearance } from './appearance.js';
 import { paintIcons, icon, drawAtlas } from './art.js';
 import { newLibrary, readLibrary, serializeLibrary, blankWorkspace, isFolderSpace, demoWorkspace, translateDemoSamples, createNote, colors, validSpaceName } from './data.js';
+import { CatalogRecords } from './catalog-records.js';
 import { spaceTitle, localFallback, folderEntry, readSpaceFolder, createSpaceFolder, saveSpaceFolder } from './workspace-storage.js';
 import { openCreateSpace, openSpaceManager } from './workspace-ui.js';
-import { compareIncoming, commitIncoming, preservesOpenNote } from './workspace-reconcile.js';
+import { compareIncoming, commitIncoming, commitPreparedMerge, preservesOpenNote } from './workspace-reconcile.js';
 import { openWorkspaceConflicts, dismissWorkspaceConflicts } from './workspace-conflicts.js';
 import { openWorkspaceServer, dismissWorkspaceServer } from './workspace-server-ui.js';
 import { rememberServerAddress } from './server-address.js';
@@ -58,7 +59,8 @@ let noteSession=null, openingNote=null, projectProtected=false, policyWrite=null
 let idle=null, lockScreen=null, locking=null, lockDuringStartup=false;
 const storageKey='videron.library.v1';
 let folderSession=null,spaceOperation=null,catalogSnapshot=null,startupNotice='';
-let folderPoll=null,editorMerge=null,reviewing=false,syncTimer,closingApp=false;
+let catalogRecords=null,catalogRevision=null,pendingCatalogPatch=null;
+let folderPoll=null,editorMerge=null,notePrivacyChange=null,reviewing=false,syncTimer,closingApp=false;
 const emptyMap=blankWorkspace();
 const workspace=()=>folderSession?.data ?? library.spaces[library.active] ?? emptyMap;
 function byId(id){
@@ -67,6 +69,7 @@ function byId(id){
   return notes[index]?.id===id?notes[index]:notes.find(n=>n.id===id);
 }
 const areaById=id=>workspace().areas.find(a=>a.id===id);
+const gridRecords=id=>({areas:[areaById(id)],notes:workspace().notes.filter(note=>note.areaId===id)});
 const showingMap=()=>page==='map';
 function syncMapVisibility(){
   graph?.setVisible(showingMap() && !document.hidden && !editor && !lockScreen);
@@ -159,8 +162,14 @@ function storageErrorMessage(error){
   };
   return Object.hasOwn(messages,code)?[messages[code],...parts].join(' '):message;
 }
-function dirty(){
+function dirty(scope){
   if(!ready)return;
+  if(scope?.settings)catalogRecords?.markSettings(scope.settings);
+  else if(!scope?.catalogOnly){
+    const id=scope?.spaceId??library.active;
+    if(folderSession && id===library.active)folderSession.records?.mark(scope);
+    else catalogRecords?.markSpace(id,scope);
+  }
   revision++;clearTimeout(timer);
   const now=performance.now();dirtySince ||= now;
   timer=setTimeout(()=>flush().catch(reportWriteError),Math.min(320,Math.max(0,1400-(now-dirtySince))));
@@ -169,7 +178,34 @@ function reportWriteError(error){
   status('failed');
   notify(tr('Не удалось сохранить изменения. ','Could not save your changes. ')+storageErrorMessage(error));
 }
+function acknowledgeCatalog(snapshot,catalog){
+  if(catalogRecords){
+    catalogRecords=new CatalogRecords(JSON.parse(snapshot),catalog);
+    catalogRecords.markAll();
+    catalogRevision=null;
+    pendingCatalogPatch=null;
+  }else catalogSnapshot=snapshot;
+}
 async function writeCatalog(catalog){
+  if(catalogRecords){
+    for(;;){
+      const retry=!!pendingCatalogPatch;
+      const draft=pendingCatalogPatch??catalogRecords.prepare(catalog);
+      if(!draft.patch){draft.commit();return}
+      if(catalogRevision===null)catalogRevision=await native.CatalogRevision();
+      if(!catalogRevision){
+        const snapshot=serializeLibrary(catalog);
+        await native.Save(snapshot);
+        acknowledgeCatalog(snapshot,catalog);
+        return;
+      }
+      // Replay precisely the unacknowledged patch before including any newer edits.
+      pendingCatalogPatch=draft;
+      catalogRevision=await native.SaveCatalogPatch(catalogRevision,JSON.stringify(draft.patch));
+      draft.commit();pendingCatalogPatch=null;
+      if(!retry)return;
+    }
+  }
   const json=serializeLibrary(catalog);
   if(json===catalogSnapshot)return;
   if(native)await native.Save(json);else localStorage.setItem(storageKey,json);
@@ -201,9 +237,9 @@ function syncIdle(){
 }
 async function setIdleMinutes(minutes){
   const previous=normalizeIdleMinutes(library.autoLockMinutes);
-  library.autoLockMinutes=normalizeIdleMinutes(minutes);dirty();
+  library.autoLockMinutes=normalizeIdleMinutes(minutes);dirty({settings:['autoLockMinutes']});
   try{await flush();syncIdle()}
-  catch(error){library.autoLockMinutes=previous;dirty();throw error}
+  catch(error){library.autoLockMinutes=previous;dirty({settings:['autoLockMinutes']});throw error}
 }
 
 // Keep the editor and keys available behind the opaque cover until the last
@@ -268,7 +304,7 @@ function applyProjectProtection(write,enabled){
     const latest=revision;
     if(await saveSpaceFolder(native,folderSession))branchSaved(folderSession);
     const snapshot=serializeLibrary(library);
-    await write(snapshot);catalogSnapshot=snapshot;
+    await write(snapshot);acknowledgeCatalog(snapshot,library);
     saved=latest;projectProtected=enabled;status('local');syncIdle();
   })().finally(()=>{
     policyWrite=null;
@@ -520,7 +556,7 @@ function areaDialog(area=null,{parentId=null,point=null,startAsGrid=false,startA
       if(!grid)result.anchor=graph.suggestAreaAnchor(origin,parentId);
       expandTo(parentId);
     }
-    dirty();d.close();render();
+    dirty(resized?gridRecords(result.id):{areas:[result]});d.close();render();
     if(!area&&showingMap())graph.focusArea(result.id);
     if(resized)notify(stages?tr('Дорожка обновлена','Stage track updated'):tr('Настройки сетки сохранены','Grid settings saved'),undoButton());
   };
@@ -549,7 +585,7 @@ function placeNotes(ids,id,created=false,slot=null,positions=[]){
   const count=change.after.length;
   if(!count && !created)return true;
   if(count)rememberMapAction(space,{kind:'placement',before:change.before,after:change.after});
-  dirty();expandTo(id);
+  dirty({notes:change.after.map(p=>byId(p.id)),areas:created?[area]:[]});expandTo(id);
   if(!positions.length){graph.select(null);selected=null}
   listSelection.clear();lastListId=null;
   if(!created && showingMap())renderMapPlacement(change.after);
@@ -566,7 +602,7 @@ function placeArea(id,parentId){
   const previous=areaById(id)?.parentId??null;
   if(!ready||editor||openingNote||lockScreen||!moveArea(workspace(),id,parentId))return;
   rememberMapAction(workspace(),{kind:'folder',id,parentId:previous});
-  expandTo(parentId);dirty();render();
+  expandTo(parentId);dirty({areas:[areaById(id)]});render();
   notify(tr('Область перемещена','Area moved'),undoButton());
 }
 function pickForNotes(ids,anchor){
@@ -840,7 +876,7 @@ function setServerConnection(session,info){
   session.link.name=name;
   if(session===folderSession && !lockScreen){
     $('space-name').textContent=$('crumb-space').textContent=name;
-    dirty();
+    dirty({catalogOnly:true});
   }
 }
 function serverProjectGone(session){
@@ -928,10 +964,16 @@ async function exchangeServer(force,{finalWrite=false}={}){
   });
   return session.serverPoll;
 }
-function checkFolderUpdate(session,knownToken){
-  return knownToken && native.CheckFolderSpace
+function checkFolderUpdate(session,knownToken='',force=false){
+  if(session.records && native.PrepareFolderMerge && native.CommitFolderMergeChoices){
+    return native.PrepareFolderMerge(session.folder,force,knownToken||'');
+  }
+  return !force && knownToken && native.CheckFolderSpace
     ? native.CheckFolderSpace(session.folder,knownToken)
-    : native.PollFolderSpace(session.folder,false);
+    : native.PollFolderSpace(session.folder,force);
+}
+function previewFolderUpdate(session,update){
+  return update.prepared?{...update,conflicts:update.conflicts||[]}:compareIncoming(session,update);
 }
 async function checkIncoming(){
   const session=folderSession,shown=session?.choiceToken;
@@ -955,8 +997,7 @@ function pollFolder(force){
   if(graph?.drag || graph?.pinch){session.pollAfterGesture=true;return Promise.resolve()}
   session.pollAfterGesture=false;
   folderPoll=(async()=>{
-    let update=force?await native.PollFolderSpace(session.folder,true)
-      :await checkFolderUpdate(session,session.incoming?.token||session.deferred);
+    let update=await checkFolderUpdate(session,force?'':session.incoming?.token||session.deferred,force);
     for(;;){
       if(session!==folderSession || lockScreen || closingApp)return;
       if(!update.token){session.incoming=null;return}
@@ -965,54 +1006,55 @@ function pollFolder(force){
       if(graph?.drag || graph?.pinch){session.pollAfterGesture=true;return}
       if(!blockedForMerge())break;
       editor?.flush?.();
-      const openId=editor && !openingNote && !pending && saved===revision && !policyWrite &&
+      const openId=editor && !openingNote && !pending && saved===revision && !policyWrite && !notePrivacyChange &&
         !spaceOperation && !lockScreen ? noteSession?.note.id : null;
       const previous=session.incoming;
       if(!force && previous?.token===update.token && previous.revision===revision &&
           (!openId || previous.conflict || previous.openId===openId))return;
-      if(!update.remote){
-        update=await native.PollFolderSpace(session.folder,false);
+      if(!update.remote && !update.prepared){
+        update=await checkFolderUpdate(session);
         continue;
       }
-      const merged=compareIncoming(session,update);
+      const merged=previewFolderUpdate(session,update);
       if(openId && preservesOpenNote(session,merged,openId)){
         graph.remaining=0;
-        editorMerge=commitIncoming(native,session,update,merged,openId);
+        editorMerge=update.prepared?commitPreparedMerge(native,session,update):commitIncoming(native,session,update,merged,openId);
         try{await editorMerge}finally{editorMerge=null;$('shell').inert=!!editor}
         session.incoming=null;session.deferred=null;
-        library.spaces[library.active]=session.link;dirty();render();branchSaved(session);
+        library.spaces[library.active]=session.link;dirty({catalogOnly:true});render();branchSaved(session);
       }else session.incoming={token:update.token,conflict:merged.conflicts.length>0,revision,openId};
       return;
     }
     cancelTransfers();graph.flushPositions();graph.remaining=0;
     reviewing=true;$('shell').inert=true;syncBadge();
     try{
+      const previewHead=session.head;
       await flush();
       if(lockScreen || closingApp || spaceOperation)return;
-      update=await native.PollFolderSpace(session.folder,true);
+      if(!update.prepared || previewHead!==session.head)update=await checkFolderUpdate(session,'',true);
       if(!update.token){session.incoming=null;return}
-      let merged=compareIncoming(session,update);
+      let merged=previewFolderUpdate(session,update),choices;
       session.incoming={token:update.token,conflict:merged.conflicts.length>0};
       if(merged.conflicts.length){
         syncIdle();
         session.choiceToken=update.token;
-        let choices;
         try{
-          choices=await openWorkspaceConflicts({spaceName:session.data.name,conflicts:merged.conflicts,
+          choices=await openWorkspaceConflicts({spaceName:session.link.name,conflicts:merged.conflicts,
             previewSealed:(id,sealed,password)=>native.PreviewSealedNote(id,sealed,password)});
         }finally{session.choiceToken=null}
         if(!choices){session.deferred=session.superseded===update.token?null:update.token;session.superseded=null;return}
-        merged=compareIncoming(session,update,choices);
+        if(!update.prepared)merged=compareIncoming(session,update,choices);
       }
       if(lockScreen || closingApp || spaceOperation || session!==folderSession)return;
-      await commitIncoming(native,session,update,merged);
+      if(update.prepared)await commitPreparedMerge(native,session,update,choices);
+      else await commitIncoming(native,session,update,merged);
       branchSaved(session);
       library.spaces[library.active]=session.link;
       session.incoming=null;session.deferred=null;session.nextExchange=0;session.syncError='';
       routes.reset();reading.hide();closeMenu();
       if(selected && !byId(selected))selected=null;
       if(currentArea && !areaById(currentArea)){page='map';currentArea=null}
-      $('toast').hidden=true;render();dirty();
+      $('toast').hidden=true;render();dirty({catalogOnly:true});
       queueSync(250);
     }finally{reviewing=false;$('shell').inert=!!editor;syncIdle()}
   })().catch(error=>{
@@ -1110,9 +1152,9 @@ async function serverSettings(){
         const next={...library,spaces:{...library.spaces,[id]:link}};
         const snapshot=serializeLibrary(next);
         const moved=await native.MoveFolderSpace(session.folder,link.folder,snapshot);
-        catalogSnapshot=snapshot;
+        acknowledgeCatalog(snapshot,next);
         clearServerStatus(session);
-        session={folder:link.folder,link,encrypted:link.encrypted,raw:session.raw,data:session.data};
+        session={folder:link.folder,link,encrypted:link.encrypted,raw:session.raw,data:session.data,records:session.records,head:session.head};
         showSpace(next,session);
         await linked(session);
         if(moved.keptSource)notify(tr('Перенос завершён. Часть файлов осталась в прежней папке.','Move complete. Some files remain in the previous folder.'));
@@ -1200,7 +1242,7 @@ async function openRecord(record,returnToResults,searchTarget){
   let session,openEditor;
   try{
     if(lockScreen || closingApp)return;
-    session=await openNoteSession({record,bridge:native,dirty,persist:flush,hasPlainHistory:!!folderSession && !folderSession.encrypted,onPrivacyChange:()=>{
+    session=await openNoteSession({record,bridge:native,dirty:()=>dirty({notes:[record]}),persist:flush,hasPlainHistory:!!folderSession && !folderSession.encrypted,onPrivacyChange:()=>{
       // Fragment keys can include a fingerprint of the selected paragraph.
       // Strip them before the first encrypted write, including on save retry.
       if(isProtectedNote(record)){
@@ -1211,6 +1253,7 @@ async function openRecord(record,returnToResults,searchTarget){
         for(const [stop,key] of hiddenRouteFragments)stop.fragment=key;
         hiddenRouteFragments.clear();
       }
+      dirty({meta:true});
       $('list-stage').replaceChildren();$('toast').hidden=true;render();syncIdle();
     },onError:reportWriteError});
   }catch(error){notify(storageErrorMessage(error));return}
@@ -1225,16 +1268,26 @@ async function openRecord(record,returnToResults,searchTarget){
   if(closingApp){if(await session.beforeClose())noteSession=null;return}
   if(lockScreen && (projectProtected||folderSession?.encrypted||session.protected))return;
   syncIdle();
-  chooseTool('select');selected=id;graph.select(id);record.opens=(record.opens||0)+1;dirty();
+  chooseTool('select');selected=id;graph.select(id);record.opens=(record.opens||0)+1;dirty({notes:[record]});
   const backLabels={map:tr('К карте','Back to map'),list:tr('К списку','Back to list'),pinned:tr('К закреплённым','Back to pinned'),area:tr('К области','Back to area')};
   editor=openEditor({note:session.note,notes:workspace().notes,areas:workspace().areas,
     textAreaDefaults:{style:library.view?.textAreaStyle,save(style){
-      library.view={...library.view,textAreaStyle:style};dirty()
+      library.view={...library.view,textAreaStyle:style};dirty({settings:['view']})
     }},
     backLabel:returnToResults?tr('К результатам','Back to results'):backLabels[page],
     onReturn:returnToResults,onSearch:()=>search(),
     onChange:session.changed,beforeClose:session.beforeClose,
-    manageProtection:native?session.manageProtection:null,isProtected:()=>session.protected,
+    manageProtection:native?()=>{
+      if(notePrivacyChange)return notePrivacyChange;
+      // A concurrent merge may introduce new route stops. Finish applying
+      // them before sealing the note and clearing its private passage references.
+      notePrivacyChange=(async()=>{
+        if(editorMerge)await editorMerge;
+        if(noteSession!==session || lockScreen || closingApp)return false;
+        return session.manageProtection();
+      })().finally(()=>{notePrivacyChange=null});
+      return notePrivacyChange;
+    }:null,isProtected:()=>session.protected,
     onClose:()=>{
       editor=null;noteSession=null;$('shell').inert=!!editorMerge;syncIdle();
       if(lockScreen)return;
@@ -1258,10 +1311,13 @@ function addNote(pos=graph.worldCenter(),type='text',seat=null){
   if(!library.active)return;
   const space=workspace(),n=createNote(pos.x,pos.y,null,type);
   space.notes.push(n);
-  if((seat || page==='area')&&!placeAreaNotes(space,[n.id],seat?.areaId??currentArea,seat?.slot??null).ok){
+  const placement=(seat || page==='area')?placeAreaNotes(space,[n.id],seat?.areaId??currentArea,seat?.slot??null):null;
+  if(placement && !placement.ok){
     space.notes.pop();notify(areaById(seat?.areaId??currentArea)?.grid?.stages?tr('Этап заполнен. Перенесите заметку дальше или добавьте мест на этапе.','This stage is full. Advance a note or add seats per stage.'):tr('Все места заняты. Увеличьте сетку или освободите ячейку.','All slots are occupied. Enlarge the grid or free a slot.'));return;
   }
-  selected=n.id;dirty();render();edit(n.id);
+  const changed=[n];
+  for(const {id} of placement?.after??[])if(id!==n.id)changed.push(byId(id));
+  selected=n.id;dirty({notes:changed});render();edit(n.id);
 }
 function noteTypeItems(pos,seat=null){
   return [
@@ -1294,7 +1350,7 @@ function linkClick(id){
   if(linkSource===id)return;
   const a=byId(linkSource),b=byId(id);if(!a||!b)return;
   if(a.links.includes(id)||b.links.includes(a.id))notify(tr('Заметки уже связаны вручную.','These notes already have a manual link.'));
-  else{a.links.push(id);a.modified=Date.now();dirty();notify(tr('Связь добавлена','Link added'))}
+  else{a.links.push(id);a.modified=Date.now();dirty({notes:[a]});notify(tr('Связь добавлена','Link added'))}
   chooseTool('select');render();
 }
 function pinLabel(n){
@@ -1306,11 +1362,11 @@ function pin(n){
     const parent=path.slice(0,-1).reverse().find(area=>!area.grid);
     placeNotes([n.id],parent?.id??null);return;
   }
-  n.pinned=!n.pinned;dirty();render();
+  n.pinned=!n.pinned;dirty({notes:[n]});render();
 }
 function appearance(n){
   openAppearance({note:n,areaColor:areaById(n.areaId)?.color,onChange:value=>{
-    n.appearance=value;dirty();render();
+    n.appearance=value;dirty({notes:[n]});render();
   }});
 }
 function undoButton(){
@@ -1379,7 +1435,7 @@ function metricAction(target,kind,anchor){
     popover=openMetricPicker({target,kind,space,anchor,onClose:closeMenu,onChange:binding=>{
       if(workspace()!==space || lockScreen || isProtectedNote(target))return;
       if(binding)target.mapMetric=binding;else delete target.mapMetric;
-      dirty();render();
+      dirty(kind==='area'?{areas:[target]}:{notes:[target]});render();
     }});
   }};
 }
@@ -1387,7 +1443,7 @@ const stageMapActive=()=>ready && showingMap() && !editor && !openingNote && !lo
 function insertMapStage(id,index,name){
   if(!stageMapActive())return false;
   if(!insertStageWithHistory(workspace(),id,index,name).ok)return false;
-  dirty();render();
+  dirty(gridRecords(id));render();
   notify(tr('Добавлен этап «'+name+'»','Added stage “'+name+'”'),undoButton());
   return true;
 }
@@ -1405,8 +1461,9 @@ function stageContext(id,index,anchor){
       popover=openStageRemoval({space,area,index,anchor,onClose:closeMenu,onRemove:destination=>{
         if(!current())return false;
         graph.flushPositions();
+        const affected=gridRecords(id); // Includes notes released to the map by this deletion.
         if(!deleteStageWithHistory(space,id,index,destination).ok)return false;
-        dirty();render();
+        dirty(affected);render();
         notify(tr('Удалён этап «'+stages[index]+'»','Deleted stage “'+stages[index]+'”'),undoButton());
         return true;
       }});
@@ -1730,7 +1787,7 @@ function bindUI(){
     stageControls?.reset();
     const persisted=setLanguage(e.target.value);
     translateStatic();closeMenu();$('toast').hidden=true;
-    if(translateDemoSamples(library.spaces.demo))dirty();
+    if(translateDemoSamples(library.spaces.demo))dirty({spaceId:'demo',all:true});
     status();updateSidebarToggle();renderLinkHint();render();
     if(!persisted)notify(tr('Выбор языка действует до закрытия окна.','Your language choice will last until this window closes.'));
   };
@@ -1750,11 +1807,11 @@ function bindUI(){
   $('view').onclick=e=>{
     if(page==='area'){areaActions(areaById(currentArea),e.currentTarget);return}
     menu(e.currentTarget,[['labels','text',tr('Названия заметок','Note titles')],['links','link',tr('Линии связей','Link lines')],['grid','grid',tr('Точечная сетка','Dot grid')],['reading','zoomIn',tr('Читать приближением','Read as you zoom')]].map(([key,symbol,name])=>({
-      name,icon:symbol,checked:graph.view[key],run:()=>{library.view[key]=!graph.view[key];graph.setView(library.view);dirty()}
+      name,icon:symbol,checked:graph.view[key],run:()=>{library.view[key]=!graph.view[key];graph.setView(library.view);dirty({settings:['view']})}
     })));
   };
   $('help').onclick=showHelp;$('search').onclick=()=>search();$('settings').onclick=settings;
-  $('extensions').onclick=()=>openExtensions({workspace:workspace(),plugins:library.plugins,onSavePlugins:items=>{library.plugins=items;dirty()},onOpenNote:edit,notify});
+  $('extensions').onclick=()=>openExtensions({workspace:workspace(),plugins:library.plugins,onSavePlugins:items=>{library.plugins=items;dirty({settings:['plugins']})},onOpenNote:edit,notify});
   document.addEventListener('keydown',e=>{
     if(!ready||!library.active||spaceOperation||e.isComposing||e.altKey||!(e.ctrlKey||e.metaKey)||!e.shiftKey||e.code!=='KeyF')return;
     if(document.querySelector('.shade,dialog[open],[role="dialog"]:not(.vd-editor)'))return;
@@ -1799,26 +1856,32 @@ function bindUI(){
 }
 async function loadDesktopLibrary(){
   let resume='';
+  let loaded;
   for(;;){
     if(lockDuringStartup){
       lockDuringStartup=false;
       if(await native.IsProjectProtected())await native.LockProject();
     }
     try{
-      library=readLibrary(await native.Load());
+      loaded=await native.Load();library=readLibrary(loaded);
       projectProtected=await native.IsProjectProtected();
     }catch(error){
       if(String(error?.message||error).split('|')[0]!=='VD_LOCKED')throw error;
       if(lockDuringStartup)continue;
       projectProtected=true;
       const opened=await showVaultUnlock({onUnlock:async password=>{
-        library=readLibrary(await native.UnlockProject(password));
+        loaded=await native.UnlockProject(password);library=readLibrary(loaded);
       }});
       if(!opened || lockDuringStartup){lockDuringStartup=true;continue}
     }
     resume=(await native.TakeResumeNote())||resume;
     if(lockDuringStartup)continue;
-    catalogSnapshot=serializeLibrary(library);
+    if(native.SaveCatalogPatch && native.CatalogRevision){
+      catalogRevision=await native.CatalogRevision();
+      catalogRecords=new CatalogRecords(loaded?JSON.parse(loaded):library,library);
+      catalogRecords.markAll(); // Persist migrations applied by readLibrary before accepting later record edits.
+      loaded=null;
+    }else catalogSnapshot=serializeLibrary(library);
     const entry=library.spaces[library.active];
     if(isFolderSpace(entry)){
       let notice='';
@@ -1891,8 +1954,8 @@ async function init(){
   });
   const stage=$('map-stage');
   reading=mountMapReading({stage,getNote:byId,getMetric:id=>mapMetrics?.notes.get(id),isActive:()=>ready && showingMap() && !lockScreen && !editor && !openingNote && !routes?.isEditing(),
-    onChange:dirty,onOpen:(id,target)=>edit(id,null,target)});
-  routes=mountMapRoutes({stage,getSpace:workspace,getFragments:readingFragments,onChange:dirty,
+    onChange:note=>dirty({notes:[note]}),onOpen:(id,target)=>edit(id,null,target)});
+  routes=mountMapRoutes({stage,getSpace:workspace,getFragments:readingFragments,onChange:()=>dirty({meta:true}),
     onVisit:(id,fragment)=>{
       const node=graph.nodes.get(id);if(!node)return;
       routeCamera??={...graph.camera};
@@ -1916,7 +1979,7 @@ async function init(){
       if(!ready || editor || openingNote || lockScreen || !showingMap())return false;
       if(!reorderStageWithHistory(workspace(),id,from,to))return false;
       const names=areaById(id).grid.stages;
-      dirty();render();
+      dirty(gridRecords(id));render();
       notify(tr('«'+names[to]+'» · этап '+(to+1)+' из '+names.length,
         '“'+names[to]+'” · stage '+(to+1)+' of '+names.length),undoButton());
       return true;
@@ -1934,7 +1997,7 @@ async function init(){
       const space=workspace(),change=releaseGridNotes(space,positions);
       if(!change.ok || !change.after.length)return;
       rememberMapAction(space,{kind:'placement',before:change.before,after:change.after});
-      dirty();
+      dirty({notes:change.after.map(p=>byId(p.id))});
       if(showingMap())renderMapPlacement(change.after);else render();
       notify(tr('Перенесено на карту','Moved onto the map'),undoButton());
     },
@@ -1947,24 +2010,28 @@ async function init(){
     onGridSpacing:(id,spacing)=>{
       const grid=areaById(id)?.grid;
       if(!grid||!resizeGridWithHistory(workspace(),id,grid.rows,grid.cols,spacing))return false;
-      dirty();render();notify(grid.stages?tr('Шаг дорожки изменён','Stage spacing updated'):tr('Размер сетки изменён','Grid resized'),undoButton());return true;
+      dirty(gridRecords(id));render();notify(grid.stages?tr('Шаг дорожки изменён','Stage spacing updated'):tr('Размер сетки изменён','Grid resized'),undoButton());return true;
     },
     onGridMove:(id,x,y)=>{
       const g=areaById(id)?.grid;
       if(!g)return false;
       const before={x:g.x,y:g.y};
       if(!moveAreaGrid(workspace(),id,x,y))return false;
-      rememberMapAction(workspace(),{kind:'grid',id,before});dirty();render();
+      rememberMapAction(workspace(),{kind:'grid',id,before});dirty(gridRecords(id));render();
       notify(g.stages?tr('Дорожка перемещена','Stage track moved'):tr('Сетка перемещена','Grid moved'),undoButton());return true;
     },
     onMove:changes=>{
-      const changesById=new Map(changes.map(p=>[p.id,p]));
-      for(const n of workspace().notes){const p=changesById.get(n.id);if(p){n.x=p.x;n.y=p.y}}
-      if(changes.length)dirty();
+      const moved=[];
+      for(const p of changes){
+        const n=byId(p.id);
+        if(n){n.x=p.x;n.y=p.y;moved.push(n)}
+      }
+      if(moved.length)dirty({notes:moved});
     },onZoom:scale=>$('actual-size').textContent=Math.round(scale*100)+'%'});
   ready=true;bindUI();render();status();syncIdle();
   queueSync(200);
-  if(demoChanged || catalogSnapshot!==serializeLibrary(library))dirty();
+  if(catalogRecords)dirty({catalogOnly:true});
+  else if(demoChanged || catalogSnapshot!==serializeLibrary(library))dirty();
   if(startupNotice)notify(startupNotice);
   if(workspace().notes.length||workspace().areas.length)graph.fit({readable:true});
   if(resume && byId(resume))await edit(resume);

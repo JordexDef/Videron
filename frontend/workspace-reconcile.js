@@ -12,8 +12,53 @@ export function compareIncoming(session,incoming,choices){
 }
 export function preservesOpenNote(session,merged,id){
   if(merged.conflicts.length)return false;
+  if(merged.prepared)return !(merged.changedNotes||[]).includes(id);
   const open=session.data.notes.find(n=>n.id===id);
   return !!open && sameWorkspaceValue(open,merged.data.notes.find(n=>n.id===id));
+}
+
+// Keep the arrays captured by an open editor. Unchanged records retain their
+// identity, including any text typed after Go prepared the merge.
+function applyList(rows,changes){
+  const changed=new Map((changes.upsert||[]).map(row=>[row.id,row]));
+  if(changes.order){
+    const byId=new Map(rows.map(row=>[row.id,row]));
+    for(const [id,row] of changed)byId.set(id,row);
+    rows.length=0;
+    for(const id of changes.order)rows.push(byId.get(id));
+    return;
+  }
+  const removed=new Set(changes.remove||[]);
+  let count=0;
+  for(const row of rows){
+    if(removed.has(row.id))continue;
+    rows[count++]=changed.get(row.id)??row;
+    changed.delete(row.id);
+  }
+  rows.length=count;
+  for(const row of changed.values())rows.push(row);
+}
+
+export async function commitPreparedMerge(bridge,session,proposal,choices={}){
+  const commit=()=>bridge.CommitFolderMergeChoices(session.folder,proposal.token,choices);
+  let delta;
+  try{delta=await commit()}
+  catch(error){
+    if(String(error?.message||error).startsWith('VD_'))throw error;
+    // A transport failure can arrive after Go durably accepted the choices.
+    delta=await commit();
+  }
+  for(const key of delta.unset||[])delete session.data[key];
+  for(const [key,value] of Object.entries(delta.set||{})){
+    Object.defineProperty(session.data,key,{value,enumerable:true,writable:true,configurable:true});
+  }
+  for(const [key,changes] of Object.entries(delta.lists||{})){
+    if(!Object.hasOwn(session.data,key))session.data[key]=[];
+    applyList(session.data[key],changes);
+  }
+  session.records.acceptMerge(delta);
+  session.head=delta.head;
+  session.link.name=session.connection?.projectName||session.data.name;
 }
 export async function commitIncoming(bridge,session,incoming,merged,openId){
   if(merged.conflicts.length)throw new Error('VD_UNRESOLVED');
