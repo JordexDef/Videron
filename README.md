@@ -1,51 +1,51 @@
 # Videron
 
-*Local-first desktop notes on a spatial map, with an optional self-hosted sync server.*
+**English** · [Русский](README.ru.md)
 
-В Videron у каждой заметки есть место на карте. Размер круга показывает объём записи, а мягкое свечение — как часто вы её открываете. Общий тег связывает заметки. Приблизьте карту, чтобы прочитать фрагмент, или соберите несколько записей в маршрут и пройдите их по порядку.
+Videron is a local-first desktop app for keeping notes on a map. The size of each circle reflects how much it holds, and its glow shows how often you open it. Give two notes the same tag to link them. Zoom in to read a preview, or save a route through several notes to revisit them in order.
 
-![Демонстрационная карта Videron с заметками, связями и областями](docs/media/videron-map.png)
+![Videron's demo map with linked notes grouped into three areas and a note tree in the sidebar](docs/media/videron-map.png)
 
-[Скачать для Windows](https://github.com/JordexDef/Videron/releases/download/v0.47.0/Videron-0.47.exe) · [Собрать на Mac](#сборка-приложения) · [Все сборки](https://github.com/JordexDef/Videron/releases)
+[Download for Windows](https://github.com/JordexDef/Videron/releases/download/v0.47.0/Videron-0.47.exe) · [Build for macOS](#build-the-desktop-app) · [All releases](https://github.com/JordexDef/Videron/releases)
 
-## Что можно делать
+## Working with notes
 
-- **Собирать карту.** Перетаскивайте заметки в области, закрепляйте их на сетке или перемещайте между этапами работы. Вложенные области также видны как папки в боковой панели.
-- **Писать и рисовать.** В текстовую заметку можно вставить рисунок, картинку, код или таблицу с формулами. Заметка-холст позволяет свободно расположить те же материалы рядом.
-- **Работать с данными.** Открывайте JSON, CSV и TSV в редакторе данных. Для CSV и TSV можно переключиться на таблицу, отсортировать строки по столбцу и удалить дубликаты по выбранным полям.
-- **Хранить заметки у себя.** Приложение работает офлайн. Можно защитить паролем одну заметку или пространство целиком, а для работы на нескольких компьютерах подключить собственный Videron Sync.
+- **Arrange your map.** Drag notes into nested areas, pin them to a grid, or move them between stages of a project. The sidebar shows the same areas as a folder tree.
+- **Write and draw.** Embed a sketch, image, code block, or table with formulas in a text note. Use a canvas note when you want to arrange those elements freely.
+- **Work with data.** Open JSON, CSV, or TSV in a data note. For CSV and TSV, switch to the table view to sort by a column or remove duplicates using the fields you choose.
+- **Keep your notes offline.** Protect an individual note or an entire space with a password. To use the same projects on multiple computers, connect them to your own Videron Sync server.
 
-Чтобы попробовать карту после запуска, нажмите **Посмотреть пример**. Демонстрационная карта откроется в отдельном пространстве. Интерфейс доступен на русском и английском.
+On first launch, choose **English** from the language selector at the bottom of the sidebar. Select **Explore the demo** to open the example map in its own space.
 
-## Сборка приложения
+## Build the desktop app
 
-Понадобится Go 1.26.11 или новее. В Windows для запуска нужен Microsoft Edge WebView2 Runtime. На Mac установите Xcode Command Line Tools командой `xcode-select --install`, если их ещё нет.
+Install Go 1.26.11 or later. Windows needs the Microsoft Edge WebView2 Runtime. On macOS, install the Xcode Command Line Tools with `xcode-select --install` if you don't already have them.
 
-В каталоге с `go.mod` выполните команду сборки для своей ОС. Go загрузит Wails и зависимости при первом запуске. Интерфейс, шрифты и иконки уже входят в исходники.
+Run the following command from the directory containing `go.mod`. Go downloads Wails and its dependencies on the first build. The frontend, fonts, and icons are included in the repository.
 
 ```sh
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -s -skipbindings -trimpath
 ```
 
-| Система | Запуск после сборки |
+| System | Launch the app |
 | --- | --- |
 | Windows · PowerShell | `.\build\bin\Videron.exe` |
 | macOS · Terminal | `open build/bin/Videron.app` |
 
-Клиент 0.47 запускался в Windows. Сборка на macOS ещё требует проверки.
+Version 0.47 has been tested on Windows. The macOS build still needs verification.
 
-## Свой сервер
+## Run your own sync server
 
-Videron Sync — отдельное приложение для синхронизации проектов. Его можно развернуть на домашней машине или VPS. Сервер получает правки, пока компьютеры в сети. При следующем подключении клиент догружает недостающие версии, а при конфликте одной заметки предлагает сравнить обе.
+Videron Sync is a separate program that can run on a home server or a VPS. Connected devices receive updates as you work. When an offline device reconnects, it fetches the changes it missed. If two devices edited the same note, you can compare the versions and choose what to keep.
 
-Команда собирает сервер на Linux и кладёт его рядом с установщиком.
+To build the server on Linux, run this command from the repository root. It places the binary next to the installer.
 
 ```sh
 go build -trimpath -o deploy/linux/videron-sync ./cmd/videron-sync
 ```
 
-При первой установке Videron Sync предложит задать пароль для подключения клиентов. [Установка, подключение и резервные копии](docs/server-setup.md)
+The installer asks you to set a server password the first time you run it. [Server setup, backups, and updates](docs/server-setup.md)
 
-## Руководство
+## User guide
 
-Горячие клавиши, маршруты, формулы таблиц, шифрование и API расширений описаны в [руководстве Videron](docs/guide.ru.md).
+For keyboard shortcuts, map routes, table formulas, encryption, and the extension API, see the [Videron user guide](docs/guide.md).

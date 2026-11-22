@@ -1,96 +1,98 @@
-# Свой сервер Videron Sync
+# Host your own Videron Sync server
 
-Начиная с 0.46 один сервер хранит несколько проектов. У каждого проекта свои заметки и история. Все устройства с доступом к серверу видят общий каталог проектов. Названия сохраняются на сервере открытым текстом, в том числе у проектов с зашифрованным содержимым. Для чтения такого проекта нужен его отдельный пароль пространства.
+**English** · [Русский](server-setup.ru.md)
 
-## Установка на Linux
+Videron Sync 0.46 and later can host several projects on one server. Each project has its own notes and history. Anyone with server access can see the project list. The server stores project names in plain text even when their contents are encrypted. Opening an encrypted project requires its separate space password.
 
-Подойдёт VPS или домашняя виртуальная машина с Linux и systemd, например Debian или Ubuntu Server. Узнайте архитектуру командой `uname -m`. Для `x86_64` нужен архив **amd64**, для `aarch64` — **arm64**. Распакуйте архив на сервере и перейдите в каталог с файлами `install.sh` и `videron-sync`.
+## Install on Linux
 
-Запустите установщик с адресом, по которому компьютеры будут подключаться к серверу. Замените домен в примере своим доменом или публичным IP.
+Use a Linux VPS or a home virtual machine running systemd, such as Debian or Ubuntu Server. Run `uname -m` to check its architecture. Download the **amd64** archive for `x86_64` or **arm64** for `aarch64`. Extract the archive on the server and change to the directory containing `install.sh` and `videron-sync`.
+
+Pass the address your computers will use to reach the server. Replace the example domain with your own domain or public IP address.
 
 ```sh
 sudo ./install.sh sync.example.net
 ```
 
-При первой установке введите и подтвердите пароль сервера в терминале. Служба `videron-sync` запускается при загрузке Linux от отдельного пользователя и принимает соединения на **TCP 8743**. Передайте адрес и пароль владельцам устройств, которым нужен доступ к пространству. После проверки Videron запоминает удостоверение сервера и сохраняет учётные данные для дальнейшей синхронизации.
+On the first installation, enter and confirm a server password in the terminal. The `videron-sync` service starts at boot under a dedicated user account and listens on **TCP port 8743**. Give the address and password to the people who need access. After verification, Videron remembers the server identity and stores the credentials for subsequent syncs.
 
-**На VPS** укажите публичный IP или домен с DNS-записью на этот IP. Разрешите входящий **TCP 8743** в правилах облачного провайдера и в активном брандмауэре Linux. Если на сервере используется UFW, команда для него — `sudo ufw allow 8743/tcp`.
+**On a VPS**, use its public IP address or a domain that resolves to that address. Allow incoming traffic on **TCP port 8743** in both the provider's firewall and the active Linux firewall. For UFW, run `sudo ufw allow 8743/tcp`.
 
-## Что увидит посетитель в браузере
+## Choose what a browser displays
 
-В Videron Sync 0.36 по умолчанию при открытии `/` показывается интерактивная заставка. Чтобы браузер получал обычный ответ **404**, выберите режим `off` при установке. Синхронизация Videron работает в обоих режимах.
+Since Videron Sync 0.36, visitors to `/` see an interactive landing page by default. To return **404** instead, select `off` during installation. Videron can sync in either mode.
 
 ```sh
 sudo ./install.sh --landing=off sync.example.net
 ```
 
-На установленном сервере достаточно выполнить `sudo ./install.sh --landing=off` из распакованного архива. Для возврата заставки используйте `sudo ./install.sh --landing=interactive`. Установщик перезапускает службу и сохраняет выбор при следующих обновлениях.
+To change an existing installation, run `sudo ./install.sh --landing=off` from the extracted archive. To restore the landing page, run `sudo ./install.sh --landing=interactive`. The installer restarts the service and remembers the setting for future upgrades.
 
-Без архива режим можно задать через `sudo systemctl edit videron-sync`. В секции `[Service]` укажите `Environment=VIDERON_LANDING=off` или `Environment=VIDERON_LANDING=interactive`, затем выполните `sudo systemctl restart videron-sync`. Такая настройка имеет приоритет над выбором установщика. При ручном запуске используйте переменную окружения `VIDERON_LANDING` или флаг `-landing=off` / `-landing=interactive`. Флаг имеет приоритет над переменной.
+You can also configure this through `sudo systemctl edit videron-sync`. Under `[Service]`, add `Environment=VIDERON_LANDING=off` or `Environment=VIDERON_LANDING=interactive`, then run `sudo systemctl restart videron-sync`. This setting overrides the installer's choice. When running the server manually, use the `VIDERON_LANDING` environment variable or the `-landing=off` or `-landing=interactive` flag. The flag takes precedence over the variable.
 
-## Дома за OpenWrt
+## Connect from home through OpenWrt
 
-1. Подключите сетевой адаптер виртуальной машины к домашней сети через сетевой мост. В OpenWrt откройте **Network → DHCP and DNS → Static Leases** и закрепите за MAC-адресом машины свободный LAN-адрес, например `192.168.1.50`. Обновите DHCP-аренду и проверьте адрес внутри Linux командой `ip -br address`.
-2. Для доступа извне нужен достижимый публичный адрес. Если внешний IPv4 меняется, установите в OpenWrt пакет `luci-app-ddns`, выберите своего провайдера в **Services → Dynamic DNS**, задайте домен и учётные данные, затем включите обновление записи **A**. В установщике Videron Sync укажите это доменное имя. При постоянном публичном IPv4 можно указать сам адрес. [Настройка DDNS в OpenWrt](https://openwrt.org/docs/guide-user/services/ddns/client)
-3. В **Network → Firewall → Port Forwards** добавьте одно правило. Укажите протокол **TCP**, внешнюю зону **wan** и внешний порт **8743**. Для назначения выберите зону **lan**, IP виртуальной машины **192.168.1.50** и внутренний порт **8743**. Подставьте свой LAN-адрес, нажмите **Save & Apply** и разрешите тот же порт в брандмауэре виртуальной машины. [Переадресация портов в OpenWrt](https://openwrt.org/docs/guide-user/firewall/firewall_configuration)
-4. Проверьте доступ из другой сети. Например, раздайте мобильный интернет с телефона на ноутбук. В Videron откройте **Свой сервер…**, введите домен и пароль сервера и нажмите **Проверить подключение**.
+1. Bridge the VM's network adapter to your home network. In OpenWrt, open **Network → DHCP and DNS → Static Leases** and assign an unused LAN address, such as `192.168.1.50`, to the VM's MAC address. Renew the DHCP lease and run `ip -br address` inside the VM to verify the address.
+2. For direct inbound connections, you need a reachable public address. For a changing public IPv4 address, install the `luci-app-ddns` package in OpenWrt. Under **Services → Dynamic DNS**, choose your provider, enter your domain and credentials, and enable updates for the **A** record. Give the installer that domain name. For a static public IPv4 address, you can enter the IP address directly. [OpenWrt DDNS guide](https://openwrt.org/docs/guide-user/services/ddns/client)
+3. Under **Network → Firewall → Port Forwards**, add a **TCP** rule from external zone **wan**, port **8743**, to zone **lan**, the VM's LAN address (for example, **192.168.1.50**), and port **8743**. Select **Save & Apply** and allow the same port in the VM's firewall. [OpenWrt firewall configuration](https://openwrt.org/docs/guide-user/firewall/firewall_configuration)
+4. Test from a different network, for example by connecting a laptop to a mobile hotspot. In Videron, open **Your server…**, enter the domain and server password, and select **Check connection**.
 
-Если проверка извне не проходит, сравните IPv4 на интерфейсе WAN в OpenWrt с публичным IPv4 подключения. Адрес WAN из диапазона `100.64.0.0/10` часто означает CGNAT. Частный адрес также может выдаваться ещё одним домашним роутером. При двух своих роутерах потребуется проброс на каждом либо режим моста на первом. При CGNAT попросите у провайдера публичный адрес или разместите службу на VPS. DDNS обновляет DNS-запись, а возможность входящего подключения определяет сеть провайдера. [Диапазон адресов CGNAT, RFC 6598](https://www.rfc-editor.org/rfc/rfc6598)
+If that check fails, compare OpenWrt's WAN IPv4 address with the connection's public IPv4 address. A WAN address in `100.64.0.0/10` often indicates carrier-grade NAT (CGNAT). Another home router may also assign a private address to OpenWrt. If you control both routers, forward the port on both or put the upstream router into bridge mode. With ISP-managed CGNAT, request a public address from the provider, host the service on a VPS, or use the tunnel setup below. DDNS keeps the DNS record current. Your provider's network determines whether inbound connections can reach your router. [Shared address space for CGNAT, RFC 6598](https://www.rfc-editor.org/rfc/rfc6598)
 
-## Дома через Cloudflare Tunnel
+## Connect from home through Cloudflare Tunnel
 
-Этот способ подходит, когда провайдер выдаёт частный IP. На компьютере с Videron Sync запустите коннектор `cloudflared`. Добавьте к туннелю публичное имя, например `sync.example.net`, с типом службы **TCP** и назначением `tcp://127.0.0.1:8743`. Если коннектор работает на другой машине, укажите LAN-адрес сервера и разрешите доступ с коннектора. Для локально управляемого туннеля создайте маршрут DNS командой `cloudflared tunnel route dns ИМЯ_ТУННЕЛЯ sync.example.net`. [Настройка локального туннеля](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/create-local-tunnel/)
+A tunnel works with a private address from your ISP. Run the `cloudflared` connector on the Videron Sync host. Add a public hostname such as `sync.example.net` to the tunnel, choose **TCP**, and point it to `tcp://127.0.0.1:8743`. If the connector runs on another computer, enter the server's LAN address and allow connections from the connector. For a locally managed tunnel, create the DNS route with `cloudflared tunnel route dns TUNNEL_NAME sync.example.net`. [Create a locally managed tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/create-local-tunnel/)
 
-На клиентских компьютерах достаточно Videron. Введите публичное имя и пароль сервера. Videron подключится к туннелю по HTTPS/WebSocket на порту 443 и внутри него проверит сертификат Videron Sync. Этот режим рассчитан на маршрут TCP с паролем Videron. Интерактивный вход Cloudflare Access перед туннелем потребует отдельного клиента. [Типы служб Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/protocols/)
+On each client computer, open Videron and enter the public hostname and server password. Videron reaches the tunnel over HTTPS/WebSocket on port 443 and verifies the Videron Sync certificate inside the connection. This mode supports a TCP route protected by the Videron password. An interactive Cloudflare Access login in front of the tunnel requires a separate client. [Cloudflare Tunnel service types](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/protocols/)
 
-### Открытие адреса туннеля в браузере
+### Use the same hostname in a browser
 
-Чтобы Videron Sync отвечал браузеру по тому же адресу, который использует приложение, направьте туннель на локальную HTTP-службу. Для этого запустите `cloudflared` на машине с Videron Sync и командой `sudo systemctl edit videron-sync` добавьте настройку локального HTTP-порта. Она нужна для обоих режимов заставки.
+To serve web traffic and Videron clients from the same address, point the tunnel to the local HTTP listener. Run `cloudflared` on the Videron Sync host, then use `sudo systemctl edit videron-sync` to add the following listener setting. Both landing page modes use it.
 
 ```ini
 [Service]
 Environment=VIDERON_WEB_LISTEN=127.0.0.1:8744
 ```
 
-Выполните `sudo systemctl restart videron-sync` и проверьте ответ командой `curl -I http://127.0.0.1:8744/`. В режиме `interactive` ожидается **200**, в режиме `off` — **404**. При ручном запуске тот же порт задаётся флагом `-web-listen=127.0.0.1:8744`.
+Run `sudo systemctl restart videron-sync`, then check the response with `curl -I http://127.0.0.1:8744/`. Expect **200** in `interactive` mode and **404** in `off` mode. When launching manually, set the same address with `-web-listen=127.0.0.1:8744`.
 
-В настройках туннеля для домена синхронизации выберите службу **HTTP** и назначение `http://127.0.0.1:8744`. Если туннель управляется локально, измените поле `service` для этого домена в YAML и перезапустите коннектор. Порт 8744 слушает только локальные подключения. Videron устанавливает WebSocket по тому же публичному адресу и проверяет сертификат своего сервера внутри соединения.
+For the sync hostname, choose the **HTTP** service and set the destination to `http://127.0.0.1:8744`. For a locally managed tunnel, update the hostname's `service` field in the YAML configuration and restart the connector. Port 8744 listens on the loopback interface. Videron opens a WebSocket to the same public hostname and verifies the server certificate inside it.
 
-## Подключение двух компьютеров
+## Connect two computers
 
-1. На первом компьютере откройте пространство с нужными заметками. Нажмите на статус внизу боковой панели и откройте подключение к серверу. Введите адрес и пароль сервера. Для нестандартного порта укажите `имя:порт`. Videron запомнит проверенный адрес. Выберите проект или создайте новый. На сервере, обновлённом с 0.45, прежнее пространство доступно как основной проект.
-2. На втором компьютере выберите тот же проект и откройте его с сервера. Videron сам разместит рабочую копию в каталоге данных приложения или предложит использовать существующую. При желании укажите свою папку. Для зашифрованного проекта введите пароль пространства.
-3. Измените на двух компьютерах разные заметки. После обмена обе правки появятся в пространстве. Если программы предлагают выбрать версию, сравните их и нажмите **Применить выбор**. Запустить обмен вручную можно через **Свой сервер… → Синхронизировать**.
+1. On the first computer, open the space containing your notes. Click the connection status at the bottom of the sidebar and open the server connection settings. Enter the server address and password. Use `hostname:port` for a custom port. Videron remembers the verified address. Select an existing project or create one. After upgrading a server from 0.45, its original space appears as **Main project**.
+2. On the second computer, select the same project and open it from the server. Videron creates a working copy in the app's data directory or offers to open an existing copy. You can also choose your own folder. For an encrypted project, enter the space password.
+3. Edit a different note on each computer. After syncing, both changes appear in the space. If Videron asks you to resolve a conflict, compare the versions and select **Apply choices**. To sync manually, use **Your server… → Sync now**.
 
-Для подключённого пространства внизу боковой панели видны имя сервера и текущее состояние. Зелёная точка появляется при успешном соединении и исчезает при обрыве связи. Нажмите на статус, чтобы посмотреть тип подключения, путь к рабочей папке и время последней успешной синхронизации. При обрыве связи здесь же можно повторить подключение.
+The bottom of the sidebar shows the server name and connection status for the current space. The dot turns green when connected and loses its green color if the connection drops. Click the status to see the connection type, working folder, and time of the last successful sync. You can retry a failed connection here.
 
-Чтобы сменить расположение, откройте **Свой сервер → Проекты и папка…**. При выборе новой пустой папки можно перенести текущую рабочую копию вместе с историей и привязкой к серверу. Для другого набора заметок выберите создание нового проекта и задайте имя. Исходный проект останется доступен в каталоге.
+To move the working copy, open **Your server → Projects and folder…** and select a new empty folder. You can move the current working copy with its history and server connection. To start a separate collection of notes, create a new project and give it a name. The original project stays in the server's project list.
 
-## Обновление и обслуживание
+## Maintain the server
 
-### Переименование и удаление проекта
+### Rename or remove a project
 
-В клиенте и на сервере версии 0.47 и новее откройте **Свой сервер → Проекты и папка…**. Выберите проект и нажмите **Переименовать**. Новое имя появится на подключённых компьютерах при очередном обмене. Путь к рабочей папке и пароль зашифрованного пространства сохраняются.
+With both client and server running version 0.47 or later, open **Your server → Projects and folder…**, select a project, and click **Rename**. Connected computers see the new name on their next sync. They keep their working folders and the password for an encrypted space.
 
-Действие **Удалить с сервера…** запрашивает подтверждение с названием проекта и удаляет его заметки и историю с сервера для всех пользователей. На компьютерах, которые успели скачать проект, остаются локальные копии. При следующем подключении синхронизация этих копий прекратится, а сделанные без сети правки сохранятся на соответствующем компьютере. Управлять проектами может любой пользователь с доступом к каталогу этого сервера.
+**Delete from server…** asks you to confirm the project by name. It removes the project's notes and history from the server for everyone. Computers that downloaded the project keep their local copies. On their next connection, those copies stop syncing and retain edits made offline. Anyone with access to the server's project list can manage its projects.
 
-Чтобы убрать пространство только с одного компьютера, в переключателе пространств выберите **Пространства на этом компьютере… → Убрать из списка**. По умолчанию файлы остаются в своей папке. Для активного пространства можно отдельно выбрать удаление рабочей копии с диска.
+To remove a space from one computer's list, open the space switcher and choose **Spaces on this computer… → Remove from list**. By default, the files stay in their folder. For the active space, you can also choose to delete its working copy from disk.
 
-### Установка обновлений и резервное копирование
+### Upgrade and back up
 
-Чтобы обновить сервер, распакуйте новый архив и снова выполните `sudo ./install.sh`. Установщик использует прежний публичный адрес, сохраняет ключ сервера и содержимое пространства в `/var/lib/videron-sync`. Для смены публичного адреса передайте новый домен или IP аргументом установщика.
+To upgrade, unpack the new archive and run `sudo ./install.sh` again. The installer keeps the existing public address, server key, and space data in `/var/lib/videron-sync`. To change the public address, pass the new domain or IP address to the installer.
 
-Проверить состояние службы и прочитать последние сообщения можно этими командами.
+These commands show the service status and its latest log messages.
 
 ```sh
 systemctl status videron-sync
 sudo journalctl -u videron-sync -n 30
 ```
 
-Для смены пароля запустите `sudo ./install.sh --change-password` из распакованного архива. Смена пароля отзывает доступ у ранее подключённых устройств, включая подключённые по коду. Подключите их повторно. При первом включении пароля на сервере старой версии его действующие подключения сохраняются. Для старого клиента можно вывести действующий код в приватном терминале.
+To change the server password, run `sudo ./install.sh --change-password` from the extracted archive. This revokes access for previously connected devices, including devices paired by code. Reconnect them with the new credentials. When you first enable a password on an older server, its existing connections retain access. For a legacy client, you can display the current pairing code in a private terminal.
 
 ```sh
 sudo /usr/local/bin/videron-sync -pair -public sync.example.net -data /var/lib/videron-sync
 ```
 
-Для резервной копии остановите службу через `sudo systemctl stop videron-sync`, скопируйте весь каталог `/var/lib/videron-sync` с сохранением прав и верните службу командой `sudo systemctl start videron-sync`. В копию входит `identity.json` с закрытым ключом и секретом подключения.
+To make a backup, stop the service with `sudo systemctl stop videron-sync`, copy the entire `/var/lib/videron-sync` directory with its permissions intact, and restart it with `sudo systemctl start videron-sync`. The backup contains `identity.json`, which holds the private key and pairing secret.

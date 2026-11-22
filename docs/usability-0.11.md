@@ -1,30 +1,32 @@
-# Проверка удобства Videron 0.11
+# Videron 0.11 usability review
 
-19 ноября 2026. Сценарная проверка на Windows в отдельном профиле Edge. Для первых шагов использовали пустое пространство, для поиска — встроенный пример с 27 заметками. Действия выполнялись через видимый интерфейс мышью и клавиатурой. Проверены русские и английские команды, в том числе при размере окна 720 × 520. Оценок и времени выполнения от реальных пользователей в этом отчёте нет.
+**English** · [Русский](usability-0.11.ru.md)
 
-## Что мешало работе и что изменилось
+On November 19, 2026, we walked through common tasks on Windows in a separate Edge profile. We used an empty space for first-run tasks and the built-in 27-note example for search. We used the mouse and keyboard in the visible interface and checked both English and Russian commands, including at a window size of 720 × 520. The findings come from these scripted checks. We did not collect participant ratings or task times.
 
-| Задача | Что произошло в 0.10 | Что проверено в 0.11 |
+## Changes verified in 0.11
+
+| Task | Behavior in 0.10 | Result in 0.11 |
 | --- | --- | --- |
-| Связать две заметки из списка | После команды «Связать с заметкой» список остался открыт. Щелчок по второй заметке открывал редактор. Переход на карту вручную сбрасывал инструмент. | Команда открывает карту с выбранным источником и просит выбрать вторую заметку. Один щелчок создаёт связь. После перезагрузки вторая заметка показывает обратную ссылку. |
-| Сравнить несколько результатов поиска | Запрос `#` в области «Исследования» дал семь заметок. После просмотра первой пришлось заново вводить запрос и выбирать область. | «К результатам» восстанавливает запрос, область, переключатели и выбранную строку. Стрелка вниз и Enter открывают следующий результат. |
-| Найти другую заметку во время письма | Лупа осталась на карте. Знакомое по карте Ctrl+K в редакторе открыло вставку ссылки. | Лупа и Ctrl+Shift+F работают и в тексте, и на холсте. Esc возвращает из поиска в редактирование. В текстовом абзаце Ctrl+K по-прежнему вставляет ссылку. |
-| Вернуться туда, откуда открыта заметка | Кнопка «К карте» из списка и области возвращала соответственно в список и в область. | Подпись сообщает фактическое направление. После возврата в список клавиатурный фокус попадает на строку открытой заметки. |
+| Link two notes from the list | **Link to another note** left the list open. Clicking the second note opened its editor. Switching to the map manually reset the tool. | The command opens the map with the source note selected and prompts for the second note. One click creates the link. After reloading, the second note showed the backlink. |
+| Compare several search results | A search for `#` in the Research area returned seven notes. After opening the first, we had to retype the query and select the area again. | **Back to results** restores the query, area, options, and selected row. Down Arrow followed by Enter opens the next result. |
+| Find another note while writing | The search icon was on the map. In the editor, the map's Ctrl+K search shortcut opened the link editor. | The search icon and Ctrl+Shift+F now work in text notes and canvas notes. Esc returns to editing. Ctrl+K still inserts a link in a text paragraph. |
+| Return to the view that opened a note | The button said **Back to map** even when it returned to the note list or an area. | The button names its destination. Returning to the list places keyboard focus on the note that was just open. |
 
-## Что удалось сделать без обходных путей
+## Tasks completed in the review
 
-- **Таблица и рисунок в одной заметке.** Ввели 3 и 7. Формула `=SUM(A1:A2)` дала 10, при выделении двух ячеек появилось среднее 5. Построили график и нарисовали прямоугольник. После перезагрузки проверили формулу, результат, фигуру и текст заметки.
-- **JSON рядом с обычным текстом.** Вставили объект в пустой абзац, отформатировали его и продолжили писать под блоком через Ctrl+Enter. Повторное открытие сохранило исходные значения. Отдельно проверены длинное целое `9007199254740993`, повторяющиеся ключи и переход к месту синтаксической ошибки.
-- **Фрагмент скрипта.** Вставили JavaScript в тройных обратных кавычках, проверили подсветку, копирование, отмену и повтор. Код находится по содержимому. Знак `#` внутри кода не создаёт связь на карте.
+- **Use a table and a drawing in one note.** We entered 3 and 7. The formula `=SUM(A1:A2)` returned 10, and selecting both cells showed an average of 5. We created a chart and drew a rectangle. After reloading, we checked the formula, its result, the rectangle, and the note text.
+- **Write text around a JSON block.** We pasted an object into an empty paragraph, formatted it, and pressed Ctrl+Enter to continue writing below it. Reopening the note preserved the original values. We also checked the integer `9007199254740993`, duplicate keys, and navigation to a syntax error.
+- **Work with a script fragment.** We pasted JavaScript inside triple backticks and checked highlighting, copying, undo, and redo. Searching the script's contents found the note. A `#` inside code did not create a map link.
 
-Отдельно проверили настольное приложение с WebView2 и изолированным хранилищем Windows. Создали блок кнопкой редактора, отформатировали JSON, закрыли приложение и запустили снова. Поиск по регулярному выражению нашёл сохранённую заметку по значению внутри JSON. После открытия проверили оба одноимённых ключа и все цифры длинного идентификатора.
+We also tested the desktop app in WebView2 with an isolated Windows data folder. We created a block from the editor toolbar, formatted the JSON, closed the app, and restarted it. A regular expression matched a value inside the saved JSON. We opened the note and verified both occurrences of a repeated key and every digit of a long ID.
 
-## Что стоит сделать дальше
+## Follow-up work identified during the review
 
-| Приоритет | Наблюдение | Предлагаемое изменение и критерий готовности |
+| Priority | Observation in 0.11 | Proposed behavior and acceptance criteria |
 | --- | --- | --- |
-| 1. Переход к совпадению | Поиск нашёл значение на строке 163 из 165 в JSON. При открытии блок показал первые 12 строк. Аналогично поисковая выдача нашла фразу в 39-м абзаце, но редактор открыл начало заметки. | Открывать нужный блок, прокручивать до совпадения и кратко подсвечивать его. Начать с текста и кода. Для таблиц следующим этапом выбирать найденную ячейку, для холста — центрировать объект. |
-| 2. Отмена удаления заметки | После подтверждения удаления тестовой заметки Ctrl+Z в списке её не вернул. После перезапуска она также отсутствовала. | Добавить действие «Отменить» сразу после удаления. Оно должно возвращать текст, вложения, положение и ручные связи. |
-| 3. Обнаружение графиков | Пока выделена одна ячейка, команда построения скрыта. После выделения A1:A2 появляется кнопка графика. | В меню таблицы показывать «Построить график» с короткой подсказкой «Выделите диапазон». Постоянное место на холсте для этой подсказки не требуется. |
+| 1. Jump to a search match | Search found a value on line 163 of a 165-line JSON block, but opening the result showed the first 12 lines. A match in paragraph 39 likewise opened at the top of the note. | Open the matching block, scroll to the match, and briefly highlight it. Start with text and code. For tables, select the matching cell. For a canvas note, center the matching object. |
+| 2. Undo note deletion | After confirming deletion of a test note, Ctrl+Z in the list did not restore it. It was still absent after restarting. | Offer **Undo** immediately after deletion. Restore the note's text, attachments, position, and manually created links. |
+| 3. Make charts easier to discover | The chart command was hidden with one cell selected. A chart button appeared after selecting A1:A2. | Show **Create chart** in the table menu with a short hint to select a range. This keeps the instruction available without a permanent label on the canvas. |
 
-Ещё один сценарий для проверки с пользователями — «Создать заметку» и сразу Esc. Сейчас в библиотеке остаётся «Без названия» даже после перезапуска. Пустой круг может быть намеренной заготовкой на карте. Перед изменением поведения стоит понаблюдать, как люди используют такие заготовки.
+One more task to try with users is creating a note and immediately pressing Esc. In 0.11 this left an **Untitled** note in the library, even after restarting. An empty circle may be an intentional placeholder. Observing how people use these placeholders would help decide whether the behavior should change.
