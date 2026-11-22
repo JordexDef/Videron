@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -20,9 +21,85 @@ type objectEdits struct {
 }
 type recordEdits struct {
 	Put    []json.RawMessage `json:"put"`
+	Edit   []rowEdit         `json:"edit"`
 	Remove []string          `json:"remove"`
 	Order  []string          `json:"order"`
 }
+type rowEdit struct {
+	objectEdits
+	ID         string      `json:"id"`
+	TextSplice *textSplice `json:"textSplice"`
+}
+
+// The web editor addresses text in UTF-16 code units. Only accept offsets at
+// code point boundaries; the revision precondition identifies the source text.
+type textSplice struct {
+	Start  int    `json:"start"`
+	Remove int    `json:"remove"`
+	Insert string `json:"insert"`
+}
+
+func (s textSplice) apply(raw json.RawMessage) (json.RawMessage, error) {
+	var source string
+	if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &source) != nil ||
+		s.Start < 0 || s.Start > len(source) || s.Remove < 0 || s.Remove > len(source)-s.Start {
+		return nil, errInvalid
+	}
+	start, end, units := -1, -1, 0
+	for index := 0; ; {
+		if units == s.Start {
+			start = index
+		}
+		if units == s.Start+s.Remove {
+			end = index
+			break
+		}
+		if index == len(source) || units > s.Start+s.Remove {
+			break
+		}
+		r, width := utf8.DecodeRuneInString(source[index:])
+		units += utf16.RuneLen(r)
+		index += width
+	}
+	if start < 0 || end < 0 {
+		return nil, errInvalid
+	}
+	return json.Marshal(source[:start] + s.Insert + source[end:])
+}
+
+func (e rowEdit) apply(raw json.RawMessage, note bool) (json.RawMessage, error) {
+	var fields jsonFields
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil, errInvalid
+	}
+	// The row index uses the exact JSON key "id". Legacy extension fields
+	// such as "ID" are independent and may need removal when sealing a note.
+	if e.Set["id"] != nil || slices.Contains(e.Unset, "id") {
+		return nil, errInvalid
+	}
+	updated, err := e.objectEdits.apply(fields)
+	if err != nil {
+		return nil, err
+	}
+	if e.TextSplice != nil {
+		if !note || e.Set["dataText"] != nil || slices.Contains(e.Unset, "dataText") {
+			return nil, errInvalid
+		}
+		updated["dataText"], err = e.TextSplice.apply(fields["dataText"])
+		if err != nil {
+			return nil, err
+		}
+	}
+	var dst bytes.Buffer
+	beginObject(&dst, updated)
+	dst.WriteByte('}')
+	result := dst.Bytes()
+	if note && (&storedNote{}).UnmarshalJSON(result) != nil {
+		return nil, errInvalid
+	}
+	return result, nil
+}
+
 type spaceEdits struct {
 	objectEdits
 	Notes *recordEdits `json:"notes"`
@@ -137,7 +214,7 @@ func (e *recordEdits) apply(list *recordList, notes bool) (*recordList, error) {
 		return nil, errInvalid
 	}
 	result := &recordList{items: maps.Clone(list.items)}
-	touched := make(map[string]bool, len(e.Remove)+len(e.Put))
+	touched := make(map[string]bool, len(e.Remove)+len(e.Put)+len(e.Edit))
 	for _, id := range e.Remove {
 		if result.items[id] == nil || touched[id] {
 			return nil, errInvalid
@@ -146,6 +223,18 @@ func (e *recordEdits) apply(list *recordList, notes bool) (*recordList, error) {
 		touched[id] = true
 	}
 	var added []string
+	for _, change := range e.Edit {
+		current := result.items[change.ID]
+		if current == nil || touched[change.ID] {
+			return nil, errInvalid
+		}
+		next, err := change.apply(current, notes)
+		if err != nil {
+			return nil, err
+		}
+		result.items[change.ID] = next
+		touched[change.ID] = true
+	}
 	for _, raw := range e.Put {
 		id, err := rowID(raw)
 		if err != nil || touched[id] {

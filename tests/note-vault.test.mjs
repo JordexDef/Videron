@@ -75,7 +75,7 @@ test('sealing an edit marks the new envelope even after the map record was ackno
   records.prepare(space).commit()
   await session.flush()
   const next=records.prepare(space)
-  assert.equal(next.patch.notes.put[0].sealed,f.record.sealed)
+  assert.equal(next.patch.notes.edit[0].set.sealed,f.record.sealed)
   assert.notEqual(f.record.sealed,previous)
   assert.doesNotMatch(JSON.stringify(next.patch),/private edit/)
   assert.ok(await session.beforeClose())

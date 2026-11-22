@@ -115,5 +115,8 @@ func (id *identity) save(root *os.Root) error {
 		return err
 	}
 	defer root.Remove(name)
-	return root.Rename(name, "identity.json")
+	if err := root.Rename(name, "identity.json"); err != nil {
+		return err
+	}
+	return syncDirectory(root, ".")
 }

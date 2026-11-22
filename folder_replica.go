@@ -44,7 +44,10 @@ type spaceReplica struct {
 	imported        [sha256.Size]byte
 	parents         map[string][]string
 	verifiedObjects map[string]struct{}
+	objectDirTime   time.Time
+	lastObjectScan  time.Time
 	scanTime        time.Time
+	lastScan        time.Time
 	fullRead        time.Time
 	settledHead     string
 	settledCount    int
@@ -179,22 +182,25 @@ func (s *folderSpaceSession) openReplica(plain []byte) (string, error) {
 	s.sync = spaceReplica{meta: m, payload: string(payload)}
 	cursor := s.storedCursor()
 	if cursor != "" && cursor != m.Head {
-		if err = s.graphDirs(false); err == nil {
-			r, e := s.readRevision(cursor)
-			if e == nil {
-				data, e := s.materialize(r)
-				if e != nil {
-					return "", e
-				}
-				s.sync.meta.Head = cursor
-				s.sync.meta.Parents = r.Parents
-				s.sync.payload = data
-			} else if !errors.Is(e, errSyncPending) {
-				return "", e
+		// A cloud folder can deliver an older canonical file before this
+		// device's saved branch. Opening it would replace our cursor on init.
+		if err = s.graphDirs(false); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return "", errSyncPending
 			}
-		} else if !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
+		r, err := s.readRevision(cursor)
+		if err != nil {
+			return "", err
+		}
+		data, err := s.materialize(r)
+		if err != nil {
+			return "", err
+		}
+		s.sync.meta.Head = cursor
+		s.sync.meta.Parents = r.Parents
+		s.sync.payload = data
 	}
 	return s.sync.payload, nil
 }
@@ -308,6 +314,37 @@ func (s *folderSpaceSession) putRecord(kind string, data []byte) (string, error)
 	}
 	return id, nil
 }
+
+// Refresh cached object presence in one directory pass if a cloud provider
+// changed the archive, including providers that preserve directory timestamps.
+func (s *folderSpaceSession) refreshObjectCache(dir string) error {
+	if len(s.sync.verifiedObjects) == 0 {
+		s.sync.lastObjectScan = time.Now()
+		return nil
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if s.sync.objectDirTime.Equal(info.ModTime()) && time.Since(s.sync.lastObjectScan) < time.Minute {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	present := make(map[string]struct{}, len(s.sync.verifiedObjects))
+	for _, entry := range entries {
+		id, ok := strings.CutSuffix(entry.Name(), ".json")
+		if _, known := s.sync.verifiedObjects[id]; ok && known && entry.Type().IsRegular() {
+			present[id] = struct{}{}
+		}
+	}
+	s.sync.verifiedObjects = present
+	s.sync.lastObjectScan = time.Now()
+	return nil
+}
+
 func (s *folderSpaceSession) manifest(data string, parents []string) (spaceRevision, error) {
 	r := spaceRevision{Parents: parents, Values: map[string]string{}, Lists: map[string][]string{}}
 	if !validSpacePayload([]byte(data)) {
@@ -316,6 +353,10 @@ func (s *folderSpaceSession) manifest(data string, parents []string) (spaceRevis
 	var fields map[string]json.RawMessage
 	if json.Unmarshal([]byte(data), &fields) != nil || fields[syncProperty] != nil {
 		return r, errInvalid
+	}
+	dir := filepath.Join(s.graphPath(), "objects")
+	if err := s.refreshObjectCache(dir); err != nil {
+		return r, err
 	}
 	for k, v := range fields {
 		var cells []json.RawMessage
@@ -337,6 +378,13 @@ func (s *folderSpaceSession) manifest(data string, parents []string) (spaceRevis
 			r.Values[k] = id
 		}
 	}
+	// Remember our own writes so an ordinary edit needn't enumerate all
+	// archived objects on the next save.
+	info, err := os.Stat(dir)
+	if err != nil {
+		return r, err
+	}
+	s.sync.objectDirTime = info.ModTime()
 	return r, nil
 }
 func (s *folderSpaceSession) putRevision(r spaceRevision) (spaceSyncMeta, error) {
@@ -503,7 +551,8 @@ func (s *folderSpaceSession) scan(force bool) error {
 	if err != nil {
 		return err
 	}
-	if !force && !s.sync.scanTime.IsZero() && s.sync.scanTime.Equal(st.ModTime()) {
+	// Some cloud providers preserve the directory timestamp when adding files.
+	if !force && s.sync.scanTime.Equal(st.ModTime()) && time.Since(s.sync.lastScan) < time.Minute {
 		return nil
 	}
 	entries, err := os.ReadDir(dir)
@@ -525,6 +574,7 @@ func (s *folderSpaceSession) scan(force bool) error {
 		s.sync.parents[id] = r.Parents
 	}
 	s.sync.scanTime = st.ModTime()
+	s.sync.lastScan = time.Now()
 	return nil
 }
 func ancestors(start string, graph map[string][]string) map[string]bool {
@@ -541,10 +591,20 @@ func ancestors(start string, graph map[string][]string) map[string]bool {
 	return seen
 }
 func commonBase(ours, theirs map[string]bool, graph map[string][]string) string {
+	// A delayed merge parent may carry a newer common ancestor than the
+	// already delivered branch. A shared missing ancestor is harmless when
+	// both devices branched from the same shallow copy of a workspace.
 	shared := map[string]bool{}
-	for key := range ours {
-		if theirs[key] {
-			shared[key] = true
+	for id := range ours {
+		if theirs[id] {
+			shared[id] = true
+		} else if _, available := graph[id]; !available {
+			return ""
+		}
+	}
+	for id := range theirs {
+		if _, available := graph[id]; !available && !ours[id] {
+			return ""
 		}
 	}
 	for len(shared) > 0 {

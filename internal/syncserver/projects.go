@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -22,9 +23,10 @@ type projectInfo struct {
 }
 
 type namedProject struct {
-	info projectInfo
-	mu   sync.Mutex
-	data *store
+	info       projectInfo
+	mu         sync.Mutex
+	data       *store
+	retirement error
 	// Requests registered before retirement finish before their directory is removed.
 	active  sync.WaitGroup
 	stop    context.Context
@@ -33,11 +35,12 @@ type namedProject struct {
 }
 
 type projectCatalog struct {
-	data    *os.Root
-	root    *os.Root
-	mu      sync.RWMutex
-	entries map[string]*namedProject
-	retired map[string]*namedProject
+	data       *os.Root
+	root       *os.Root
+	mu         sync.RWMutex
+	durability directoryBarrier
+	entries    map[string]*namedProject
+	retired    map[string]*namedProject
 }
 
 var errProjectGone = errors.New("project deleted")
@@ -54,6 +57,9 @@ func validProjectName(name string) bool {
 
 func openProjectCatalog(data *os.Root) (*projectCatalog, error) {
 	if err := data.Mkdir("projects", 0700); err != nil && !errors.Is(err, fs.ErrExist) {
+		return nil, err
+	}
+	if err := syncDirectory(data, "."); err != nil {
 		return nil, err
 	}
 	info, err := data.Lstat("projects")
@@ -76,8 +82,13 @@ func openProjectCatalog(data *os.Root) (*projectCatalog, error) {
 }
 
 func (c *projectCatalog) readNames() error {
-	entries, err := fs.ReadDir(c.root.FS(), ".")
+	entries, err := recoverStorageDirectory(c.root)
 	if err != nil {
+		return err
+	}
+	// A visible tombstone from an interrupted process must be durable before
+	// it can authorize the removal of project contents.
+	if err := syncDirectory(c.root, "."); err != nil {
 		return err
 	}
 	for _, entry := range entries {
@@ -116,6 +127,9 @@ func (c *projectCatalog) readNames() error {
 		if !dir.IsDir() {
 			return errors.New("invalid project directory")
 		}
+		if err := syncDirectory(c.root, id); err != nil {
+			return err
+		}
 		name, err := readProjectName(c.root, id+"/name")
 		if err != nil {
 			return err
@@ -152,12 +166,23 @@ func (c *projectCatalog) close() {
 		}
 		project.mu.Unlock()
 	}
+	for _, project := range c.retired {
+		project.cleanup.Lock()
+		if project.data != nil {
+			project.data.root.Close()
+			project.data = nil
+		}
+		project.cleanup.Unlock()
+	}
 	c.root.Close()
 }
 
-func (c *projectCatalog) list(legacy bool) []projectInfo {
+func (c *projectCatalog) list(legacy bool) ([]projectInfo, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if err := c.durability.retry(c.root); err != nil {
+		return nil, err
+	}
 	items := make([]projectInfo, 0, len(c.entries))
 	for id, project := range c.entries {
 		if id == "" {
@@ -168,16 +193,20 @@ func (c *projectCatalog) list(legacy bool) []projectInfo {
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	// 0.46 expects this entry with an empty name before it can list named projects.
 	if legacy {
-		return append([]projectInfo{{}}, items...)
+		return append([]projectInfo{{}}, items...), nil
 	}
 	if project := c.entries[""]; project != nil {
-		return append([]projectInfo{project.info}, items...)
+		return append([]projectInfo{project.info}, items...), nil
 	}
-	return items
+	return items, nil
 }
 
 func (c *projectCatalog) acquire(id string) (*namedProject, error) {
 	c.mu.RLock()
+	if err := c.durability.retry(c.root); err != nil {
+		c.mu.RUnlock()
+		return nil, err
+	}
 	project := c.entries[id]
 	if project == nil {
 		gone := c.retired[id] != nil
@@ -195,6 +224,9 @@ func (c *projectCatalog) acquire(id string) (*namedProject, error) {
 	defer project.mu.Unlock()
 	if project.stop.Err() != nil {
 		project.active.Done()
+		if project.retirement != nil {
+			return nil, project.retirement
+		}
 		return nil, errProjectGone
 	}
 	if project.data == nil {
@@ -227,6 +259,9 @@ func writeProjectMetadata(root *os.Root, path, value string) error {
 func (c *projectCatalog) rename(id, expected, name string) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.durability.retry(c.root); err != nil {
+		return 0, err
+	}
 	p := c.entries[id]
 	if p == nil {
 		if c.retired[id] != nil {
@@ -246,13 +281,13 @@ func (c *projectCatalog) rename(id, expected, name string) (int, error) {
 			return http.StatusConflict, nil
 		}
 	}
-	path := id + "/name"
+	namePath := id + "/name"
 	if id == "" {
-		path = ".default-name"
+		namePath = ".default-name"
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if err := writeProjectMetadata(c.root, path, name); err != nil {
+	if err := writeProjectMetadata(c.root, namePath, name); err != nil {
 		return 0, err
 	}
 	p.info.Name = name
@@ -263,11 +298,15 @@ func (c *projectCatalog) rename(id, expected, name string) (int, error) {
 		s.announce()
 		s.mu.Unlock()
 	}
-	return http.StatusOK, nil
+	return http.StatusOK, c.durability.publish(c.root, path.Dir(namePath))
 }
 
 func (c *projectCatalog) remove(id, expected string) (int, error) {
 	c.mu.Lock()
+	if err := c.durability.retry(c.root); err != nil {
+		c.mu.Unlock()
+		return 0, err
+	}
 	p := c.entries[id]
 	if p == nil {
 		p = c.retired[id]
@@ -296,9 +335,14 @@ func (c *projectCatalog) remove(id, expected string) (int, error) {
 	if err == nil {
 		delete(c.entries, id)
 		c.retired[id] = p
+		err = c.durability.publish(c.root, ".")
+		p.retirement = err
+		if err == nil {
+			p.retirement = errProjectGone
+		}
 		p.cancel()
 		if s != nil {
-			s.gone = true
+			s.retirement = p.retirement
 			s.announce()
 		}
 	}
@@ -324,7 +368,10 @@ func (c *projectCatalog) cleanRetired(id string, p *namedProject) error {
 		p.data = nil
 	}
 	if id != "" {
-		return c.root.RemoveAll(id)
+		if err := c.root.RemoveAll(id); err != nil {
+			return err
+		}
+		return syncDirectory(c.root, ".")
 	}
 	if err := c.data.RemoveAll("space"); err != nil {
 		return err
@@ -332,7 +379,10 @@ func (c *projectCatalog) cleanRetired(id string, p *namedProject) error {
 	if err := c.root.Remove(".default-name"); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	return nil
+	if err := syncDirectory(c.data, "."); err != nil {
+		return err
+	}
+	return syncDirectory(c.root, ".")
 }
 
 func writeGone(w http.ResponseWriter) {
@@ -389,6 +439,9 @@ func (c *projectCatalog) manage(w http.ResponseWriter, r *http.Request, id strin
 func (c *projectCatalog) create(info projectInfo) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.durability.retry(c.root); err != nil {
+		return 0, err
+	}
 	if c.retired[info.ID] != nil {
 		return http.StatusGone, nil
 	}
@@ -425,19 +478,27 @@ func (c *projectCatalog) create(info projectInfo) (int, error) {
 	if closed != nil {
 		return 0, closed
 	}
+	if err := syncDirectory(c.root, stage); err != nil {
+		return 0, err
+	}
 	if err := c.root.Rename(stage, info.ID); err != nil {
 		return 0, err
 	}
 	c.entries[info.ID] = newProjectEntry(info)
-	return http.StatusCreated, nil
+	return http.StatusCreated, c.durability.publish(c.root, ".")
 }
 
 func (c *projectCatalog) serve(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		projects, err := c.list(r.URL.Query().Get("version") != "2")
+		if err != nil {
+			http.Error(w, "cannot confirm project catalog", 500)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Videron-Project-Management", "1")
-		json.NewEncoder(w).Encode(c.list(r.URL.Query().Get("version") != "2"))
+		json.NewEncoder(w).Encode(projects)
 	case http.MethodPost:
 		var info projectInfo
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 2048))

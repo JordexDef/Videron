@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -49,4 +51,67 @@ func TestFolderPatchKeepsLocalHeadAndRetriesExactPayload(t *testing.T) {
 			sameDoc(t, got, "after", "untouched")
 		})
 	}
+}
+
+func TestEncryptedDataTextSpliceReachesSecondClient(t *testing.T) {
+	first, _ := testStore(t)
+	second := new(App)
+	if _, err := second.Load(); err != nil {
+		t.Fatal(err)
+	}
+	server := startPasswordTestService(t, "Temporary sync test password")
+	dir, copyDir := t.TempDir(), t.TempDir()
+	prefix := strings.Repeat("строка\n", 8192)
+	original := prefix + "😀xyz"
+	document := func(body string) string {
+		note := mergeTestNote("csv", "Data")
+		note["type"], note["dataText"] = "data", body
+		return mergeTestJSON(t, mergeTestSpace(note))
+	}
+	if err := first.CreateFolderSpace(dir, document(original), testPass); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.ConnectSpaceServer(dir, server.code); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.JoinSpaceServer(server.code, copyDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.OpenFolderSpace(copyDir, testPass); err != nil {
+		t.Fatal(err)
+	}
+	head, err := first.FolderPatchRevision(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The Cyrillic prefix takes one UTF-16 unit per rune, the emoji takes two.
+	patch := fmt.Sprintf(`{"notes":{"edit":[{"id":"csv","textSplice":{"start":%d,"remove":2,"insert":"😇"}}]}}`, len([]rune(prefix)))
+	next, err := first.SaveFolderPatch(dir, head, patch)
+	if err != nil || next == head {
+		t.Fatal("local edit", err)
+	}
+	if retry, err := first.SaveFolderPatch(dir, head, patch); err != nil || retry != next {
+		t.Fatal("ambiguous acknowledgement", err)
+	}
+	for _, client := range []struct {
+		app *App
+		dir string
+	}{{first, dir}, {second, copyDir}} {
+		if _, err := client.app.SyncSpaceServer(client.dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proposal, err := second.PrepareFolderMerge(copyDir, true, "")
+	if err != nil || proposal.Token == "" || len(proposal.Conflicts) != 0 {
+		t.Fatal("expected incoming edit", err)
+	}
+	if _, err := second.CommitFolderMergeChoices(copyDir, proposal.Token, nil); err != nil {
+		t.Fatal(err)
+	}
+	second.CloseFolderSpace(copyDir)
+	got, err := second.OpenFolderSpace(copyDir, testPass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameTestJSON(t, []byte(got), []byte(document(prefix+"😇xyz")))
 }

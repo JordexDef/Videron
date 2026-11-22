@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"net/http"
@@ -72,7 +73,7 @@ func (a *App) MatchingServerFolders(code string, folders []string) ([]string, er
 	if p.Lineage == "" && len(folders) != 0 {
 		c := p.client()
 		defer c.CloseIdleConnections()
-		m, err := p.manifest(c)
+		m, err := p.manifestSummary(context.Background(), c)
 		if err != nil {
 			return nil, err
 		}

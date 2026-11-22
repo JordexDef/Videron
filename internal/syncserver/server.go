@@ -143,6 +143,9 @@ func RunWithInput(args []string, stdin io.Reader, stdout, stderr io.Writer) erro
 			return fmt.Errorf("cannot lock data directory: %w", err)
 		}
 		defer lock.Close()
+		if _, err := recoverStorageDirectory(root); err != nil {
+			return err
+		}
 	}
 	id, err := loadIdentity(root)
 	if errors.Is(err, fs.ErrNotExist) {

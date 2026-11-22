@@ -17,7 +17,7 @@ test('editing one title neither reads nor transfers another note or plugin',()=>
   a.title='new';
   tracker.markSpace('personal',{notes:[a]});
   const tx=tracker.prepare(live);
-  assert.deepEqual(draftValue(tx),{spaces:{personal:{notes:{put:[a]}}}});
+  assert.deepEqual(draftValue(tx),{spaces:{personal:{notes:{edit:[{id:a.id,set:{title:a.title}}]}}}});
   tx.commit();
   assert.equal(tracker.prepare(live).patch,null);
   live.view.labels=false;
@@ -25,7 +25,7 @@ test('editing one title neither reads nor transfers another note or plugin',()=>
   assert.deepEqual(draftValue(tracker.prepare(live)),{set:{view:live.view}});
 });
 
-test('one title edit in 5,000 one-KiB notes transfers a single record',t=>{
+test('one title edit in 5,000 one-KiB notes transfers only the changed field',t=>{
   const live=newLibrary(), text='x'.repeat(1024);
   live.spaces.personal.notes=Array.from({length:5000},(_,i)=>({
     ...note('n'+i),title:'Example '+i,bodyVersion:1,body:[{type:'paragraph',runs:[{text}]}],plain:text,
@@ -36,9 +36,35 @@ test('one title edit in 5,000 one-KiB notes transfers a single record',t=>{
   tracker.markSpace('personal',{notes:[edited]});
   const tx=tracker.prepare(live);
   const full=Buffer.byteLength(serializeLibrary(live)), changed=Buffer.byteLength(JSON.stringify(tx.patch));
-  assert.deepEqual(tx.patch.spaces.personal.notes.put.map(n=>n.id),[edited.id]);
-  assert.ok(full>11_000_000 && changed<2600,`full=${full} changed=${changed}`);
+  assert.deepEqual(tx.patch.spaces.personal.notes.edit.map(n=>n.id),[edited.id]);
+  assert.ok(full>11_000_000 && changed<130,`full=${full} changed=${changed}`);
   t.diagnostic(`UTF-8 JSON bytes: full library ${full}, one-note patch ${changed}`);
+});
+
+test('a million-line data note sends only the edited text and uses the acknowledged baseline',t=>{
+  const original='item,1\n'.repeat(1_000_000);
+  const row={...note('csv'),type:'data',dataText:original};
+  const space={notes:[row],areas:[]}, records=new WorkspaceRecords(space);
+  row.title='Renamed';records.mark({notes:[row]});
+  let tx=records.prepare(space);
+  assert.deepEqual(draftValue(tx),{notes:{edit:[{id:'csv',set:{title:'Renamed'}}]}});
+  tx.commit();
+  const start=3_500_000;
+  row.dataText=original.slice(0,start)+'😀'+original.slice(start+1);
+  records.mark({notes:[row]});
+  const pending=records.prepare(space);
+  row.dataText=row.dataText.replace('😀','😇');
+  records.mark({notes:[row]});
+  const size=Buffer.byteLength(JSON.stringify(pending.patch));
+  assert.ok(size<130);
+  assert.deepEqual(pending.patch.notes.edit[0].textSplice,{start,remove:1,insert:'😀'});
+  pending.commit();
+  tx=records.prepare(space);
+  assert.deepEqual(tx.patch.notes.edit[0].textSplice,{start,remove:2,insert:'😇'});
+  tx.commit();
+  row.dataText='\ud800'+row.dataText;records.mark({notes:[row]});
+  assert.equal(records.prepare(space).patch.notes.edit[0].set.dataText,row.dataText);
+  t.diagnostic(`UTF-8 JSON bytes: source ${Buffer.byteLength(original)}, one edit ${size}`);
 });
 
 test('an acknowledged immutable snapshot preserves edits made while saving and failed prepares do not advance the baseline',()=>{
@@ -47,14 +73,21 @@ test('an acknowledged immutable snapshot preserves edits made while saving and f
   a.title='first';records.mark({notes:[a]});
   const saving=records.prepare(space);
   a.title='second';records.mark({notes:[a]});
-  assert.equal(saving.patch.notes.put[0].title,'first');
+  assert.equal(saving.patch.notes.edit[0].set.title,'first');
   saving.commit();
   const failed=records.prepare(space);
-  assert.equal(failed.patch.notes.put[0].title,'second');
+  assert.equal(failed.patch.notes.edit[0].set.title,'second');
   const retry=records.prepare(space);
   assert.deepEqual(retry.patch,failed.patch);
   retry.commit();
   assert.equal(records.prepare(space).patch,null);
+});
+
+test('extension text on an area remains an ordinary field',()=>{
+  const area={id:'legacy',dataText:'x'.repeat(8192)};
+  const space={notes:[],areas:[area]}, records=new WorkspaceRecords(space);
+  area.dataText+='y';records.mark({areas:[area]});
+  assert.deepEqual(draftValue(records.prepare(space)),{areas:{edit:[{id:'legacy',set:{dataText:area.dataText}}]}});
 });
 
 test('structural changes preserve record order, folder link privacy and legacy format versions',()=>{
@@ -95,7 +128,7 @@ test('adding a workspace preserves edits made before the new entry is acknowledg
   const installing=tracker.prepare(live);
   added.title='edited during save';tracker.markSpace('work',{notes:[added]});
   installing.commit();
-  assert.deepEqual(draftValue(tracker.prepare(live)),{spaces:{work:{notes:{put:[added]}}}});
+  assert.deepEqual(draftValue(tracker.prepare(live)),{spaces:{work:{notes:{edit:[{id:added.id,set:{title:added.title}}]}}}});
 });
 
 test('merge acknowledgements advance the disk baseline without swallowing later editor input',()=>{
@@ -107,5 +140,5 @@ test('merge acknowledgements advance the disk baseline without swallowing later 
   Object.assign(b,incoming);live.routes=[{id:'r'}];
   records.mark();
   const tx=records.prepare(live);
-  assert.deepEqual(draftValue(tx),{notes:{put:[a]}});
+  assert.deepEqual(draftValue(tx),{notes:{edit:[{id:a.id,set:{title:a.title}}]}});
 });

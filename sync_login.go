@@ -112,7 +112,7 @@ func verifyServerEndpoint(ctx context.Context, endpoint serverEndpoint, password
 		return empty, errServerProtocol
 	}
 	p := serverProfile{Address: endpoint.address, Pin: pin, Token: credentials.Token, Transport: endpoint.transport}
-	manifest, err := p.manifestContext(ctx, secured)
+	manifest, err := p.manifestSummary(ctx, secured)
 	if errors.Is(err, errProjectDeleted) {
 		// Authentication is valid even when there is no default project. The
 		// ticket can list, create, or select the remaining named projects.

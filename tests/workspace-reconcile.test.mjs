@@ -62,7 +62,7 @@ test('native merge keeps live typing, sends only choices and advances the autosa
   let requests=0;
   await saveSpaceFolder({SaveFolderPatch:async (_dir,head,raw)=>{
     assert.equal(head,'merged');
-    assert.deepEqual(JSON.parse(raw),{notes:{put:[open]}});
+    assert.deepEqual(JSON.parse(raw),{notes:{edit:[{id:open.id,set:{title:open.title}}]}});
     requests++;return 'after-typing';
   }},session);
   assert.equal(requests,1);assert.equal(session.head,'after-typing');

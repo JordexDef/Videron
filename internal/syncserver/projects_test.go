@@ -165,7 +165,7 @@ func TestConcurrentProjectCreationAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.close()
-	if got := reopened.list(false); len(got) != 2 || got[1] != info {
+	if got, err := reopened.list(false); err != nil || len(got) != 2 || got[1] != info {
 		t.Fatalf("wrong project list after restart: %v", got)
 	}
 	// Losing a published project's directory must not recreate it as an empty space.
@@ -416,7 +416,7 @@ func TestProjectRestartFinishesRetiredDirectoryCleanup(t *testing.T) {
 	if _, err := root.Lstat("projects/" + id); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("retired payload remains", err)
 	}
-	if items := reopened.list(false); len(items) != 1 || items[0].ID != "" {
+	if items, err := reopened.list(false); err != nil || len(items) != 1 || items[0].ID != "" {
 		t.Fatal(items)
 	}
 	if status, err := reopened.create(projectInfo{id, "Project"}); err != nil || status != 410 {

@@ -23,7 +23,7 @@ test('folder autosave retries the identical request before sending edits made si
   live.title='second edit';session.records.mark({notes:[live]});
   assert.equal(await saveSpaceFolder(bridge,session),true);
   assert.deepEqual(calls[0],calls[1]);
-  assert.equal(calls[2][0],'second');assert.equal(JSON.parse(calls[2][1]).notes.put[0].title,'second edit');
+  assert.equal(calls[2][0],'second');assert.equal(JSON.parse(calls[2][1]).notes.edit[0].set.title,'second edit');
   assert.equal(session.head,'third');
 });
 

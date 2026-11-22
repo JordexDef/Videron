@@ -4,6 +4,8 @@
 
 Videron Sync 0.46 and later can host several projects on one server. Each project has its own notes and history. Anyone with server access can see the project list. The server stores project names in plain text even when their contents are encrypted. Opening an encrypted project requires its separate space password.
 
+To keep note contents private from the server, enable folder encryption when creating the space. The client encrypts the initial snapshot, attachments and revision history before upload. The server can still see file sizes and upload times. If you protect an individual note in a previously unencrypted folder, syncing that folder also uploads its earlier readable revisions, even on its first connection.
+
 ## Install on Linux
 
 Use a Linux VPS or a home virtual machine running systemd, such as Debian or Ubuntu Server. Run `uname -m` to check its architecture. Download the **amd64** archive for `x86_64` or **arm64** for `aarch64`. Extract the archive on the server and change to the directory containing `install.sh` and `videron-sync`.

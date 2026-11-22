@@ -74,6 +74,31 @@ func TestCatalogPatchPreservesOrderMetadataAndExactNumbers(t *testing.T) {
 	sameTestJSON(t, stored(t, path), []byte(want))
 }
 
+func TestEditedFieldsPreserveUnknownDataAndRejectInvalidBoundaries(t *testing.T) {
+	initial := []byte(`{"name":"data","notes":[{"id":"n","ID":"legacy","dataText":"я😀猫Z","plugin":{"n":9007199254740993},"drop":0}],"areas":[]}`)
+	raw := `{"notes":{"edit":[{"id":"n","textSplice":{"start":1,"remove":2,"insert":"😇ß"},"unset":["drop","ID"],"set":{"title":"renamed"}}]}}`
+	next, err := applyWorkspacePatch(initial, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameTestJSON(t, next, []byte(`{"name":"data","notes":[{"id":"n","dataText":"я😇ß猫Z","title":"renamed","plugin":{"n":9007199254740993}}],"areas":[]}`))
+	for _, bad := range []string{
+		`{"notes":{"edit":[{"id":"n","textSplice":{"start":2,"remove":0}}]}}`,
+		`{"notes":{"edit":[{"id":"n","textSplice":{"start":0,"remove":2}}]}}`,
+		`{"notes":{"edit":[{"id":"n","textSplice":{"start":9}}]}}`,
+		`{"notes":{"edit":[{"id":"n","textSplice":{"start":-1}}]}}`,
+		`{"notes":{"edit":[{"id":"n","textSplice":{},"set":{"dataText":"different"}}]}}`,
+		`{"notes":{"edit":[{"id":"n","set":{"id":"other"}}]}}`,
+		`{"notes":{"edit":[{"id":"n","set":{"sealed":"ciphertext"}}]}}`,
+		`{"notes":{"edit":[{"id":"n","set":{"title":"first"}}],"remove":["n"]}}`,
+		`{"notes":{"edit":[{"id":"other","set":{"title":"missing"}}]}}`,
+	} {
+		if _, err := applyWorkspacePatch(initial, bad); !errors.Is(err, errInvalid) {
+			t.Errorf("invalid edit accepted: %s (%v)", bad, err)
+		}
+	}
+}
+
 func TestEncryptedCatalogPatchesRespectLockExternalChangesAndFullSaves(t *testing.T) {
 	a, path := testStore(t)
 	first := libraryPrefix + originalNote + librarySuffix
@@ -215,7 +240,7 @@ func BenchmarkCatalogAutosave5000(b *testing.B) {
 	initial := snapshot.String()
 	changed := strings.Replace(initial, `"title":"a"`, `"title":"b"`, 1)
 	patch := func(title string) string {
-		return fmt.Sprintf(`{"spaces":{"personal":{"notes":{"put":[{"id":"n0","title":%q,"plain":"%s","body":[{"type":"text","text":"%s"}],"tags":[],"links":[]}]}}}}`, title, content, content)
+		return fmt.Sprintf(`{"spaces":{"personal":{"notes":{"edit":[{"id":"n0","set":{"title":%q}}]}}}}`, title)
 	}
 	for _, tc := range []struct {
 		name     string

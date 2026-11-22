@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -54,6 +55,20 @@ type serverManifest struct {
 	Lineage     string            `json:"lineage"`
 	Files       map[string]string `json:"files"`
 	ProjectName *string           `json:"projectName,omitempty"`
+	IndexCursor string            `json:"indexCursor,omitempty"`
+	Base        string            `json:"base,omitempty"`
+	Summary     bool              `json:"summary,omitempty"`
+	PageTotal   int               `json:"pageTotal,omitempty"`
+	Offset      int               `json:"offset,omitempty"`
+}
+
+// Lives only on an open folder session. Access is serialized by App.serverMu.
+// Retain no bearer token or decrypted note data.
+type serverIndexCache struct {
+	address, pin, project, lineage string
+	credential                     [sha256.Size]byte
+	cursor                         string
+	files                          map[string]string
 }
 
 func parsePairCode(code string) (serverProfile, error) {
@@ -219,6 +234,11 @@ func (p *serverProfile) requestContext(ctx context.Context, c *http.Client, meth
 		if management {
 			return nil, errProjectExists
 		}
+		// Our writes use If-None-Match: *. Only a 412 means another peer
+		// published this record first. A 409 rejects the target lineage.
+		if method == http.MethodPut && (path == "/v1/main" || path == "/v1/file") {
+			return nil, errServerSpace
+		}
 		return nil, errChanged
 	case http.StatusMethodNotAllowed:
 		if management {
@@ -238,12 +258,77 @@ func validBlobPath(path, lineage string) bool {
 }
 
 func (p *serverProfile) manifest(c *http.Client) (serverManifest, error) {
-	return p.manifestContext(context.Background(), c)
+	return p.readIndex(context.Background(), c, "", false)
 }
 
-func (p *serverProfile) manifestContext(ctx context.Context, c *http.Client) (serverManifest, error) {
+func (p *serverProfile) manifestSummary(ctx context.Context, c *http.Client) (serverManifest, error) {
+	return p.readIndex(ctx, c, "", true)
+}
+
+const syncIndexPageSize = 2048
+
+func (p *serverProfile) readIndex(ctx context.Context, c *http.Client, since string, summary bool) (serverManifest, error) {
+	q := url.Values{}
+	if summary {
+		q.Set("view", "summary")
+	} else {
+		q.Set("limit", strconv.Itoa(syncIndexPageSize))
+		if since != "" {
+			q.Set("since", since)
+		}
+	}
+	// A server restart between pages invalidates that snapshot. Discard the
+	// partial map and start once more from the beginning against its new epoch.
+	m, err := p.readIndexSnapshot(ctx, c, q)
+	if errors.Is(err, errChanged) {
+		q.Del("since")
+		m, err = p.readIndexSnapshot(ctx, c, q)
+	}
+	if err == nil && m.ProjectName != nil {
+		p.ProjectName = *m.ProjectName
+	}
+	return m, err
+}
+
+func (p *serverProfile) readIndexSnapshot(ctx context.Context, c *http.Client, q url.Values) (serverManifest, error) {
+	first, err := p.indexPage(ctx, c, q)
+	if err != nil || first.PageTotal == 0 {
+		return first, err
+	}
+	if first.Offset != 0 {
+		return serverManifest{}, errServerProtocol
+	}
+	// Use the first event cursor too. A revision committed while loading
+	// the later pages must still wake the very next subscription.
+	page := url.Values{"limit": {strconv.Itoa(syncIndexPageSize)}, "snapshot": {first.IndexCursor}}
+	if first.Base != "" {
+		page.Set("since", first.Base)
+	}
+	for offset := len(first.Files); offset < first.PageTotal; offset = len(first.Files) {
+		page.Set("offset", strconv.Itoa(offset))
+		part, err := p.indexPage(ctx, c, page)
+		if err != nil {
+			return serverManifest{}, err
+		}
+		if part.IndexCursor != first.IndexCursor || part.Lineage != first.Lineage || part.Main != first.Main || part.PageTotal == 0 {
+			return serverManifest{}, errChanged
+		}
+		if part.Offset != offset || part.PageTotal != first.PageTotal || part.Base != first.Base {
+			return serverManifest{}, errServerProtocol
+		}
+		maps.Copy(first.Files, part.Files)
+		if len(first.Files)-offset != len(part.Files) {
+			return serverManifest{}, errServerProtocol
+		}
+	}
+	first.PageTotal = 0
+	return first, nil
+}
+
+func (p *serverProfile) indexPage(ctx context.Context, c *http.Client, q url.Values) (serverManifest, error) {
 	var m serverManifest
-	resp, err := p.requestContext(ctx, c, "GET", "/v1/index", nil)
+	route := "/v1/index?" + q.Encode()
+	resp, err := p.requestContext(ctx, c, "GET", route, nil)
 	if err != nil {
 		return m, err
 	}
@@ -254,11 +339,22 @@ func (p *serverProfile) manifestContext(ctx context.Context, c *http.Client) (se
 	if m.Cursor == "" || m.Files == nil {
 		return m, errCorrupt
 	}
+	if m.Summary && q.Get("view") != "summary" || len(m.IndexCursor) > 128 ||
+		m.Base != "" && (m.Base != q.Get("since") || m.IndexCursor == "") {
+		return m, errServerProtocol
+	}
+	if m.PageTotal == 0 && m.Offset != 0 {
+		return m, errServerProtocol
+	}
+	if m.PageTotal != 0 && (m.IndexCursor == "" || q.Has("view") ||
+		m.Offset < 0 || m.Offset >= m.PageTotal || len(m.Files) == 0 ||
+		len(m.Files) > min(syncIndexPageSize, m.PageTotal-m.Offset)) {
+		return m, errServerProtocol
+	}
 	if m.ProjectName != nil {
 		if !validProjectName(*m.ProjectName) && !(p.ProjectID == "" && *m.ProjectName == "") {
 			return m, errServerProtocol
 		}
-		p.ProjectName = *m.ProjectName
 	}
 	if m.Main == "" && m.Lineage == "" && len(m.Files) == 0 {
 		return m, nil
@@ -272,6 +368,48 @@ func (p *serverProfile) manifestContext(ctx context.Context, c *http.Client) (se
 		}
 	}
 	return m, nil
+}
+
+func (p *serverProfile) syncManifest(c *http.Client, cache *serverIndexCache) (serverManifest, error) {
+	credential := sha256.Sum256([]byte(p.Token))
+	if cache.address != p.Address || cache.pin != p.Pin || cache.project != p.ProjectID ||
+		cache.lineage != p.Lineage || cache.credential != credential {
+		*cache = serverIndexCache{}
+	}
+	m, err := p.readIndex(context.Background(), c, cache.cursor, false)
+	if err != nil {
+		if errors.Is(err, errCorrupt) || errors.Is(err, errServerProtocol) {
+			*cache = serverIndexCache{}
+		}
+		return m, err
+	}
+	if m.Lineage != p.Lineage {
+		*cache = serverIndexCache{}
+		return m, errServerSpace
+	}
+	if m.Base != "" {
+		// A delta can only introduce immutable records. Reject a conflicting
+		// digest before mutating the acknowledged index.
+		for path, hash := range m.Files {
+			if old := cache.files[path]; old != "" && old != hash {
+				*cache = serverIndexCache{}
+				return m, errServerProtocol
+			}
+		}
+		maps.Copy(cache.files, m.Files)
+		m.Files = cache.files
+	}
+	cache.remember(p, m, credential)
+	return m, nil
+}
+
+func (cache *serverIndexCache) remember(p *serverProfile, m serverManifest, credential [sha256.Size]byte) {
+	if m.IndexCursor == "" {
+		*cache = serverIndexCache{}
+		return
+	}
+	*cache = serverIndexCache{address: p.Address, pin: p.Pin, project: p.ProjectID,
+		lineage: p.Lineage, credential: credential, cursor: m.IndexCursor, files: m.Files}
 }
 
 // Only regular files in the space's own history may leave the device.
@@ -454,6 +592,22 @@ func (a *App) openLineage(dir string) (string, error) {
 	return s.sync.meta.Lineage, nil
 }
 
+func (a *App) sessionServerIndex(dir, lineage string) (*serverIndexCache, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s, err := a.currentSpaceSession(dir)
+	if err != nil {
+		return nil, err
+	}
+	if s.sync.meta.Lineage != lineage {
+		return nil, errServerSpace
+	}
+	if s.serverIndex == nil {
+		s.serverIndex = new(serverIndexCache)
+	}
+	return s.serverIndex, nil
+}
+
 func (a *App) ServerConnection(folder string) (ServerConnectionInfo, error) {
 	dir, err := spaceDir(folder)
 	if err != nil {
@@ -502,6 +656,10 @@ func (a *App) ConnectSpaceServer(folder, code string) error {
 	if p.Lineage != "" && p.Lineage != lineage {
 		return errServerSpace
 	}
+	index, err := a.sessionServerIndex(dir, lineage)
+	if err != nil {
+		return err
+	}
 	c := p.client()
 	defer c.CloseIdleConnections()
 	m, err := p.manifest(c)
@@ -530,6 +688,18 @@ func (a *App) ConnectSpaceServer(folder, code string) error {
 	if err = p.exchange(c, dir, m, a); err != nil {
 		return err
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s, err := a.currentSpaceSession(dir)
+	if err != nil {
+		return err
+	}
+	if s.serverIndex != index {
+		return errChanged
+	}
+	// First background sync starts from the enrollment index. Any uploads
+	// during the exchange are later than this cursor and will appear in its delta.
+	index.remember(&p, m, sha256.Sum256([]byte(p.Token)))
 	return p.saveSuccessfulSync(dir)
 }
 
@@ -544,16 +714,13 @@ func (a *App) SyncSpaceServer(folder string) (string, error) {
 	if err != nil || p == nil {
 		return "", err
 	}
-	lineage, err := a.openLineage(dir)
+	index, err := a.sessionServerIndex(dir, p.Lineage)
 	if err != nil {
 		return "", err
 	}
-	if lineage != p.Lineage {
-		return "", errServerSpace
-	}
 	c := p.client()
 	defer c.CloseIdleConnections()
-	m, err := p.manifest(c)
+	m, err := p.syncManifest(c, index)
 	if err != nil {
 		return "", detachDeletedProject(dir, p, err)
 	}
@@ -644,6 +811,9 @@ func (a *App) DisconnectSpaceServer(folder string) error {
 	dir, err := spaceDir(folder)
 	if err != nil {
 		return err
+	}
+	if s := a.folderSpaces[spaceSessionID(dir)]; s != nil {
+		s.serverIndex = nil
 	}
 	path, err := profilePath(dir)
 	if err != nil {

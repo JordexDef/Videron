@@ -295,7 +295,7 @@ func (a *App) changeSelectedProject(ticket, id, expectedName, name, method strin
 func (a *App) selectServerProject(ctx context.Context, c *http.Client, ticket string, before, p serverProfile, entry ServerProject) (VerifiedSyncServer, error) {
 	p.ProjectID, p.ProjectName = entry.ID, entry.Name
 	p.ProjectDeleted = false
-	m, err := p.manifestContext(ctx, c)
+	m, err := p.manifestSummary(ctx, c)
 	if errors.Is(err, errSpaceMissing) {
 		return VerifiedSyncServer{}, errProjectMissing
 	}
@@ -350,7 +350,7 @@ func (a *App) ConnectedServerTicket(folder string) (VerifiedSyncServer, error) {
 	defer c.CloseIdleConnections()
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	m, err := p.manifestContext(ctx, c)
+	m, err := p.manifestSummary(ctx, c)
 	if errors.Is(err, errProjectDeleted) {
 		p.ProjectDeleted = true
 		return a.issueServerTicket(*p, generation)

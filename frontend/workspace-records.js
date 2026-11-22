@@ -34,17 +34,72 @@ export function diffFields(previous, object, keys, excluded = new Set()) {
   }};
 }
 
-function snapshotRows(rows) {
-  return new Map(rows.map(row => [row.id, JSON.stringify(row)]));
+// Strings are immutable. Keep their original value so changing a title or map
+// position never serializes a data document or a sealed envelope.
+function snapshotRow(row) {
+  const fields = Object.create(null);
+  for (const [key, value] of Object.entries(row)) {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') fields[key] = value;
+    else if (typeof value === 'number') fields[key] = Number.isFinite(value) ? value : null;
+    else {
+      const json = JSON.stringify(value);
+      if (json !== undefined) fields[key] = {json};
+    }
+  }
+  return fields;
 }
 
-function diffRows(previous, rows, touched) {
-  const put = [], remove = [], updates = new Map();
+function fieldValue(value) {
+  return value && typeof value === 'object' ? JSON.parse(value.json) : value;
+}
+
+// In Unicode mode a valid surrogate pair matches its full code point.
+// Retain lone UTF-16 units verbatim by sending that string as ordinary JSON.
+const unpairedSurrogate = /[\uD800-\uDFFF]/u;
+
+function textSplice(before, after) {
+  if (typeof before !== 'string' || typeof after !== 'string' || after.length < 4096 ||
+      unpairedSurrogate.test(before) || unpairedSurrogate.test(after)) return null;
+  const limit = Math.min(before.length, after.length);
+  let start = 0, tail = 0;
+  while (start < limit && before.charCodeAt(start) === after.charCodeAt(start)) start++;
+  // Cut between Unicode code points, including when two emoji share a surrogate.
+  const lowSurrogate = code => code >= 0xdc00 && code <= 0xdfff;
+  if (lowSurrogate(before.charCodeAt(start))) start--;
+  while (tail < limit - start &&
+    before.charCodeAt(before.length - 1 - tail) === after.charCodeAt(after.length - 1 - tail)) tail++;
+  if (lowSurrogate(before.charCodeAt(before.length - tail))) tail--;
+  if (start + tail < 128) return null;
+  return {start, remove: before.length - start - tail, insert: after.slice(start, after.length - tail)};
+}
+
+function editRow(before, after, isNote) {
+  const edit = {}, set = Object.create(null), unset = [];
+  for (const key of Object.keys(before)) if (!Object.hasOwn(after, key)) unset.push(key);
+  for (const [key, value] of Object.entries(after)) {
+    const old = before[key];
+    if (old === value || (value && typeof value === 'object' && old?.json === value.json)) continue;
+    const splice = isNote && key === 'dataText' && textSplice(old, value);
+    if (splice) edit.textSplice = splice;
+    else set[key] = fieldValue(value);
+  }
+  if (Object.keys(set).length) edit.set = set;
+  if (unset.length) edit.unset = unset;
+  return edit;
+}
+
+function diffRows(previous, rows, touched, isNote) {
+  const put = [], edit = [], remove = [], updates = new Map();
   for (const row of touched ? touched.values() : rows) {
-    const value = JSON.stringify(row);
-    if (previous.get(row.id) === value) continue;
-    updates.set(row.id, value);
-    put.push(JSON.parse(value));
+    const next = snapshotRow(row), before = previous.get(row.id);
+    if (before) {
+      const changes = editRow(before, next, isNote);
+      if (!Object.keys(changes).length) continue;
+      edit.push({id: row.id, ...changes});
+    } else {
+      put.push(Object.fromEntries(Object.entries(next).map(([k, v]) => [k, fieldValue(v)])));
+    }
+    updates.set(row.id, next);
   }
   let order;
   if (!touched) {
@@ -57,6 +112,7 @@ function diffRows(previous, rows, touched) {
   }
   const patch = {};
   if (put.length) patch.put = put;
+  if (edit.length) patch.edit = edit;
   if (remove.length) patch.remove = remove;
   if (order) patch.order = order;
   return {patch, commit() {
@@ -73,7 +129,7 @@ function diffRows(previous, rows, touched) {
 export class WorkspaceRecords {
   constructor(space) {
     this.fields = fieldSnapshot(space, collectionKeys);
-    this.rows = Object.fromEntries(collections.map(key => [key, snapshotRows(space[key])]));
+    this.rows = Object.fromEntries(collections.map(key => [key, new Map(space[key].map(row => [row.id, snapshotRow(row)]))]));
     this.sealed = new Set(space.notes.filter(n => Object.hasOwn(n, 'sealed')).map(n => n.id));
     this.generation = 0;
     this.clearMarks();
@@ -102,7 +158,7 @@ export class WorkspaceRecords {
     }
     for (const key of collections) {
       if (!this.all && !this.touched[key].size) continue;
-      const result = diffRows(this.rows[key], space[key], this.all ? null : this.touched[key]);
+      const result = diffRows(this.rows[key], space[key], this.all ? null : this.touched[key], key === 'notes');
       if (Object.keys(result.patch).length) patch[key] = result.patch;
       commits.push(result.commit);
     }
@@ -111,6 +167,10 @@ export class WorkspaceRecords {
     for (const note of patch.notes?.put ?? []) {
       const sealed = Object.hasOwn(note, 'sealed');
       if (sealed !== this.sealed.has(note.id)) (sealed ? seal : unseal).push(note.id);
+    }
+    for (const change of patch.notes?.edit ?? []) {
+      if (change.unset?.includes('sealed') && this.sealed.has(change.id)) unseal.push(change.id);
+      if (change.set && Object.hasOwn(change.set, 'sealed') && !this.sealed.has(change.id)) seal.push(change.id);
     }
     return {patch: Object.keys(patch).length ? patch : null,
       hasSealedNotes: this.sealed.size + seal.length - unseal.length > 0,
@@ -127,20 +187,20 @@ export class WorkspaceRecords {
     for (const key of delta.unset ?? []) this.fields.delete(key);
     for (const [key, value] of Object.entries(delta.set ?? {})) this.fields.set(key, JSON.stringify(value));
     for (const [key, changes] of Object.entries(delta.lists ?? {})) {
-      const rows = key === 'routes' ? snapshotRows(JSON.parse(this.fields.get('routes') ?? '[]')) : this.rows[key];
+      const rows = key === 'routes' ? new Map(JSON.parse(this.fields.get('routes') ?? '[]').map(row => [row.id, row])) : this.rows[key];
       for (const id of changes.remove ?? []) {
         rows.delete(id);
         if (key === 'notes') this.sealed.delete(id);
       }
       for (const row of changes.upsert ?? []) {
-        rows.set(row.id, JSON.stringify(row));
+        rows.set(row.id, key === 'routes' ? row : snapshotRow(row));
         if (key === 'notes') {
           if (Object.hasOwn(row, 'sealed')) this.sealed.add(row.id);
           else this.sealed.delete(row.id);
         }
       }
       const ordered = changes.order ? new Map(changes.order.map(id => [id, rows.get(id)])) : rows;
-      if (key === 'routes') this.fields.set(key, JSON.stringify([...ordered.values()].map(raw => JSON.parse(raw))));
+      if (key === 'routes') this.fields.set(key, JSON.stringify([...ordered.values()]));
       else this.rows[key] = ordered;
     }
   }

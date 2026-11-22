@@ -180,7 +180,15 @@ func (h *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.events(w, r)
 			return
 		}
-		index, err := s.index()
+		index, err := s.index(r.URL.Query())
+		if errors.Is(err, errIndexChanged) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if errors.Is(err, errIndexPage) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if errors.Is(err, errProjectGone) {
 			writeGone(w)
 			return
@@ -258,13 +266,27 @@ func syncRoute(path string) (route, projectID string) {
 	return "", ""
 }
 
+func writePublicationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errProjectGone) {
+		writeGone(w)
+		return
+	}
+	http.Error(w, "cannot confirm stored files", 500)
+}
+
 func (s *store) events(w http.ResponseWriter, r *http.Request) {
 	since := r.URL.Query().Get("since")
-	s.mu.RLock()
-	cursor, changed, gone := s.cursor, s.changed, s.gone
-	s.mu.RUnlock()
-	if gone {
-		writeGone(w)
+	state := func() (string, <-chan struct{}, bool) {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		if err := s.publicationError(); err != nil {
+			writePublicationError(w, err)
+			return "", nil, false
+		}
+		return s.cursor, s.changed, true
+	}
+	cursor, changed, ok := state()
+	if !ok {
 		return
 	}
 	if since == cursor {
@@ -276,12 +298,8 @@ func (s *store) events(w http.ResponseWriter, r *http.Request) {
 		case <-changed:
 		case <-timer.C:
 		}
-		s.mu.RLock()
-		cursor = s.cursor
-		gone = s.gone
-		s.mu.RUnlock()
-		if gone {
-			writeGone(w)
+		cursor, _, ok = state()
+		if !ok {
 			return
 		}
 	}
@@ -298,9 +316,9 @@ type target struct {
 
 func (s *store) get(w http.ResponseWriter, r *http.Request, t target) {
 	s.mu.RLock()
-	if s.gone {
+	if err := s.publicationError(); err != nil {
 		s.mu.RUnlock()
-		writeGone(w)
+		writePublicationError(w, err)
 		return
 	}
 	if s.main == "" {
@@ -340,8 +358,11 @@ func (s *store) get(w http.ResponseWriter, r *http.Request, t target) {
 }
 
 func (s *store) checkPut(r *http.Request, t target) int {
-	if s.gone {
-		return http.StatusGone
+	if err := s.publicationError(); err != nil {
+		if errors.Is(err, errProjectGone) {
+			return http.StatusGone
+		}
+		return http.StatusInternalServerError
 	}
 	if (s.lineage != "" && s.lineage != t.lineage) || (!t.main && s.lineage == "") {
 		return 409
@@ -389,10 +410,10 @@ func (s *store) put(w http.ResponseWriter, r *http.Request, t target) {
 	name, hash, err := stageFile(s.root, body)
 	if err != nil {
 		s.mu.RLock()
-		gone := s.gone
+		retirement := s.retirement
 		s.mu.RUnlock()
-		if gone {
-			writeGone(w)
+		if retirement != nil {
+			writePublicationError(w, retirement)
 			return
 		}
 		var limit *http.MaxBytesError
@@ -432,11 +453,15 @@ func (s *store) put(w http.ResponseWriter, r *http.Request, t target) {
 	if t.main {
 		s.main, s.lineage = hash, t.lineage
 	} else {
-		s.files[t.path] = hash
+		s.addIndexFile(t.path, hash)
 	}
 	s.indexJSON = nil
 	if t.main || strings.HasPrefix(t.name, "revisions-") {
 		s.announce()
+	}
+	if err := s.durability.publish(s.root, "."); err != nil {
+		http.Error(w, "cannot confirm stored file", 500)
+		return
 	}
 	w.Header().Set("ETag", strconv.Quote(hash))
 	w.WriteHeader(http.StatusNoContent)

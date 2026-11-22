@@ -27,12 +27,13 @@ type SpaceFolderInfo struct {
 }
 
 type folderSpaceSession struct {
-	path      string
-	info      os.FileInfo
-	digest    [sha256.Size]byte
-	key       *vaultKey
-	sync      spaceReplica
-	lastPatch savePatchReceipt
+	path        string
+	info        os.FileInfo
+	digest      [sha256.Size]byte
+	key         *vaultKey
+	sync        spaceReplica
+	lastPatch   savePatchReceipt
+	serverIndex *serverIndexCache
 }
 
 type folderSpaceDocument struct {
@@ -403,7 +404,15 @@ func (a *App) DeleteFolderSpace(folder string) error {
 		if err := session.verifyCurrent(); err != nil {
 			return err
 		}
-		if session.sync.initialized {
+		if _, statErr := os.Lstat(session.graphPath()); statErr == nil {
+			// The cloud may have delivered a branch while the app was closed.
+			// Deletion has to see the same history as the first sync poll.
+			if err := session.initReplica(); err != nil {
+				return err
+			}
+			if err := session.importMain(true); err != nil {
+				return err
+			}
 			if err := session.scan(true); err != nil {
 				return err
 			}
@@ -414,6 +423,8 @@ func (a *App) DeleteFolderSpace(folder string) error {
 			if tip != "" {
 				return errChanged
 			}
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return statErr
 		}
 		// Keep the usable main document until all of its archived data can
 		// be removed. Failed cleanup can be retried from the same open space.

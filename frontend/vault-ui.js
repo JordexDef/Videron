@@ -137,7 +137,7 @@ function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlai
       : note ? tr('Введите пароль этой заметки.', 'Enter the password for this note.')
              : tr('Введите пароль, чтобы открыть заметки и карту.', 'Enter your password to open your notes and map.')
   form.append(el('p', 'vault-hint', help))
-  if(hasPlainHistory)form.append(el('p','vault-hint',tr('Следующие версии заметки будут зашифрованы. Уже сохранённые версии останутся в истории этой папки и на подключённых устройствах.','Future versions of this note will be encrypted. Previously saved versions remain in this folder’s history and on connected devices.')))
+  if(hasPlainHistory)form.append(el('p','vault-hint',tr('Прежние версии останутся читаемыми в истории папки и её резервных копиях. При синхронизации они попадут на сервер и другие устройства в том же виде.','Earlier versions remain readable in this folder’s history and its backups. Sync also copies those versions to the server and other devices in readable form.')))
   function field(label) {
     const wrap = el('label', 'vault-field')
     const input = el('input')
