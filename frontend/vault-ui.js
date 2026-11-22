@@ -112,10 +112,10 @@ function dialog(startup = false) {
 
 function actionTitle(mode, note) {
   switch (mode) {
-    case 'set': return note ? tr('Зашифровать заметку', 'Encrypt note') : tr('Зашифровать проект', 'Encrypt project')
-    case 'change': return note ? tr('Сменить пароль заметки', 'Change note password') : tr('Сменить пароль проекта', 'Change project password')
-    case 'remove': return note ? tr('Снять пароль заметки', 'Remove note password') : tr('Снять пароль проекта', 'Remove project password')
-    default: return note ? tr('Разблокировать заметку', 'Unlock note') : tr('Проект зашифрован', 'Project is encrypted')
+    case 'set': return note ? tr('Зашифровать заметку', 'Encrypt note') : tr('Зашифровать библиотеку', 'Encrypt library')
+    case 'change': return note ? tr('Сменить пароль заметки', 'Change note password') : tr('Сменить пароль библиотеки', 'Change library password')
+    case 'remove': return note ? tr('Снять пароль заметки', 'Remove note password') : tr('Снять пароль библиотеки', 'Remove library password')
+    default: return note ? tr('Разблокировать заметку', 'Unlock note') : tr('Разблокировать библиотеку', 'Unlock library')
   }
 }
 
@@ -132,8 +132,8 @@ function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlai
     ? tr('Выберите парольную фразу длиной от 8 символов и сохраните её в надёжном месте. Для расшифровки потребуется этот пароль.', 'Choose a passphrase of at least 8 characters and keep it in a safe place. You will need it to decrypt your data.')
     : mode === 'remove'
       ? note ? tr('Заметка будет сохраняться без отдельного пароля.', 'This note will be saved without its own password.')
-             : tr('Карта и все заметки без собственного пароля будут сохраняться в открытом виде.', 'The map and all notes without their own password will be saved in plaintext.')
-      : space ? tr('Введите пароль файла Videron.space, чтобы открыть карту и заметки.', 'Enter the password for Videron.space to open its map and notes.')
+             : tr('Локальная библиотека будет сохраняться в открытом виде. Заметки с отдельным паролем останутся зашифрованными.', 'The local library will be saved in plaintext. Notes with their own password will stay encrypted.')
+      : space ? tr('Введите пароль пространства, чтобы открыть карту и заметки.', 'Enter the space password to open its map and notes.')
       : note ? tr('Введите пароль этой заметки.', 'Enter the password for this note.')
              : tr('Введите пароль, чтобы открыть заметки и карту.', 'Enter your password to open your notes and map.')
   form.append(el('p', 'vault-hint', help))
@@ -311,11 +311,11 @@ export function openVaultSettings({protected:encrypted = false, available = true
   function show() {
     view.content(tr('Настройки', 'Settings'), () => view.close())
     const section = el('section', 'vault-settings-section')
-    section.append(el('h3', '', tr('Шифрование проекта', 'Project encryption')))
+    section.append(el('h3', '', tr('Шифрование библиотеки', 'Library encryption')))
     view.panel.append(section)
     const description = !available
       ? tr('Шифрование доступно в настольном приложении Videron.', 'Encryption is available in the Videron desktop app.')
-      : tr('Пароль проекта защищает локальную библиотеку. Для пространства в отдельной папке пароль задаётся при выборе папки.', 'The project password protects your local library. Spaces in separate folders use the password set when choosing their folder.')
+      : tr('Этот пароль защищает пространства в локальной библиотеке. Для пространства в отдельной папке можно задать свой пароль при создании.', 'This password protects spaces in your local library. For a space in its own folder, you can set a separate password when creating it.')
     section.append(el('p', 'vault-hint', description))
     const actions = el('div', 'vault-settings-actions')
     if (available && (encrypted || canLock) && onLock) {

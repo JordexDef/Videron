@@ -8,6 +8,10 @@
 .space-glyph {display:inline-flex;align-items:center;flex:none}
 .space-choice {margin-top:14px;cursor:pointer;line-height:1.5}
 .space-choice input {accent-color:var(--accent);margin:0;width:15px;height:15px;flex:none}
+.space-passphrase {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:6px 12px;margin-top:8px}
+.dialog .space-passphrase label.field {min-width:0;margin:0;gap:4px}
+.space-passphrase .vault-error {grid-column:1/-1;margin:0}
+.space-passphrase .vault-error:empty {display:none}
 .space-list {max-height:min(50vh,370px);overflow:auto;overscroll-behavior:contain}
 .space-row {padding:10px 0}
 .space-row + .space-row {border-top:1px solid var(--border)}

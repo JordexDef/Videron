@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Graph } from '../frontend/graph.js';
+import { defaultMapView, newLibrary, readLibrary, serializeLibrary } from '../frontend/data.js';
 import { placeAreaNotes, releaseGridNotes } from '../frontend/areas.js';
 import { rememberMapAction, undoMapAction } from '../frontend/map-history.js';
 import { contourGap, contourSupport, insideContour, measureContour, shapeSiblingContours } from '../frontend/map-contours.js';
@@ -11,11 +12,11 @@ function map(notes,areas) {
   const graph = Object.assign(Object.create(Graph.prototype), {
     canvas:{style:{},focus(){},getBoundingClientRect:()=>({left:0,top:0}),
       setPointerCapture(){},hasPointerCapture:()=>false}, width:1000,height:600,camera:{x:0,y:0,zoom:1},
-    contacts:new Map(),nodes:new Map(),selectedIds:new Set(),heating:new Set(),tool:'select',repaint(){},
+    contacts:new Map(),nodes:new Map(),selectedIds:new Set(),heating:new Set(),tool:'select',view:{...defaultMapView},repaint(){},
     callbacks:{
       onMapDrop:(...args)=>calls.drop.push(args),
       onReleaseSeats:positions=>{
-        const {ok,before,after}=releaseGridNotes(space,positions);
+        const {ok,before,after}=releaseGridNotes(space,positions,{movePinned:graph.view.manualLayout});
         assert.ok(ok);
         rememberMapAction(space,{kind:'placement',before,after});
         graph.setData(notes,areas);
@@ -30,6 +31,85 @@ function map(notes,areas) {
   const point = (x,y=0)=>({clientX:500+x,clientY:300+y,pointerId:1,button:0,pointerType:'mouse',preventDefault(){}});
   return {graph,point,calls,space};
 }
+
+test('free layout freezes the current frame, new data and overlapping notes until automatic layout resumes',()=>{
+  const notes=[{id:'a',x:0,y:0,tags:['shared']},{id:'b',x:1,y:0,links:['a']},{id:'c',x:150,y:0,tags:['shared']}];
+  const {graph,calls}=map(notes,[]);
+  graph.step();
+  graph.setView({manualLayout:true});
+  assert.ok(calls.move.length>0);
+  const edges=graph.edges;
+  assert.equal(edges.length,2);
+  assert.equal(graph.remaining,0);
+  for (const n of graph.nodes.values()) assert.deepEqual([n.vx,n.vy],[0,0]);
+  const layout=[...graph.nodes.values()].map(n=>[n.x,n.y]);
+  graph.wake();graph.step();
+  assert.deepEqual([...graph.nodes.values()].map(n=>[n.x,n.y]),layout);
+  assert.equal(graph.edges,edges);
+  graph.setData([...notes,{id:'d',x:150,y:0}],[]);
+  graph.step();
+  assert.equal(graph.remaining,0);
+  assert.equal(graph.nodes.get('d').x,150);
+  graph.setView({manualLayout:false});
+  assert.ok(graph.remaining>0);
+  graph.step();
+  assert.notEqual(graph.nodes.get('d').x,150);
+});
+
+test('free placement can release a seat and move a pinned group companion across a foreign grid at exact offsets',()=>{
+  const notes=[{id:'seat',x:-250,y:0,areaId:'source',slot:0,links:['pin']},
+    {id:'pin',x:-180,y:25,areaId:'parent',pinned:true},{id:'resident',x:150,y:0,areaId:'dest',slot:0}];
+  const areas=[{id:'parent'},{id:'source',parentId:'parent',grid:{rows:1,cols:1,x:-250,y:0}},
+    {id:'dest',grid:{rows:1,cols:2,x:150,y:0}}];
+  const {graph,point,calls,space}=map(notes,areas);
+  graph.setView({manualLayout:true});
+  graph.changeSelection(new Set(['seat','pin']));
+  const start=structuredClone(notes);
+  graph.pointerDown(point(-250));
+  graph.pointerMove(point(156,9));
+  assert.equal(graph.drag.mapTarget,null);
+  graph.cancelDrag();
+  assert.deepEqual([...graph.nodes.values()].map(n=>[n.x,n.y]),start.map(n=>[n.x,n.y]));
+  graph.pointerDown(point(-180,25)); // Grab the pinned member this time.
+  graph.pointerUp(point(226,34));
+  assert.deepEqual(notes.map(n=>[n.areaId,n.x,n.y]),[['parent',156,9],['parent',226,34],['dest',150,0]]);
+  assert.deepEqual(notes[0].links,['pin']);
+  assert.equal(notes[1].pinned,true);
+  assert.equal(graph.remaining,0);
+  assert.deepEqual(calls.drop,[]);
+  assert.ok(undoMapAction(space));
+  assert.deepEqual(notes,start);
+});
+
+test('a free layout drag onto a different folder keeps membership and saves the exact position of a pinned note',()=>{
+  const notes=[{id:'pin',x:-200,y:0,areaId:'a',pinned:true},{id:'other',x:150,y:20,areaId:'b'}];
+  const {graph,point,calls}=map(notes,[{id:'a'},{id:'b'}]);
+  graph.setView({manualLayout:true});
+  graph.pointerDown(point(-200));graph.pointerUp(point(150,20));
+  assert.deepEqual(calls.move,[{id:'pin',x:150,y:20}]);
+  assert.deepEqual(calls.drop,[]);
+  assert.equal(graph.nodes.get('pin').areaId,'a');
+  assert.equal(graph.remaining,0);
+  assert.equal(graph.nodes.get('other').x,150);
+});
+
+test('libraries share free layout between spaces, preserve the links preference and default older saves to automatic layout',()=>{
+  const library=newLibrary();
+  library.spaces.demo={notes:[],areas:[]};
+  library.view={links:false};
+  const legacy=readLibrary(serializeLibrary(library));
+  assert.equal(legacy.view.manualLayout,false);
+  assert.equal(legacy.view.links,false);
+  legacy.view.manualLayout=true;
+  legacy.active='demo';
+  const reopened=readLibrary(serializeLibrary(legacy)), {graph}=map([],[]);
+  graph.setView(reopened.view);
+  graph.setData(reopened.spaces.demo.notes,[]);
+  graph.setData(reopened.spaces.personal.notes,[]);
+  assert.equal(graph.view.manualLayout,true);
+  graph.setView({manualLayout:false});
+  assert.equal(graph.view.links,false);
+});
 
 test('moving 512 of 3072 linked notes across branches and undoing matches a fresh map',()=>{
   const areas=[{id:'root'},{id:'branch',parentId:'root'},{id:'left',parentId:'branch'},

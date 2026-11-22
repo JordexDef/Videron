@@ -21,7 +21,8 @@ function highlight(node, value, start, length) {
   }
   node.append(el('mark','',value.slice(start,start+length)),el('span','vs-after',value.slice(start+length)))
 }
-export function openSearch({notes, areas=[], onOpen, initialQuery='', initialState={}, onDismiss}) {
+export function openSearch({notes, areas=[], onOpen, initialQuery='', initialState={}, onDismiss, signal}) {
+  if(signal?.aborted)return
   const previous=document.activeElement
   const selection=previous?.isContentEditable?window.getSelection():null
   const caret=selection?.rangeCount?selection.getRangeAt(0).cloneRange():null
@@ -80,16 +81,20 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
     if(blobURL){URL.revokeObjectURL(blobURL);blobURL=null}
     clearTimeout(limitTimer);limitTimer=null
   }
-  function close(){
+  function interrupt(){close(false)}
+  function close(restoreFocus=true){
     if(closed)return
     closed=true;clearTimeout(timer);stopWorker();shade.remove()
+    signal?.removeEventListener('abort',interrupt)
+    source.length=0;byId.clear();list=[];query.value='';results.replaceChildren()
     if(background)background.inert=false
+    if(!restoreFocus)return
     previous?.focus?.({preventScroll:true})
     if(caret&&previous?.contains(caret.commonAncestorContainer)){
       selection.removeAllRanges();selection.addRange(caret)
     }
   }
-  function dismiss(){close();onDismiss?.()}
+  function dismiss(){if(!closed){close();onDismiss?.()}}
   function open(result){
     const id=result.id,note=byId.get(id)
     const state={query:query.value,area:area.value,flags:{...flags},activeId:id}
@@ -238,6 +243,7 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
       else if(!e.shiftKey&&e.target===last){e.preventDefault();escape.focus()}
     }
   }
+  signal?.addEventListener('abort',interrupt,{once:true})
   query.focus();query.select();lookup()
   return dismiss
 }

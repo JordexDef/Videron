@@ -75,6 +75,7 @@ func newVaultKey(password string) (*vaultKey, error) {
 func (key *vaultKey) forget() {
 	if key != nil {
 		clear(key.key)
+		key.key = nil
 	}
 }
 
@@ -85,6 +86,9 @@ func (key *vaultKey) verify(password string) bool {
 }
 
 func (key *vaultKey) aead() (cipher.AEAD, error) {
+	if key == nil || len(key.key) == 0 {
+		return nil, errLocked
+	}
 	block, err := aes.NewCipher(key.key)
 	if err != nil {
 		return nil, err
@@ -181,10 +185,12 @@ func (key *vaultKey) open(env *envelope, id string) ([]byte, error) {
 }
 
 func validNote(id string, payload []byte) bool {
-	var identity struct {
-		ID string `json:"id"`
+	if id == "" || !utf8.Valid(payload) {
+		return false
 	}
-	return id != "" && utf8.Valid(payload) && json.Unmarshal(payload, &identity) == nil && identity.ID == id
+	// Use the same case-sensitive property as the editor and catalog index.
+	storedID, err := rowID(payload)
+	return err == nil && storedID == id
 }
 
 // A sealed note may keep its map coordinates and links beside the envelope.

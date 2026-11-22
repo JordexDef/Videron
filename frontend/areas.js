@@ -143,7 +143,7 @@ export function placeAreaNotes(space, ids, areaId, startSlot = null, positions =
 
 // A free-canvas drop releases each grid member into its own nearest freeform
 // parent. Other movable members of the selection keep their existing folders.
-export function releaseGridNotes(space, positions) {
+export function releaseGridNotes(space, positions, {movePinned = false} = {}) {
   const notes = new Map(space.notes.map(note => [note.id,note]));
   const areas = new Map(space.areas.map(area => [area.id,area]));
   const destinations = new Map(), before = [], after = [];
@@ -162,7 +162,7 @@ export function releaseGridNotes(space, positions) {
         destinations.set(areaId,parent?.id ?? null);
       }
       areaId = destinations.get(areaId);
-    } else if (note.pinned || (note.x === x && note.y === y)) continue;
+    } else if ((note.pinned && !movePinned) || (note.x === x && note.y === y)) continue;
     before.push(placement(note,area?.grid));
     after.push({id,areaId,slot:null,x,y});
   }

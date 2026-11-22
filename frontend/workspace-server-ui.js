@@ -1,8 +1,7 @@
 import { icon } from './art.js'
 import { getLanguage, tr } from './i18n.js'
 import { folderLabel } from './folder-links.js'
-import { spaceDialog } from './workspace-ui.js'
-import { openVaultPassword } from './vault-ui.js'
+import { spaceDialog, spaceEncryptionFields } from './workspace-ui.js'
 import { lastServerAddress, rememberServerAddress } from './server-address.js'
 import { mountServerProjectPicker } from './server-project-picker.js'
 
@@ -81,6 +80,7 @@ export function openWorkspaceServer(options){
       })
       const picker=mountServerProjectPicker(projects,{...options,verified:profile,catalog,run,close:dismiss,onTicketError:reset,
         onRenameServerProject:rename})
+      clearCredentials=()=>{picker.clear();discard(profile.ticket)}
       const back=action(tr('Назад','Back'),false,reset)
       picker.actions.prepend(back)
       actions.hidden=true;hint.hidden=true;projectName.hidden=true;picker.focus()
@@ -111,6 +111,7 @@ export function openWorkspaceServer(options){
   function invalidate(){
     generation++;checking=false;differentSpace=false
     discard(verified?.ticket);verified=null
+    picker?.clear();encryption.clear()
     copies.replaceChildren();projectHost.replaceChildren();picker=null
     error.textContent=''
   }
@@ -136,11 +137,15 @@ export function openWorkspaceServer(options){
   if(native.PickFolder)locationInput.add(new Option(tr('Выбрать папку…','Choose folder…'),'browse'))
   let customFolder='',chosenLocation=''
   locationInput.onchange=()=>{
-    if(locationInput.value!=='browse'){chosenLocation=locationInput.value;update();return}
+    if(locationInput.value!=='browse'){
+      if(chosenLocation!==locationInput.value)encryption.clear()
+      chosenLocation=locationInput.value;update();return
+    }
     locationInput.value=chosenLocation
     run(async()=>{
       const dir=await native.PickFolder(getLanguage())
       if(!dir || !box.isConnected)return
+      if(chosenLocation!=='custom' || customFolder!==dir)encryption.clear()
       customFolder=dir
       locationInput.querySelector('option[value="custom"]')?.remove()
       locationInput.add(new Option(dir,'custom'),locationInput.options[1]);locationInput.value=chosenLocation='custom';update()
@@ -151,9 +156,7 @@ export function openWorkspaceServer(options){
   async function destination(){
     return defaultFolderAvailable?locationInput.value==='custom'?customFolder:'':(await native.PickFolder(getLanguage())||null)
   }
-  const protect=node('label','space-choice'),encrypt=node('input')
-  encrypt.type='checkbox';encrypt.checked=!!projectProtected
-  protect.append(encrypt,document.createTextNode(tr('Зашифровать файл пространства паролем','Encrypt the space file with a password')))
+  const encryption=spaceEncryptionFields(projectProtected)
   const actions=node('div','dialog-actions')
   const changeMode=action('',false,()=>{
     clearCredentials();pairing=!pairing;update()
@@ -174,16 +177,14 @@ export function openWorkspaceServer(options){
     }
     return result
   },join,tr('Открываем…','Opening…')))
-  const connect=action(tr('Подключить это пространство','Connect this space'),true,()=>perform(async()=>{
+  const connect=action(tr('Подключить это пространство','Connect this space'),true,()=>{
+    if(encryption.validate())return perform(connectSpace,connect,tr('Подключаем…','Connecting…'))
+  })
+  async function connectSpace(){
     if(!folder){
       const dir=await destination()
       if(dir===null || !box.isConnected)return false
-      let password=''
-      if(encrypt.checked){
-        const accepted=await openVaultPassword({mode:'set',scope:'space',onSubmit:values=>{password=values.password}})
-        if(!accepted || !box.isConnected)return false
-      }
-      folder=await useCredential(credential=>onPrepareFolder(dir,password,credential))
+      folder=await useCredential(credential=>onPrepareFolder(dir,encryption.password,credential))
       if(!folder || !box.isConnected)return false
       update()
     }else if(defaultFolderAvailable && locationInput.value==='custom' && customFolder!==folder){
@@ -192,7 +193,7 @@ export function openWorkspaceServer(options){
       folder=customFolder;return true
     }
     return useCredential(onConnect)
-  },connect,tr('Подключаем…','Connecting…')))
+  }
   function addCopy({folder,name=folderLabel(folder)}){
     if([...copies.children].some(row=>row.dataset.folder===folder))return
     const row=node('div','server-copy')
@@ -290,7 +291,7 @@ export function openWorkspaceServer(options){
       knownCopies?tr('Выбрать другую папку…','Choose another folder…'):tr('Открыть с сервера…','Open from server…')
     join.className='button '+(canConnect || knownCopies?'secondary':'primary')
     copies.hidden=!knownCopies
-    protect.hidden=connect.hidden || !!folder
+    encryption.setAvailable(!picker && !connect.hidden && !folder)
     if(!canConnect && verified?.hasSpace===false){
       hint.textContent=tr('Сервер пуст. Создайте или откройте пространство в Videron, затем подключите его здесь.',
         'The server is empty. Create or open a space in Videron, then connect it here.')
@@ -314,12 +315,12 @@ export function openWorkspaceServer(options){
     }
     if(!verified){status.replaceChildren();checkedAddress.textContent=''}
     location.hidden=!ready || !!picker || !defaultFolderAvailable
-    if(picker){hint.hidden=true;protect.hidden=true;actions.hidden=true;copies.hidden=true}
+    if(picker){hint.hidden=true;actions.hidden=true;copies.hidden=true}
     else actions.hidden=false
   }
   for(const input of [address.input,password.input,code.input])input.oninput=()=>{invalidate();update()}
   actions.append(changeMode,check,join,connect)
-  form.append(credentials,legacy,summary,projectHost,hint,copies,location,protect,error,actions);box.append(form)
+  form.append(credentials,legacy,summary,projectHost,hint,copies,location,encryption.row,error,actions);box.append(form)
   // Inputs may share a form even when their alternate sign-in method is hidden.
   form.onsubmit=e=>{e.preventDefault();(pairing || verified?defaultAction():check).click()}
   form.onkeydown=e=>{

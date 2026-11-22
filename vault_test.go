@@ -91,8 +91,28 @@ func TestProjectVaultTransitions(t *testing.T) {
 	// Start with a fresh process. A save attempted before successful unlock
 	// must not overwrite the envelope, including after a canceled password prompt.
 	other := new(App)
+	// A crash while removing the password can strand a plaintext snapshot next
+	// to the encrypted catalog. A reader must skip a live writer's file.
+	if err := os.WriteFile(orphan, []byte(snapshot), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := withSpaceWriteLock(path, func() error {
+		if _, err := other.Load(); !errors.Is(err, errLocked) {
+			t.Fatalf("locked read during a write: %v", err)
+		}
+		_, err := os.Stat(orphan)
+		return err
+	}); err != nil {
+		t.Fatal("reader disturbed an active writer", err)
+	}
 	if _, err := other.Load(); !errors.Is(err, errLocked) || !other.IsProjectProtected() {
 		t.Fatal("expected locked project", err)
+	}
+	if _, err := os.Stat(orphan); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("interrupted password removal left plaintext at the lock screen", err)
+	}
+	if _, err := os.Stat(unrelated); err != nil {
+		t.Fatal("cleanup touched an unrelated file", err)
 	}
 	before := stored(t, path)
 	if err := other.Save(snapshot); !errors.Is(err, errLocked) {
@@ -183,6 +203,17 @@ func TestIndependentNoteVault(t *testing.T) {
 	}
 	if _, err := a.SealNote("note-a", `{"id":"other-id"}`); !errors.Is(err, errInvalid) {
 		t.Fatal(err)
+	}
+	if _, err := a.SealNote("note-a", `{"ID":"note-a"}`); !errors.Is(err, errInvalid) {
+		t.Fatal("encrypted a note the editor could not identify", err)
+	}
+	const withExtension = `{"id":"note-a","ID":"extension value"}`
+	withExtensionSealed, err := a.SealNote("note-a", withExtension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened, err := a.UnlockNote("note-a", withExtensionSealed, testPass); err != nil || opened != withExtension {
+		t.Fatal("case-sensitive identifier with an extension did not round-trip", err)
 	}
 	if err := a.ProtectProject(snapshot, nextPass); err != nil {
 		t.Fatal(err)
@@ -304,14 +335,18 @@ func TestFailedReloadForgetsOpenSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	noteKey := a.noteKeys["note-a"]
+	keyBytes := noteKey.key
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.Load(); !errors.Is(err, errChanged) {
 		t.Fatal("missing existing library returned as a new one", err)
 	}
-	if a.loaded || len(a.noteKeys) != 0 || !bytes.Equal(noteKey.key, make([]byte, 32)) {
+	if a.loaded || len(a.noteKeys) != 0 || !bytes.Equal(keyBytes, make([]byte, 32)) {
 		t.Fatal("failed refresh retained access to old note")
+	}
+	if _, err := noteKey.seal(noteVault, "note-a", []byte(originalNote)); !errors.Is(err, errLocked) {
+		t.Fatal("retired keys must refuse writes", err)
 	}
 	if err := a.Save(snapshot); !errors.Is(err, errLocked) {
 		t.Fatal("stale save after failed reload", err)

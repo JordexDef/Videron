@@ -1,7 +1,6 @@
 import {icon} from './art.js';
 import {getLanguage,tr} from './i18n.js';
 import {folderLabel} from './folder-links.js';
-import {openVaultPassword} from './vault-ui.js';
 
 function element(tag,className,text){
   const node=document.createElement(tag);
@@ -28,6 +27,47 @@ function checkLabel(label){
   const row=element('label','space-choice'),input=element('input');
   input.type='checkbox';row.append(input,document.createTextNode(label));
   return {row,input};
+}
+
+export function spaceEncryptionFields(projectProtected){
+  const row=element('div'),choice=checkLabel(tr('Зашифровать пространство','Encrypt space'));
+  const fields=element('div','space-passphrase'),error=element('div','vault-error');
+  error.setAttribute('role','alert');
+  choice.input.checked=!!projectProtected;
+  function field(label){
+    const wrap=element('label','field',label),input=element('input');
+    input.type='password';input.autocomplete='new-password';input.spellcheck=false;
+    wrap.append(input);fields.append(wrap);
+    return input;
+  }
+  const password=field(tr('Пароль (от 8 символов)','Password (8+ characters)'));
+  const confirm=field(tr('Повторите пароль','Confirm password'));
+  fields.append(error);row.append(choice.row,fields);
+  function clearError(){
+    error.textContent='';password.removeAttribute('aria-invalid');confirm.removeAttribute('aria-invalid');
+  }
+  function clear(){
+    password.value='';confirm.value='';clearError();
+  }
+  function setAvailable(available){
+    row.hidden=!available;fields.hidden=!available || !choice.input.checked;
+    password.disabled=confirm.disabled=fields.hidden;
+    if(fields.hidden)clear();
+  }
+  function invalid(input,message){
+    error.textContent=message;input.setAttribute('aria-invalid','true');input.focus();input.select();
+    return false;
+  }
+  function validate(){
+    if(fields.hidden)return true;
+    if(Array.from(password.value).length<8)return invalid(password,tr('Введите пароль длиной от 8 символов.','Enter a password with at least 8 characters.'));
+    if(!confirm.value || confirm.value!==password.value)return invalid(confirm,tr('Введите тот же пароль ещё раз.','Enter the same password again.'));
+    return true;
+  }
+  fields.oninput=clearError;
+  choice.input.onchange=()=>setAvailable(!row.hidden);
+  setAvailable(false);
+  return {row,setAvailable,clear,validate,get password(){return fields.hidden?'':password.value}};
 }
 
 // Keep a pending filesystem operation and its feedback in the same dialog.
@@ -63,12 +103,11 @@ export function openCreateSpace({dialog,native,projectProtected,onCreate,onError
   const form=element('form'),field=element('label','field',tr('Название','Name')),name=element('input');
   name.required=true;name.maxLength=80;name.value=sourceName??'';name.autocomplete='off';
   field.append(name);form.append(field);
-  const protect=checkLabel(tr('Зашифровать файл паролем','Encrypt the file with a password'));
-  protect.input.checked=!!projectProtected;
+  const encryption=spaceEncryptionFields(projectProtected);
   let folder='';
   const save=element('button','button primary');save.type='submit';
   function update(){
-    protect.row.hidden=!folder;
+    encryption.setAvailable(!!folder);
     save.textContent=moving?tr('Перенести','Move'):tr('Создать','Create');
     save.disabled=!name.value.trim() || (moving && !folder);
   }
@@ -80,6 +119,7 @@ export function openCreateSpace({dialog,native,projectProtected,onCreate,onError
     const choose=button('','button secondary space-choose',()=>run(async()=>{
       const selected=await native.PickFolder(getLanguage());
       if(!selected || !box.isConnected)return;
+      if(folder!==selected)encryption.clear();
       folder=selected;
       if(!name.value.trim())name.value=folderLabel(folder).slice(0,80);
       updateLocation();update();
@@ -96,7 +136,7 @@ export function openCreateSpace({dialog,native,projectProtected,onCreate,onError
         tr('По умолчанию пространство хранится в библиотеке Videron.','By default, the space is stored in your Videron library.');
     }
     updateLocation();
-    controls.append(choose,clear);location.append(caption,controls,hint);form.append(location,protect.row);
+    controls.append(choose,clear);location.append(caption,controls,hint);form.append(location,encryption.row);
   }
   const actions=element('div','dialog-actions');
   actions.append(button(tr('Отмена','Cancel'),'button secondary',close),save);
@@ -104,17 +144,9 @@ export function openCreateSpace({dialog,native,projectProtected,onCreate,onError
   form.onsubmit=e=>{
     e.preventDefault();
     const title=name.value.trim();
-    if(!title || title.length>80 || (moving&&!folder))return;
+    if(!title || title.length>80 || (moving&&!folder) || !encryption.validate())return;
     void run(async()=>{
-      if(folder && protect.input.checked){
-        // Filesystem errors belong beside the folder selector, where they can be corrected.
-        let failure;
-        const completed=await openVaultPassword({mode:'set',scope:'space',onSubmit:async({password})=>{
-          try{await onCreate({name:title,folder,password})}catch(e){failure=e}
-        }});
-        if(failure)throw failure;
-        if(!completed)return;
-      }else await onCreate({name:title,folder,password:''});
+      await onCreate({name:title,folder,password:encryption.password});
       close();
     });
   };

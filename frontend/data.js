@@ -2,8 +2,9 @@ import { getLanguage, tr } from './i18n.js';
 import { normalizeAreaTree } from './areas.js';
 
 export function blankWorkspace(){return {notes:[],areas:[]}}
+export const defaultMapView = Object.freeze({labels:true, links:true, grid:true, reading:true, manualLayout:false});
 export function newLibrary(){
-  return {version:1, active:'personal', spaces:{personal:blankWorkspace()}, plugins:[], view:{labels:true,links:true,grid:true,reading:true}};
+  return {version:1, active:'personal', spaces:{personal:blankWorkspace()}, plugins:[], view:{...defaultMapView}};
 }
 export function serializeLibrary(library){
   const entries=Object.entries(library.spaces);
@@ -60,7 +61,7 @@ export function readLibrary(raw){
       checkWorkspace(space);
     }
   }
-  return {...newLibrary(),...data};
+  return {...newLibrary(),...data,view:{...defaultMapView,...data.view}};
 }
 export function checkWorkspace(space){
   if(!Array.isArray(space?.notes)||!Array.isArray(space.areas))throw new Error(tr('Структура пространства повреждена.', 'The workspace structure is invalid.'));

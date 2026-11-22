@@ -130,7 +130,8 @@ func (a *App) MatchingServerFolders(code string, folders []string) ([]string, er
 	return matches, nil
 }
 
-func (a *App) rejoinServerFolder(p *serverProfile, c *http.Client, dir string, m serverManifest) error {
+func (session *syncSession) rejoinServerFolder(p *serverProfile, c *http.Client, dir string, m serverManifest) error {
+	a := session.app
 	path := filepath.Join(dir, folderSpaceFilename)
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		return errServerFolder
@@ -138,6 +139,10 @@ func (a *App) rejoinServerFolder(p *serverProfile, c *http.Client, dir string, m
 		return err
 	}
 	a.mu.Lock()
+	if err := session.check(); err != nil {
+		a.mu.Unlock()
+		return err
+	}
 	id := spaceSessionID(dir)
 	temporary := a.folderSpaces[id] == nil
 	var s *folderSpaceSession
@@ -170,11 +175,14 @@ func (a *App) rejoinServerFolder(p *serverProfile, c *http.Client, dir string, m
 			}
 		}()
 	}
-	if err = p.exchange(c, dir, m, a); err != nil {
+	if err = p.exchange(c, dir, m, session); err != nil {
 		return err
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if err = session.check(); err != nil {
+		return err
+	}
 	if _, err = a.serverFolderSession(dir, m.Lineage); err != nil {
 		return err
 	}

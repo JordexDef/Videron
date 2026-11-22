@@ -247,6 +247,7 @@ async function setIdleMinutes(minutes){
 function requestLock(){
   if(!native)return;
   storageIndicator.close();
+  clearSpacePassphrases(document);
   dismissWorkspaceConflicts();dismissWorkspaceServer();
   if(!ready){
     if(!lockScreen){lockDuringStartup=true;void interruptVaultDialogs()}
@@ -254,6 +255,7 @@ function requestLock(){
   }
   if(lockScreen)return locking;
   if(!projectProtected && !folderSession?.encrypted && !noteSession?.protected && !openingNote && !spaceOperation && !policyWrite && !document.querySelector('.vault-dialog'))return;
+  searchLifetime?.abort();
   dismissExtensions();cancelTransfers();closeMenu();routes?.reset();reading?.hide();mapMetrics=null;lockScreen=showLockScreen();sidebarTree?.clear();syncMapVisibility();syncIdle();
   let target=null, retryTimer;
   function retry(){
@@ -370,12 +372,17 @@ function menu(anchor, items, {scrollChoices=false}={}){
   const first=(scrollChoices && box.querySelector('[aria-checked=true]')) || box.querySelector('button');
   first?.focus({preventScroll:true});if(scrollChoices)first?.scrollIntoView({block:'nearest'});
 }
+function clearSpacePassphrases(root){
+  for(const input of root.querySelectorAll('.space-passphrase input[type="password"]')){
+    input.value='';input.setCustomValidity('');
+  }
+}
 function dialog(title, dismissible=true){
   closeMenu();
   const focus=document.activeElement;
   const shade=element('div','shade'),box=element('div','dialog'),heading=element('div','dialog-title');
   box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-label',title);
-  function close(){shade.remove();focus?.focus?.({preventScroll:true})}
+  function close(){clearSpacePassphrases(box);shade.remove();focus?.focus?.({preventScroll:true})}
   heading.append(element('h2','',title));if(dismissible)heading.append(iconButton('x',tr('Закрыть','Close'),close));
   box.append(heading);shade.append(box);document.body.append(shade);
   shade.addEventListener('pointerdown',e=>{if(e.target===shade&&dismissible)close()});
@@ -723,6 +730,7 @@ function changeSpace(work){
   return spaceOperation;
 }
 function showSpace(next,session){
+  searchLifetime?.abort();
   dismissExtensions();
   dismissWorkspaceConflicts();
   storageIndicator.close();
@@ -826,7 +834,7 @@ function newSpaceForm(link=false){
 }
 function manageSpaces(){
   const entries=Object.entries(library.spaces).map(([id,space])=>({id,name:spaceTitle(id,space),folder:space.folder,
-    encrypted:space.encrypted,noteCount:space.notes?.length ?? (id===library.active?workspace().notes.length:undefined)}));
+    encrypted:isFolderSpace(space)?space.encrypted:projectProtected,noteCount:space.notes?.length ?? (id===library.active?workspace().notes.length:undefined)}));
   openSpaceManager({dialog,entries,active:library.active,native,onLink:()=>newSpaceForm(true),onDelete:deleteSpace,
     onOpenFolder:folder=>native.OpenFolder(folder),onError:storageErrorMessage});
 }
@@ -1734,25 +1742,28 @@ function render(){
   if(!map)renderList();else $('list-selection').hidden=true;
   renderSelection();
 }
-let openingSearch=false;
+let openingSearch=false,searchLifetime=null;
 async function search(initialState={},onDismiss){
   if(!ready||lockScreen||openingSearch||document.querySelector('.vs-shade'))return;
   cancelTransfers();
   openingSearch=true;
+  const lifetime=new AbortController();
+  searchLifetime=lifetime;
   const origin=editor,originId=selected;
   const returnToOrigin=origin?edit.bind(null,originId,origin.returnToResults):onDismiss;
   closeMenu();
   try{
     const {openSearch}=await import('./search.js');
-    if(lockScreen||!ready)return;
+    if(lockScreen||!ready||lifetime.signal.aborted)return;
     editor?.flush?.();
-    openSearch({notes:workspace().notes.filter(note=>!isProtectedNote(note)),areas:workspace().areas,initialState,onDismiss,
+    openSearch({notes:workspace().notes.filter(note=>!isProtectedNote(note)),areas:workspace().areas,initialState,onDismiss,signal:lifetime.signal,
       onOpen:async(id,state,target)=>{
         if(origin && id===originId){
           if(target)origin.revealSearchMatch(target);
           return;
         }
         if(origin && !await origin.prepareClose())return;
+        if(lifetime.signal.aborted)return;
         edit(id,search.bind(null,state,returnToOrigin),target);
       }});
   }
@@ -1806,8 +1817,13 @@ function bindUI(){
   $('map-stage').querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{chooseTool(tool==='link'&&b.dataset.tool==='link'?'select':b.dataset.tool);renderSelection()});
   $('view').onclick=e=>{
     if(page==='area'){areaActions(areaById(currentArea),e.currentTarget);return}
-    menu(e.currentTarget,[['labels','text',tr('Названия заметок','Note titles')],['links','link',tr('Линии связей','Link lines')],['grid','grid',tr('Точечная сетка','Dot grid')],['reading','zoomIn',tr('Читать приближением','Read as you zoom')]].map(([key,symbol,name])=>({
-      name,icon:symbol,checked:graph.view[key],run:()=>{library.view[key]=!graph.view[key];graph.setView(library.view);dirty({settings:['view']})}
+    menu(e.currentTarget,[
+      ['manualLayout','pointer',tr('Свободная расстановка','Free layout'),tr('Расставлять заметки вручную и скрыть линии связей','Position notes by hand and hide link lines')],
+      ['labels','text',tr('Названия заметок','Note titles')],
+      ...(!graph.view.manualLayout ? [['links','link',tr('Линии связей','Link lines')]] : []),
+      ['grid','grid',tr('Точечная сетка','Dot grid')],['reading','zoomIn',tr('Читать приближением','Read as you zoom')]
+    ].map(([key,symbol,name,title])=>({
+      name,title,icon:symbol,checked:graph.view[key],run:()=>{library.view[key]=!graph.view[key];graph.setView(library.view);dirty({settings:['view']})}
     })));
   };
   $('help').onclick=showHelp;$('search').onclick=()=>search();$('settings').onclick=settings;
@@ -1994,7 +2010,7 @@ async function init(){
     onMapDrop:(ids,id,slot,positions)=>placeNotes(ids,id,false,slot,positions),
     onReleaseSeats:positions=>{
       if(!ready || editor || openingNote || lockScreen)return;
-      const space=workspace(),change=releaseGridNotes(space,positions);
+      const space=workspace(),change=releaseGridNotes(space,positions,{movePinned:graph.view.manualLayout});
       if(!change.ok || !change.after.length)return;
       rememberMapAction(space,{kind:'placement',before:change.before,after:change.after});
       dirty({notes:change.after.map(p=>byId(p.id))});

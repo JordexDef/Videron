@@ -1,4 +1,5 @@
 import { tr } from './i18n.js';
+import { defaultMapView } from './data.js';
 import { areaTreeRows } from './areas.js';
 import { gridRowSpacing, gridSpacing, planGridSlots, slotPoint, validSlot } from './area-grid.js';
 import { slotAt, slotGridBounds, gridFocusCamera, drawSlotGrid, drawGridGrip, draggedGridSpacing, stageHandleAt, stageTitleAt } from './map-slots.js';
@@ -172,7 +173,7 @@ export class Graph {
     this.stageHeaders = [];
     this.tagSets = [];
     this.heating = new Set();
-    this.view = { labels: true, links: true, grid: true, reading: true };
+    this.view = {...defaultMapView};
     this.camera = { x: 0, y: 0, zoom: 1 };
     this.target = null;
     this.width = 1;
@@ -245,10 +246,19 @@ export class Graph {
   get zoom() { return this.camera.zoom; }
 
   setView(options) {
-    for (const key of ['labels', 'links', 'grid','reading']) {
+    const layoutChanged = typeof options.manualLayout === 'boolean' && options.manualLayout !== this.view.manualLayout;
+    if (layoutChanged && this.drag) this.cancelDrag();
+    for (const key of Object.keys(defaultMapView)) {
       if (typeof options[key] === 'boolean') this.view[key] = options[key];
     }
-    this.repaint();
+    if (layoutChanged) {
+      if (this.view.manualLayout) {
+        this.flushPositions();
+        for (const n of this.nodes.values()) n.vx = n.vy = 0;
+      }
+      this.accumulator = 0;
+      this.wake();
+    } else this.repaint();
   }
 
   worldCenter() { return { x: this.camera.x, y: this.camera.y }; }
@@ -436,12 +446,13 @@ export class Graph {
   }
 
   wake() {
-    this.remaining = 720;
+    this.remaining = this.view?.manualLayout ? 0 : 720;
     this.rest = 0;
     this.repaint();
   }
 
   step() {
+    if (this.view?.manualLayout) return;
     this.measuredGroups = null;
     releaseDragPaint(this.drag);
     const drag = this.drag;
@@ -638,20 +649,22 @@ export class Graph {
       this.changeSelection(new Set([...(drag.extend ? this.selectedIds : []), drag.node.id]));
     drag.noteIds = [...this.selectedIds];
     drag.seatOrder = [drag.node.id,...drag.noteIds.filter(id=>id!==drag.node.id)];
-    this.measureGroups();
-    // A folder follows its members during the drag. Use the outline the user
-    // aimed for at the start of the gesture to decide where a release lands.
-    drag.dropHulls = new Map();
-    for (const group of this.groups) if (!group.grid) {
-      const {x,y,r,points} = group.hull;
-      drag.dropHulls.set(group,{x,y,r,points});
+    if (!this.view?.manualLayout) {
+      this.measureGroups();
+      // A folder follows its members during the drag. Use the outline the user
+      // aimed for at the start of the gesture to decide where a release lands.
+      drag.dropHulls = new Map();
+      for (const group of this.groups) if (!group.grid) {
+        const {x,y,r,points} = group.hull;
+        drag.dropHulls.set(group,{x,y,r,points});
+      }
     }
     // Live collisions can displace neighbours too. Keep the pre-drag layout
     // until the destination is known, so a trip across the map is reversible.
     // Node indices are stable until setData(), which cancels the gesture.
     drag.layout = Array.from(this.nodes.values(),n=>({node:n,x:n.x,y:n.y,vx:n.vx,vy:n.vy,r:n.r}));
     drag.members = drag.noteIds.map(id=>drag.layout[this.nodes.get(id).index]);
-    const canMove = n => n.seated ? !!this.callbacks.onReleaseSeats : !n.pinned;
+    const canMove = n => n.seated ? !!this.callbacks.onReleaseSeats : this.view?.manualLayout || !n.pinned;
     drag.mobileMembers = canMove(drag.node) ? drag.members.filter(p=>canMove(p.node)) : [];
     drag.allMoving = new Set(drag.noteIds);
     drag.moving = new Set(drag.mobileMembers.map(p=>p.node.id));
@@ -676,13 +689,13 @@ export class Graph {
     drag.overSidebar = !!this.callbacks.onNoteDragMove?.(drag.noteIds, event.clientX, event.clientY);
     const offMap = drag.overSidebar || point.x < 0 || point.y < 0 || point.x >= this.width || point.y >= this.height;
     const world = this.world(point);
-    drag.mapTarget = !offMap && this.callbacks.onMapDrop ? this.dropTarget(world,drag) : null;
+    drag.mapTarget = !offMap && !this.view?.manualLayout && this.callbacks.onMapDrop ? this.dropTarget(world,drag) : null;
     if (offMap || drag.mapTarget?.blocked || (!drag.mapTarget && !drag.moving.size)) {
       if (drag.held) { this.restoreLayout(drag); this.remaining = 0; }
       drag.held = null;
     } else {
       // An explicit folder drop carries even pinned notes to the destination.
-      // On open canvas a seat can be released directly. Ordinary map pins stay put.
+      // On open canvas a seat can be released directly.
       const seats = drag.mapTarget?.seats;
       const held = seats || (drag.mapTarget ? drag.allMoving : drag.moving);
       // A pointer can produce many successive frames inside the same seat.
@@ -1359,7 +1372,7 @@ export class Graph {
       node.clip = (x<0?1:x>w?2:0) | (y<0?4:y>h?8:0);
     }
     let lastStroke, lastWidth;
-    for (const { a, b, manual } of (this.view.links ? this.edges : [])) {
+    for (const { a, b, manual } of (this.view.links && !this.view.manualLayout ? this.edges : [])) {
       if (a.clip & b.clip) continue;
       const ax=a.screenX, ay=a.screenY, vx=b.screenX-ax, vy=b.screenY-ay;
       // Bounding boxes of long diagonal links can cover the viewport even

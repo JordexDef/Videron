@@ -46,6 +46,33 @@ func (s *syncServerTickets) reset() {
 	s.generation++
 }
 
+func (s *syncServerTickets) currentGeneration() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.generation
+}
+
+// A sync operation belongs to the vault session that initiated it. The caller
+// holds app.mu while reading a local record or committing an enrollment.
+type syncSession struct {
+	app        *App
+	generation uint64
+}
+
+func (a *App) syncSession() *syncSession {
+	return &syncSession{a, a.serverTickets.currentGeneration()}
+}
+
+func (s *syncSession) check() error {
+	if !s.app.loaded {
+		return errLocked
+	}
+	if s.app.serverTickets.currentGeneration() != s.generation {
+		return errServerTicket
+	}
+	return nil
+}
+
 func (a *App) ticketContext() (context.Context, uint64, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -55,14 +82,10 @@ func (a *App) ticketContext() (context.Context, uint64, error) {
 	ctx := a.ctx
 	// Capture the ticket generation while the unlocked state is still current.
 	// A lock during the network request invalidates its result, even after unlock.
-	tickets := &a.serverTickets
-	tickets.mu.Lock()
-	generation := tickets.generation
-	tickets.mu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return ctx, generation, nil
+	return ctx, a.serverTickets.currentGeneration(), nil
 }
 
 func (a *App) VerifySyncServer(address, password string) (VerifiedSyncServer, error) {

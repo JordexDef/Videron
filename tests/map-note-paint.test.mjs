@@ -69,3 +69,20 @@ test('wide group drag keeps the grabbed caption and restores all selected captio
   assert.deepEqual(captions,['a','b']);
   assert.equal(strokes.filter(s=>s==='rgba(237,237,237,.66)').length,2);
 });
+
+test('free layout suppresses both manual and shared-tag lines while preserving the route overlay',()=>{
+  const {ctx,strokes}=canvasProbe();
+  const node=(id,x,y)=>({id,x,y,r:8,heat:0,tint:'120,120,120'});
+  const a=node('a',-80,-500),b=node('b',80,500),c=node('c',-90,500);
+  const graph=Object.assign(Object.create(Graph.prototype),{
+    ctx,width:200,height:200,dpr:1,camera:{x:0,y:0,zoom:1},nodes:new Map([a,b,c].map(n=>[n.id,n])),
+    selectedIds:new Set(['a']),view:{labels:false,links:true,manualLayout:true},groups:[],
+    edges:[{a,b,manual:true},{a,b:c,manual:false}],callbacks:{onDrawRoute(){strokes.push('route')}},
+    drawLabels(){},measureGroups(){}
+  });
+  graph.draw();
+  assert.deepEqual(strokes,['route','route']);
+  graph.view.manualLayout=false;
+  strokes.length=0;graph.draw();
+  assert.deepEqual(strokes,['rgba(237,237,237,.66)','rgba(237,237,237,.66)','route','route']);
+});

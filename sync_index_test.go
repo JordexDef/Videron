@@ -241,7 +241,7 @@ func TestEncryptedSyncUploadBodies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = p.exchange(client, folder, m, a); err != nil {
+		if err = p.exchange(client, folder, m, a.syncSession()); err != nil {
 			t.Fatal(err)
 		}
 	}

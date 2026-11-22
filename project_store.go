@@ -111,14 +111,15 @@ func sameFileState(old, now os.FileInfo) bool {
 // Previous releases used this exact os.CreateTemp pattern for atomic saves.
 // A process killed mid-save can leave an orphan containing unencrypted data.
 // Only clear the application's numeric temporary files in its own storage directory.
-func removeWorkspaceTemps(dir string) error {
+func workspaceTemps(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var paths []string
 	for _, entry := range entries {
 		name := entry.Name()
 		suffix, ok := strings.CutPrefix(name, ".workspace-")
@@ -129,11 +130,35 @@ func removeWorkspaceTemps(dir string) error {
 		if !ok || digits == "" || strings.Trim(digits, "0123456789") != "" || !entry.Type().IsRegular() {
 			continue
 		}
-		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		paths = append(paths, filepath.Join(dir, name))
+	}
+	return paths, nil
+}
+
+func cleanWorkspaceTemps(path string, lock bool) error {
+	paths, err := workspaceTemps(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("VD_READ|%w", err)
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	remove := func() error {
+		for _, temp := range paths {
+			if err := os.Remove(temp); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("VD_WRITE|%w", err)
+			}
+		}
+		return nil
+	}
+	if lock {
+		// A live writer owns its temporary file until publication.
+		if err := withSpaceWriteLock(path, remove); !errors.Is(err, errChanged) {
 			return err
 		}
+		return nil
 	}
-	return nil
+	return remove()
 }
 
 func (a *App) Load() (payload string, loadErr error) {
@@ -176,6 +201,15 @@ func (a *App) Load() (payload string, loadErr error) {
 	if h.Vault != "" {
 		env, err := parseEnvelope(data, projectVault)
 		if err != nil {
+			return "", err
+		}
+		// Removing a password stages plaintext before replacing the envelope.
+		// Recover leftovers from an interrupted write even at the password prompt.
+		path, err := workspacePath()
+		if err != nil {
+			return "", err
+		}
+		if err = cleanWorkspaceTemps(path, true); err != nil {
 			return "", err
 		}
 		if a.projectKey == nil || !bytes.Equal(a.projectKey.salt, env.Salt) {
@@ -333,8 +367,8 @@ func (a *App) writeCatalogBytes(data []byte, key *vaultKey) error {
 		if err := a.verifyCatalog(path); err != nil {
 			return err
 		}
-		if err := removeWorkspaceTemps(dir); err != nil {
-			return fmt.Errorf("VD_WRITE|%w", err)
+		if err := cleanWorkspaceTemps(path, false); err != nil {
+			return err
 		}
 		publish := os.Rename
 		if a.disk == nil {

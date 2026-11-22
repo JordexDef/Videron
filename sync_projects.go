@@ -48,7 +48,7 @@ func validProjectName(name string) bool {
 }
 
 func (p *serverProfile) sameProject(other *serverProfile) bool {
-	return p.ProjectID == other.ProjectID && (p.ProjectID == "" || p.Pin == other.Pin)
+	return p.Pin == other.Pin && p.ProjectID == other.ProjectID
 }
 
 func (p *serverProfile) checkFolderProject(dir string) error {
@@ -57,6 +57,9 @@ func (p *serverProfile) checkFolderProject(dir string) error {
 		return err
 	}
 	if existing != nil && !p.sameProject(existing) {
+		if p.Address == existing.Address && p.Pin != existing.Pin {
+			return errServerCert
+		}
 		return errServerSpace
 	}
 	return nil

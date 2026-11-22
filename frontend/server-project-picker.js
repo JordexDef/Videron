@@ -1,7 +1,7 @@
 import { validSpaceName } from './data.js'
 import { folderLabel } from './folder-links.js'
 import { getLanguage, tr } from './i18n.js'
-import { openVaultPassword } from './vault-ui.js'
+import { spaceEncryptionFields } from './workspace-ui.js'
 import { icon } from './art.js'
 
 const newProject = 'new-project', chooseProject = 'choose-project', browse = 'browse', custom = 'custom'
@@ -34,15 +34,13 @@ export function mountServerProjectPicker(host,params) {
   const content=field(tr('Что сохранить в выбранной папке','Contents of the selected folder'),'select',settings)
   const name=field(tr('Название нового проекта','New project name'),'input',settings)
   name.input.maxLength=80;name.input.autocomplete='off'
-  const protect=document.createElement('label'),encrypt=document.createElement('input')
-  protect.className='space-choice';encrypt.type='checkbox';encrypt.checked=!!projectProtected
-  protect.append(encrypt,document.createTextNode(tr('Зашифровать файл пространства паролем','Encrypt the space file with a password')))
+  const encryption=spaceEncryptionFields(projectProtected)
   const hint=document.createElement('p')
   hint.className='space-hint server-project-hint';hint.setAttribute('aria-live','polite')
   const actions=document.createElement('div'),apply=document.createElement('button')
   apply.type='button';apply.className='button primary'
   actions.className='dialog-actions';actions.append(apply)
-  settings.append(protect,hint,actions)
+  settings.append(encryption.row,hint,actions)
 
   function action(label,style,click,symbol) {
     const button=document.createElement('button')
@@ -71,6 +69,7 @@ export function mountServerProjectPicker(host,params) {
     const title=projectTitle(target),isRename=mode==='rename'
     const trigger=isRename?rename:remove
     panel.hidden=false;settings.hidden=true;links.hidden=true;project.input.disabled=true;apply.disabled=true
+    encryption.setAvailable(false)
     const summary=document.createElement('strong'),detail=document.createElement('p')
     summary.className='space-confirm-name'
     summary.textContent=isRename?tr('Переименовать «'+title+'»','Rename “'+title+'”'):
@@ -167,7 +166,7 @@ export function mountServerProjectPicker(host,params) {
     const fresh=isNew()
     name.row.hidden=!fresh
     name.input.readOnly=!!created
-    protect.hidden=!(fresh || (!has && !folder && !!onPrepareFolder) || (!has && !!connection && !same))
+    encryption.setAvailable(!settings.hidden && (fresh || (!has && !same && (!!connection || !folder))))
     let label
     if(fresh)label=tr('Создать проект','Create project')
     else if(same)label=isCustom()?tr('Перенести в эту папку','Move to this folder'):chosenFolder()?tr('Открыть копию','Open working copy'):tr('Синхронизировать','Sync now')
@@ -183,6 +182,7 @@ export function mountServerProjectPicker(host,params) {
     hint.hidden=!hint.textContent
   }
   function resetLocation() {
+    encryption.clear()
     customFolder='';location='';copies=[];touched=false;created=null;content.input.value='keep';name.input.value=''
     populateLocations();update()
   }
@@ -219,6 +219,7 @@ export function mountServerProjectPicker(host,params) {
   }
   project.input.onchange=()=>{
     const id=project.input.value
+    encryption.clear()
     if(id===newProject){++search;resetLocation();name.input.focus();return}
     run(async()=>{
       try {selected=await native.SelectServerProject(selected.ticket,id)}
@@ -235,12 +236,14 @@ export function mountServerProjectPicker(host,params) {
   }
   path.input.onchange=()=>{
     if(path.input.value!==browse){
+      if(location!==path.input.value)encryption.clear()
       location=path.input.value;touched=true;populateLocations();update();return
     }
     path.input.value=location
     run(async()=>{
       const dir=await native.PickFolder(getLanguage())
       if(!dir || !mounted())return
+      if(!sameFolder(chosenFolder(),dir))encryption.clear()
       touched=true
       if(folder && sameFolder(folder,dir) && isCurrent()){location='';customFolder=''}
       else if(copies.some(copy=>sameFolder(copy.folder,dir)))location=copies.find(copy=>sameFolder(copy.folder,dir)).folder
@@ -250,15 +253,10 @@ export function mountServerProjectPicker(host,params) {
   }
   content.input.add(new Option('','keep'))
   content.input.add(new Option(tr('Начать новый пустой проект','Start a new empty project'),'empty'))
-  content.input.onchange=()=>{update();if(!name.row.hidden)name.input.focus()}
+  content.input.onchange=()=>{encryption.clear();update();if(!name.row.hidden)name.input.focus()}
   name.input.oninput=update
-  apply.onclick=()=>run(async()=>{
+  async function applySelection(){
     const fresh=isNew(),dest=chosenFolder()
-    let password=''
-    if(!protect.hidden && encrypt.checked){
-      const ok=await openVaultPassword({mode:'set',scope:'space',onSubmit:values=>{password=values.password}})
-      if(!ok || !mounted())return
-    }
     try {
       let result
       if(fresh){
@@ -273,7 +271,7 @@ export function mountServerProjectPicker(host,params) {
           projects.push({id:currentId(),name:title})
           populateProjects(currentId());update()
         }
-        result=await onNewProject(selected.ticket,title,dest,password)
+        result=await onNewProject(selected.ticket,title,dest,encryption.password)
       }else if(isCurrent() && isCustom()){
         result=await onMoveFolder(dest)
       }else if(isCurrent() && !dest){
@@ -281,11 +279,12 @@ export function mountServerProjectPicker(host,params) {
       }else if(selected.hasSpace){
         result=await onJoin(selected.ticket,dest,!!dest && !isCustom())
       }else if(connection || (!folder && !onPrepareFolder)){
-        result=await onNewProject(selected.ticket,selected.projectName||tr('Основной проект','Main project'),dest,password)
+        result=await onNewProject(selected.ticket,selected.projectName||tr('Основной проект','Main project'),dest,encryption.password)
       }else{
         if(!folder){
-          folder=await onPrepareFolder(dest,password,selected.ticket)
+          folder=await onPrepareFolder(dest,encryption.password,selected.ticket)
           if(!folder || !mounted())return
+          update()
         }else if(isCustom() && !sameFolder(folder,dest)){
           if(await onMoveFolder(dest)===false || !mounted())return
           folder=dest
@@ -299,7 +298,8 @@ export function mountServerProjectPicker(host,params) {
         hint.hidden=false;hint.textContent=tr('Копия сохранена. Чтобы открыть её, введите пароль пространства.','Your copy has been saved. Enter the space password to open it.')
       }else if(result!==false && host.isConnected)close()
     }catch(error){ticketFailure(error)}
-  })
+  }
+  apply.onclick=()=>{if(encryption.validate())return run(applySelection)}
   populateAvailable()
-  return {apply,actions,focus:()=> (project.row.hidden?path.input:project.input).focus()}
+  return {apply,actions,clear:encryption.clear,focus:()=> (project.row.hidden?path.input:project.input).focus()}
 }

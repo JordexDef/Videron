@@ -469,7 +469,7 @@ func (p *serverProfile) download(c *http.Client, route, path, expected string) e
 	return publishNewSpaceFile(tmp.Name(), path)
 }
 
-func (p *serverProfile) exchange(c *http.Client, dir string, m serverManifest, app *App) error {
+func (p *serverProfile) exchange(c *http.Client, dir string, m serverManifest, session *syncSession) error {
 	if m.Lineage != p.Lineage {
 		return errServerSpace
 	}
@@ -505,10 +505,10 @@ func (p *serverProfile) exchange(c *http.Client, dir string, m serverManifest, a
 			if _, present := m.Files[path]; present {
 				continue
 			}
-			if app == nil {
+			if session == nil {
 				return errServerFolder
 			}
-			raw, err := app.transferRecord(dir, p.Lineage, b.kind, strings.TrimSuffix(entry.Name(), ".json"))
+			raw, err := session.transferRecord(dir, p.Lineage, b.kind, strings.TrimSuffix(entry.Name(), ".json"))
 			if err != nil {
 				return err
 			}
@@ -535,9 +535,13 @@ func (p *serverProfile) exchange(c *http.Client, dir string, m serverManifest, a
 	return nil
 }
 
-func (a *App) transferRecord(dir, lineage, kind, id string) ([]byte, error) {
+func (session *syncSession) transferRecord(dir, lineage, kind, id string) ([]byte, error) {
+	a := session.app
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if err := session.check(); err != nil {
+		return nil, err
+	}
 	s, err := a.currentSpaceSession(dir)
 	if err != nil {
 		return nil, err
@@ -633,6 +637,7 @@ func (p *serverProfile) saveSuccessfulSync(dir string) error {
 }
 
 func (a *App) ConnectSpaceServer(folder, code string) error {
+	session := a.syncSession()
 	a.serverMu.Lock()
 	defer a.serverMu.Unlock()
 	p, err := a.resolveServerTicket(code)
@@ -671,7 +676,7 @@ func (a *App) ConnectSpaceServer(folder, code string) error {
 	}
 	p.Lineage = lineage
 	if m.Main == "" {
-		raw, e := a.transferRecord(dir, p.Lineage, "", "")
+		raw, e := session.transferRecord(dir, p.Lineage, "", "")
 		if e != nil {
 			return e
 		}
@@ -685,11 +690,14 @@ func (a *App) ConnectSpaceServer(folder, code string) error {
 			return err
 		}
 	}
-	if err = p.exchange(c, dir, m, a); err != nil {
+	if err = p.exchange(c, dir, m, session); err != nil {
 		return err
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if err = session.check(); err != nil {
+		return err
+	}
 	s, err := a.currentSpaceSession(dir)
 	if err != nil {
 		return err
@@ -704,6 +712,7 @@ func (a *App) ConnectSpaceServer(folder, code string) error {
 }
 
 func (a *App) SyncSpaceServer(folder string) (string, error) {
+	session := a.syncSession()
 	a.serverMu.Lock()
 	defer a.serverMu.Unlock()
 	dir, err := spaceDir(folder)
@@ -726,7 +735,7 @@ func (a *App) SyncSpaceServer(folder string) (string, error) {
 	}
 	// This cursor covers exactly the manifest we have downloaded. A concurrent
 	// server write after that snapshot must wake the next subscription.
-	if err := p.exchange(c, dir, m, a); err != nil {
+	if err := p.exchange(c, dir, m, session); err != nil {
 		return m.Cursor, detachDeletedProject(dir, p, err)
 	}
 	// A status write may fail after the exchange has completed. The existing
@@ -827,6 +836,7 @@ func (a *App) DisconnectSpaceServer(folder string) error {
 }
 
 func (a *App) JoinSpaceServer(code, folder string) error {
+	session := a.syncSession()
 	a.serverMu.Lock()
 	defer a.serverMu.Unlock()
 	p, err := a.resolveServerTicket(code)
@@ -861,14 +871,14 @@ func (a *App) JoinSpaceServer(code, folder string) error {
 	}
 	p.Lineage = m.Lineage
 	if len(entries) != 0 {
-		return a.rejoinServerFolder(&p, c, dir, m)
+		return session.rejoinServerFolder(&p, c, dir, m)
 	}
 	a.mu.Lock()
 	open := a.folderSpaces[spaceSessionID(dir)] != nil
-	loaded := a.loaded
+	err = session.check()
 	a.mu.Unlock()
-	if !loaded {
-		return errLocked
+	if err != nil {
+		return err
 	}
 	if open {
 		return errChanged
@@ -893,6 +903,14 @@ func (a *App) JoinSpaceServer(code, folder string) error {
 	}
 	if err = p.exchange(c, stage, m, nil); err != nil {
 		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err = session.check(); err != nil {
+		return err
+	}
+	if a.folderSpaces[spaceSessionID(dir)] != nil {
+		return errChanged
 	}
 	entries, err = os.ReadDir(dir)
 	if err != nil {
