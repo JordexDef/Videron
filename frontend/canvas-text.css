@@ -1,0 +1,53 @@
+.vb-rich-item { container-type: size; }
+.vb-stage:has(.vb-rich-item:focus-within) { overflow: clip; }
+.ve-embedded-editor {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  width: 100%;
+  height: 100%;
+  overflow: clip;
+  background: transparent;
+}
+.ve-embedded-editor > .ve-content {
+  order: 0;
+  min-height: 100%;
+  flex: none;
+  display: flow-root;
+  overflow: visible;
+  padding: 4px 7px;
+  cursor: text;
+}
+.ve-embedded-editor .ve-content > :first-child { margin-block-start: 0; }
+.ve-embedded-editor .ve-content > :last-child { margin-block-end: 0; }
+.ve-toolbar.ve-canvas-toolbar {
+  position: fixed;
+  inset: auto;
+  width: max-content;
+  height: auto;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid #484848;
+  border-radius: 9px;
+  background: #262626;
+  color: #dedede;
+  box-shadow: 0 3px 12px #0003;
+  pointer-events: auto;
+}
+.ve-toolbar.ve-canvas-toolbar[hidden] { display: none; }
+.ve-toolbar.ve-toolbar-portal { position: absolute; z-index: 4; }
+.ve-canvas-toolbar > * { flex-shrink: 0; }
+.ve-canvas-toolbar .ve-btn { min-width: 28px; height: 28px; padding-inline: 4px; }
+.ve-canvas-toolbar .ve-kind { width: 94px; height: 28px; background: transparent; }
+.ve-canvas-toolbar .ve-kind option { background: #262626; }
+.ve-canvas-toolbar .ve-divider { margin-inline: 2px; }
+.ve-canvas-toolbar .ve-spacer { display: none; }
+.ve-embedded-editor > .ve-message { order: 1; }
+.ve-embedded-editor > .ve-message:empty { display: none; }
+.vb-rich-frame[data-light="true"] .ve-embedded-editor .ve-text { color: #242424; caret-color: #191919; }
+.vb-rich-frame[data-light="true"] .ve-embedded-editor .ve-text a { color: #323d64; }
+.vb-rich-frame[data-light="true"] .ve-embedded-editor .ve-list-item::before { color: #494949; }
+.vb-rich-frame[data-light="true"] .ve-embedded-editor .ve-text::highlight(videron-note-tag),
+.vb-rich-frame[data-light="true"] .ve-embedded-editor .ve-text *::highlight(videron-note-tag) { color: #49346e; text-decoration-color: #726080; }

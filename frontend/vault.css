@@ -1,0 +1,59 @@
+.vault-dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid #424242;
+  border-radius: 11px;
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: 0 16px 65px #0006;
+}
+.vault-dialog::backdrop { background: #090909a8; }
+.vault-panel { padding: 22px; }
+.vault-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.vault-heading h2 { margin: 0; font-size: 20px; font-weight: 560; letter-spacing: -.55px; }
+.vault-settings-section { margin-top: 24px; }
+.vault-settings-section h3 { margin: 0; font-size: 14px; font-weight: 560; }
+.vault-hint { margin: 8px 0 18px; font-size: 13px; line-height: 1.55; color: var(--muted); }
+.vault-form { margin: 0; }
+.vault-field { display: grid; gap: 6px; margin: 12px 0 0; color: #c5c5c5; font-size: 12px; }
+.vault-field input, .vault-field select {
+  width: 100%;
+  height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #484848;
+  border-radius: 5px;
+  color: var(--text);
+  background: #1b1b1b;
+  font-size: 15px;
+}
+.vault-field :is(input,select):focus-visible { outline: 1px solid #c5c5c5; outline-offset: 0; }
+.vault-custom-delay { display: flex; align-items: end; gap: 10px; margin: 0; }
+.vault-custom-delay[hidden] { display: none; }
+.vault-custom-delay .vault-field { flex: 1; }
+.vault-custom-delay .button { height: 36px; }
+.vault-field input[aria-invalid="true"] { border-color: #c29286; }
+.vault-error { color: #e3ada2; font-size: 12px; line-height: 1.5; }
+.vault-error:not(:empty) { margin-top: 12px; }
+.vault-actions, .vault-settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vault-actions { margin-top: 22px; justify-content: flex-end; }
+.vault-startup {
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--canvas);
+  box-shadow: none;
+}
+.vault-startup[open] { display: grid; place-items: center; }
+.vault-startup .vault-panel { width: min(372px, 100%); padding: 24px; }
+.vault-startup .vault-brand { display: flex; align-items: center; gap: 9px; margin-bottom: 34px; font-size: 17px; font-weight: 560; letter-spacing: -.55px; }
+.vault-brand img { width: 26px; height: 26px; }
+.vault-startup .vault-heading h2 { font-size: 25px; }
+.vault-startup .vault-actions { margin-top: 17px; }
+.vault-startup .vault-actions .button { width: 100%; }

@@ -1,0 +1,94 @@
+.vt-chart {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--vt-chart-bg, var(--vb-bg));
+  box-shadow: inset 0 0 0 1px var(--vt-chart-grid);
+  user-select: none;
+}
+.vb[data-tool='select'] .vt-chart {
+  pointer-events: auto;
+  cursor: grab;
+}
+.vb[data-tool='select'] .vb-object-locked .vt-chart {
+  cursor: default;
+}
+.vb.vb-space .vt-chart,
+.vb:not([data-tool='select']) .vt-chart {
+  pointer-events: none;
+}
+.vt-chart .vt-chart-plot {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.vt-chart .vt-chart-plot * {
+  pointer-events: none;
+}
+.vt-chart-controls {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  display: flex;
+  padding: 1px;
+  border: 1px solid var(--vt-chart-grid);
+  border-radius: 5px;
+  background: var(--vt-chart-bg);
+  opacity: 0;
+}
+.vt-chart:hover .vt-chart-controls,
+.vt-chart:focus-within .vt-chart-controls,
+.vb-member-outline .vt-chart-controls {
+  opacity: 1;
+}
+.vt-chart-controls button {
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  min-width: 0;
+  width: 22px;
+  height: 19px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vt-chart-muted);
+  cursor: pointer;
+}
+.vt-chart-controls button[aria-pressed='true'],
+.vt-chart-controls button:hover {
+  background: var(--vt-chart-grid);
+  color: var(--vt-chart-fg);
+}
+.vt-chart-controls button:disabled {
+  cursor: default;
+}
+.vt-chart-controls svg {
+  width: 14px;
+  height: 14px;
+}
+.vt-chart-tip {
+  position: absolute;
+  pointer-events: none;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--vt-chart-grid);
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: var(--vt-chart-bg);
+  color: var(--vt-chart-fg);
+  font:
+    11px/1.35 Inter,
+    'Segoe UI',
+    sans-serif;
+}
+@media (hover: none) {
+  .vt-chart-controls {
+    opacity: 1;
+  }
+}

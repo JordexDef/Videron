@@ -1,0 +1,35 @@
+.space-dialog {width:min(440px,100%)}
+.space-dialog [hidden] {display:none}
+.space-label,.space-choice {font-size:12px;color:#bfbfc2}
+.space-location-controls,.space-choice,.space-heading,.space-row {display:flex;align-items:center;gap:7px}
+.space-location-controls {margin:7px 0}
+.space-choose {min-width:0;justify-content:flex-start}
+.space-choose span:last-child,.space-heading strong,.space-detail {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.space-glyph {display:inline-flex;align-items:center;flex:none}
+.space-choice {margin-top:14px;cursor:pointer;line-height:1.5}
+.space-choice input {accent-color:var(--accent);margin:0;width:15px;height:15px;flex:none}
+.space-list {max-height:min(50vh,370px);overflow:auto;overscroll-behavior:contain}
+.space-row {padding:10px 0}
+.space-row + .space-row {border-top:1px solid var(--border)}
+.space-info {min-width:0;flex:1}
+.space-heading strong,.space-confirm-name {font-weight:550;font-size:14px}
+.space-heading .ico {width:12px;height:12px;color:var(--muted)}
+.space-detail {display:block;margin-top:3px;color:var(--muted);font-size:12px}
+.space-row .icon-button {flex:none}
+.space-link {height:29px;padding:0 8px}
+.space-sr {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.space-confirm-name,.space-file-path {overflow-wrap:anywhere}
+.space-confirm .space-hint {margin-top:6px}
+.space-confirm .space-file-path {font-size:11px;margin-top:7px}
+.workspace-menu {display:flex;flex-direction:column;max-width:min(340px,calc(100vw - 12px));max-height:calc(100dvh - 16px)}
+.workspace-menu-list {min-height:0;overflow:auto;overscroll-behavior:contain}
+.workspace-menu > button,.workspace-menu > hr {flex:none}
+.workspace-menu button i {flex-shrink:0}
+#sync-review:not([hidden]) {position:fixed;bottom:18px;right:18px;z-index:65;max-width:calc(100vw - 36px);border:1px solid #62606a;border-radius:7px;background:var(--panel);color:var(--text);padding:8px 13px;font-size:12px;box-shadow:0 3px 16px #0004}
+#shell:not([inert])~#sync-review {bottom:65px}
+#space-welcome:not([hidden]) {display:flex;flex:1;align-items:center;justify-content:center;flex-direction:column;gap:18px;padding:24px;text-align:center}
+#space-welcome>i .ico {width:28px;height:28px;color:var(--muted)}
+#space-welcome h2 {font-size:21px;font-weight:550}
+#space-welcome>div {display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+#shell.no-space .page,#shell.no-space .nav-label,#shell.no-space .search-button {display:none}
+#shell.no-space .nav-item:disabled {opacity:.45;cursor:default}

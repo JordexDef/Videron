@@ -1,0 +1,9 @@
+/build/bin/
+/build/generated/
+/*.syso
+/node_modules/
+/.playwright-cli/
+/output/
+.DS_Store
+Thumbs.db
+/deploy/linux/videron-sync

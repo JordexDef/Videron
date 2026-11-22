@@ -1,0 +1,102 @@
+.vd-data-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.vd-data-bar, .vd-data-footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 5px 16px;
+  background: var(--ve-panel);
+}
+.vd-data-bar { border-bottom: 1px solid var(--ve-line); }
+.vd-data-bar .ve-divider { margin-inline: 5px; }
+.vd-data-table-host { flex:1; min-width:0; min-height:0; overflow:hidden; }
+.vd-data-view-switch {
+  display:inline-flex; align-items:center; padding:2px; gap:1px;
+  border:1px solid var(--ve-line); border-radius:6px; background:var(--ve-bg);
+}
+.vd-data-view-switch .ve-btn { height:25px; min-height:25px; padding-inline:9px; }
+.vd-data-view-switch .ve-btn[aria-pressed=true] { color:var(--ve-text); background:#373737; }
+.vd-data-bar .ve-btn, .vd-data-footer .ve-btn { font-size: 12px; }
+.vd-data-format {
+  height: 30px;
+  max-width: 135px;
+  padding-inline: 7px;
+  background: var(--ve-bg);
+  border: 1px solid var(--ve-line);
+  border-radius: 5px;
+}
+.vd-data-menu-host { position: relative; }
+.vd-data-menu-button::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  transform: translateY(-1px) rotate(45deg);
+  margin-left: 2px;
+}
+.vd-data-menu:not([hidden]) {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 5px);
+  left: 0;
+  width: max-content;
+  max-width: min(280px,90vw);
+  padding: 5px;
+  border: 1px solid var(--ve-line);
+  border-radius: 7px;
+  box-shadow: 0 5px 20px #0005;
+  background: #252525;
+}
+.vd-data-menu .ve-btn { display: flex; width: 100%; justify-content: flex-start; padding-inline: 8px; }
+.vd-data-scope { margin: 2px 8px 5px; color: var(--ve-muted); font-size: 11px; }
+.vd-data-host { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.vd-data-host .cm-editor { height: 100%; background: var(--ve-bg); color: var(--ve-text); }
+.vd-data-host .cm-editor.cm-focused { outline: none; }
+.vd-data-host .cm-scroller {
+  font: 14px/1.55 var(--mono, Consolas, "SFMono-Regular", monospace);
+  overflow: auto;
+  scrollbar-color: #555 transparent;
+}
+.vd-data-host .cm-content { padding-block: 12px 40px; caret-color: #f1f1f1; }
+.vd-data-host .cm-line { padding-inline: 12px; }
+.vd-data-host .cm-cursor { border-color: #f1f1f1; }
+.vd-data-host .cm-gutters { border: 0; background: var(--ve-bg); color: #878787; }
+.vd-data-host .cm-lineNumbers .cm-gutterElement { padding-inline: 14px 8px; }
+.vd-data-host .cm-activeLineGutter { color: #e0e0e0; background: transparent; }
+.vd-data-host .cm-activeLine { background: #ffffff06; }
+.vd-data-host .cm-placeholder { color: #8c8c8c; }
+.vd-data-host .cm-selectionBackground, .vd-data-host .cm-focused .cm-selectionBackground { background: #495360; }
+.vd-data-host .cm-searchMatch { background: #ab86565e; outline: 1px solid #c7a87988; }
+.vd-data-host .cm-searchMatch.cm-searchMatch-selected { background: #b0926177; outline-color: #d5be98; }
+.vd-data-host .vd-data-search-hit { border-radius: 2px; background: #907246; color: white; }
+.vd-data-host .cm-panels, .vd-data-host .cm-dialog { background: var(--ve-panel); color: var(--ve-text); border-color: var(--ve-line); }
+.vd-data-host .cm-panel, .vd-data-host .cm-dialog { font: 12px/1.5 var(--sans, sans-serif); }
+.vd-data-host .cm-panel.cm-search { padding: 8px 28px 8px 16px; }
+.vd-data-host .cm-textfield, .vd-data-host .cm-button, .vd-data-host .cm-dialog button {
+  border: 1px solid var(--ve-line);
+  border-radius: 4px;
+  background: #262626;
+  color: var(--ve-text);
+}
+.vd-data-host .cm-textfield { background: var(--ve-bg); }
+.vd-data-host .cm-panel.cm-search label { white-space: nowrap; }
+.vd-data-footer { min-height: 32px; border-top: 1px solid var(--ve-line); color: var(--ve-muted); font-size: 11px; }
+.vd-data-footer .ve-btn { min-height: 24px; height: 24px; padding: 0 5px; }
+.vd-data-footer .ve-btn .ve-icon { width: 13px; height: 13px; }
+.vd-data-footer button[hidden] { display: none; }
+.vd-data-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-data-lines, .vd-data-footer .ve-btn { white-space: nowrap; }
+@media (max-width: 620px) {
+  .vd-data-bar, .vd-data-footer { padding-inline: 7px; gap: 2px; }
+  .vd-data-bar .ve-divider { margin-inline: 2px; }
+  .vd-data-format { max-width: 90px; }
+  .vd-data-bar .ve-btn { padding-inline: 5px; }
+  .ve-data-editor .ve-crumb { display: none; }
+  .vd-data-host .cm-scroller { font-size: 13px; }
+}

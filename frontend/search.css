@@ -1,0 +1,35 @@
+.vs-shade { align-items: start; grid-template-rows: minmax(0,1fr); padding-top: clamp(18px,11vh,96px); }
+.dialog.vs-panel { display: flex; flex-direction: column; max-height: 100%; min-width: 0; padding: 22px; }
+.vs-panel > * { flex: none; }
+.vs-panel .vs-results { flex: 0 1 auto; min-height: 0; overscroll-behavior: contain; }
+.vs-panel h2 { margin: 0; }
+.vs-query { position: relative; }
+.vs-query .ico { position: absolute; top: 50%; left: 12px; transform: translateY(-50%); width: 17px; height: 17px; color: var(--muted); pointer-events: none; }
+.vs-query .query { height: 42px; padding-left: 38px; }
+.vs-panel .options { display: grid; grid-template-columns: auto auto auto minmax(0,1fr); gap: 6px; }
+.vs-escape { padding: 3px 6px; border: 1px solid #434343; border-radius: 4px; color: var(--muted); font: 11px var(--mono); }
+.vs-area { justify-self: end; color-scheme: dark; min-width: 0; max-width: 100%; }
+.vs-status { min-height: 29px; padding-top: 7px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.vs-error { color: #e0b19f; overflow-wrap: anywhere; }
+.vs-results .vs-active { background: #2e2e2e; }
+.vs-result-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.vs-result-heading strong { min-width: 0; }
+.vs-result-heading .vs-location { max-width: 44%; flex: none; direction: rtl; text-align: right; font-size: 11px; }
+.vs-results mark { border-radius: 2px; background: #515151; color: #f2f2f2; }
+.vs-results .vs-hit { display: flex; align-items: baseline; }
+.vs-hit .vs-before, .vs-hit .vs-after, .vs-hit mark { overflow: hidden; text-overflow: ellipsis; white-space: pre; min-width: 0; }
+.vs-hit .vs-before { direction: rtl; text-align: left; flex: 0 2 auto; }
+.vs-hit .vs-after { flex: 0 1 auto; }
+.vs-hit mark { flex: none; max-width: 100%; }
+.vs-more { margin: 10px auto 0; display: block; }
+.vs-more[hidden] { display: none; }
+@media (max-height: 560px) {
+  .vs-shade { padding: 12px; }
+  .dialog.vs-panel { padding: 16px; }
+  .vs-panel .dialog-title { margin-bottom: 10px; }
+  .vs-panel .options { margin: 9px 0; }
+}
+@media (max-width: 345px) {
+  .vs-panel .options { grid-template-columns: auto auto 1fr; }
+  .vs-area { grid-column: 1 / -1; width: 100%; }
+}

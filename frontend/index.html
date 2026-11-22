@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title data-en="Videron — Note workspace">Videron — пространство заметок</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="areas.css">
+  <link rel="stylesheet" href="area-drag.css">
+  <link rel="stylesheet" href="editor.css">
+  <link rel="stylesheet" href="data-editor.css">
+  <link rel="stylesheet" href="delimited-grid.css">
+  <link rel="stylesheet" href="search.css">
+  <link rel="stylesheet" href="board.css">
+  <link rel="stylesheet" href="table-view.css">
+  <link rel="stylesheet" href="map-reading.css">
+  <link rel="stylesheet" href="map-routes.css">
+  <link rel="stylesheet" href="stage-controls.css">
+  <link rel="stylesheet" href="stage-removal.css">
+  <link rel="stylesheet" href="map-metrics.css">
+  <link rel="stylesheet" href="table-references.css">
+  <link rel="stylesheet" href="table-charts.css">
+  <link rel="stylesheet" href="inline-board.css">
+  <link rel="stylesheet" href="canvas-text.css">
+  <link rel="stylesheet" href="appearance.css">
+  <link rel="stylesheet" href="vault.css">
+  <link rel="stylesheet" href="workspace-ui.css">
+  <link rel="stylesheet" href="workspace-conflicts.css">
+  <link rel="stylesheet" href="workspace-server-ui.css">
+  <link rel="stylesheet" href="workspace-status.css">
+</head>
+<body>
+  <div id="shell" hidden>
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><img src="icon.svg" alt=""><span>Videron</span></div>
+      <button class="workspace-switch" id="workspace-switch" aria-haspopup="menu" aria-expanded="false"><span class="workspace-avatar" data-i="layers"></span><span class="workspace-names"><small data-en="Workspace">Пространство</small><strong id="space-name"></strong></span><i data-i="chevrons"></i></button>
+      <nav>
+        <div class="nav-label" data-en="Library">Библиотека</div>
+        <button class="nav-item active" data-page="map"><i data-i="map"></i><span data-en="Note map">Карта заметок</span></button>
+        <button class="nav-item" data-page="list"><i data-i="list"></i><span data-en="All notes">Все заметки</span><small id="all-count">0</small></button>
+        <button class="nav-item" data-page="pinned"><i data-i="pin"></i><span data-en="Pinned notes">Закреплённые</span><small id="pin-count">0</small></button>
+        <div class="nav-label area-label"><span data-en="Areas and notes">Области и заметки</span><button class="icon-button" id="new-area" title="Создать область" aria-label="Создать область" data-en-title="Create area" data-en-aria="Create area"><i data-i="plus"></i></button></div>
+        <div id="areas"></div>
+      </nav>
+      <div class="sidebar-foot">
+        <button class="nav-item" id="settings"><i data-i="sliders"></i><span data-en="Settings">Настройки</span></button>
+        <button class="nav-item" id="extensions"><i data-i="extensions"></i><span data-en="Extensions">Расширения</span></button>
+        <button class="nav-item" id="help"><i data-i="help"></i><span data-en="Controls">Управление</span><kbd>?</kbd></button>
+        <label class="language-row"><i data-i="globe"></i><span data-en="Language">Язык</span><select id="language-select" aria-label="Язык интерфейса" data-en-aria="Interface language"><option value="ru" lang="ru">Русский</option><option value="en" lang="en">English</option></select></label>
+        <div class="storage workspace-status">
+          <button id="workspace-status-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="workspace-status-details">
+            <i id="workspace-status-icon" aria-hidden="true"></i>
+            <span class="workspace-status-copy"><strong id="workspace-status-host" hidden></strong><span id="status">Локальное хранилище</span></span>
+            <i class="workspace-status-chevron" data-i="chevronDown"></i>
+          </button>
+          <dialog id="workspace-status-details" aria-labelledby="workspace-status-title">
+            <div class="workspace-status-heading">
+              <h2 id="workspace-status-title" data-en="Connection">Подключение</h2>
+              <button class="icon-button" id="workspace-status-close" type="button" aria-label="Закрыть" data-en-aria="Close"><i data-i="x"></i></button>
+            </div>
+            <dl id="workspace-status-facts"></dl>
+            <p id="workspace-status-error" hidden></p>
+            <div class="workspace-status-actions">
+              <button class="button secondary" id="workspace-status-save" type="button" data-en="Retry save" hidden>Повторить сохранение</button>
+              <button class="button secondary" id="workspace-status-retry" type="button" data-en="Retry connection" hidden>Повторить подключение</button>
+              <button class="button secondary" id="workspace-status-manage" type="button" hidden></button>
+            </div>
+          </dialog>
+        </div>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div class="crumbs"><button id="sidebar-toggle" class="icon-button" aria-controls="sidebar" aria-expanded="true"><i data-i="panelClose"></i></button><span class="crumb-divider"></span><span id="crumb-space"></span><i data-i="chevron"></i><strong id="crumb-page"></strong></div>
+        <button id="search" class="search-button" aria-keyshortcuts="Control+K Control+Shift+F" title="Поиск по заметкам (Ctrl+K / Ctrl+Shift+F)" data-en-title="Search notes (Ctrl+K / Ctrl+Shift+F)"><i data-i="search"></i><span data-en="Search notes">Поиск по заметкам</span><kbd>Ctrl K</kbd></button>
+      </header>
+      <section id="space-welcome" aria-labelledby="welcome-title" hidden>
+        <i data-i="layers"></i>
+        <h2 id="welcome-title" data-en="Open a space">Откройте пространство</h2>
+        <div>
+          <button id="welcome-create" type="button" class="button primary"><i data-i="plus"></i><span data-en="Create space">Создать пространство</span></button>
+          <button id="welcome-folder" type="button" class="button secondary"><i data-i="folder"></i><span data-en="Open from folder">Открыть из папки</span></button>
+        </div>
+      </section>
+      <section class="page">
+        <div class="surface-actions">
+          <div class="create-control" role="group" aria-label="Создание заметок" data-en-aria="Create notes">
+            <button id="new-note" type="button" class="button primary" aria-label="Новая заметка" data-en-aria="New note" aria-keyshortcuts="Control+N" title="Создать текстовую заметку (Ctrl+N)" data-en-title="Create a text note (Ctrl+N)"><i data-i="newTextNote"></i><span data-en="New note">Новая заметка</span></button>
+            <button id="new-canvas" type="button" class="button secondary" aria-label="Новый холст" data-en-aria="New canvas" aria-keyshortcuts="Control+Shift+N" title="Создать заметку-холст (Ctrl+Shift+N)" data-en-title="Create a canvas note (Ctrl+Shift+N)"><i data-i="newCanvas"></i><span data-en="New canvas">Новый холст</span></button>
+            <button id="new-data" type="button" class="button secondary" aria-label="Создать заметку с данными" data-en-aria="Create data note" title="Создать заметку с данными" data-en-title="Create data note"><i data-i="newData"></i><span data-en="Data">Данные</span></button>
+          </div>
+          <div class="create-control map-options">
+            <button id="routes" class="button secondary" type="button" aria-expanded="false" aria-label="Маршруты" data-en-aria="Routes" title="Маршруты" data-en-title="Routes"><i data-i="route"></i><span data-en="Routes">Маршруты</span></button>
+            <button id="view" class="button secondary" aria-haspopup="menu"></button>
+          </div>
+        </div>
+        <div class="map-stage" id="map-stage">
+          <canvas id="graph" tabindex="0" aria-label="Карта заметок. Обведите заметки рамкой или выберите их с Ctrl или Shift. Ctrl+A выбирает все заметки." data-en-aria="Note map. Drag to select notes or Ctrl-click or Shift-click to add them. Ctrl+A selects all notes."></canvas>
+          <div class="empty" id="empty" hidden>
+            <canvas id="atlas" width="860" height="390" aria-hidden="true"></canvas>
+            <h2 data-en="Start with a single thought">Начните с одной мысли</h2>
+            <p><span data-en="Create a note to place it on the map.">Создайте заметку, и она появится на карте.</span><br><span data-en="Shared tags draw related notes together.">Общие теги притянут другие заметки.</span></p>
+            <button class="button primary first-note" id="first-note"><i data-i="plus"></i><span data-en="Create a note">Создать заметку</span></button>
+            <button class="text-button" id="try-demo"><span data-en="Explore the demo">Посмотреть пример</span><i data-i="arrowUpRight"></i></button>
+          </div>
+          <div id="selection" class="selection" hidden></div>
+          <div id="link-message" class="link-message" hidden></div>
+          <div class="dock tools" aria-label="Инструменты карты" data-en-aria="Map tools">
+            <button data-tool="select" class="icon-button active" title="Выбор (V) · обведите рамкой или добавьте заметки с Shift" aria-label="Выбор" data-en-title="Select (V) · drag a box or Shift-click to add notes" data-en-aria="Select"><i data-i="pointer"></i></button>
+            <button data-tool="hand" class="icon-button" title="Перемещение (H) · также пробел или средняя кнопка мыши" aria-label="Перемещение" data-en-title="Pan (H) · also Space-drag or middle-drag" data-en-aria="Pan"><i data-i="hand"></i></button>
+            <span></span><button data-tool="link" class="icon-button" title="Связать заметки (L)" aria-label="Связать заметки" data-en-title="Link notes (L)" data-en-aria="Link notes"><i data-i="link"></i></button>
+          </div>
+          <div class="dock scale">
+            <button id="minus" class="icon-button" title="Отдалить" aria-label="Отдалить" data-en-title="Zoom out" data-en-aria="Zoom out"><i data-i="minus"></i></button>
+            <button id="actual-size" title="Сбросить масштаб" aria-label="Сбросить масштаб" data-en-title="Reset zoom" data-en-aria="Reset zoom">100%</button>
+            <button id="plus" class="icon-button" title="Приблизить" aria-label="Приблизить" data-en-title="Zoom in" data-en-aria="Zoom in"><i data-i="plus"></i></button><span></span>
+            <button id="fit" class="icon-button" title="Уместить карту (F)" aria-label="Уместить карту" data-en-title="Fit map (F)" data-en-aria="Fit map"><i data-i="fit"></i></button>
+          </div>
+        </div>
+        <div id="list-stage" class="list-stage" hidden></div>
+        <div id="list-selection" class="list-selection" hidden></div>
+      </section>
+    </main>
+  </div>
+  <button id="sync-review" type="button" hidden></button>
+  <div id="toast" role="status" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

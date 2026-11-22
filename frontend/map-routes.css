@@ -1,0 +1,106 @@
+.map-routes {
+  position: absolute;
+  z-index: 4;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid #454348;
+  border-radius: 9px;
+  box-shadow: 0 6px 24px #0004;
+  font-size: 12px;
+}
+.map-route-list {
+  top: var(--route-top, 61px);
+  right: var(--route-right, 22px);
+  width: min(310px, calc(100% - 16px));
+  max-height: calc(100% - var(--route-top, 61px) - 8px);
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+}
+.route-list-head, .route-row, .route-btn, .route-edit-bar, .map-route-play {
+  display: flex;
+  align-items: center;
+}
+.route-list-head { justify-content: space-between; padding: 0 0 4px 8px; }
+.route-list-head strong { font-weight: 560; }
+.route-list-items { overflow: auto; min-height: 0; }
+.route-row { gap: 2px; min-height: 34px; }
+.route-row > .route-ellipsis { flex: 1; padding-left: 8px; }
+.route-btn {
+  flex: none;
+  gap: 6px;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 7px;
+  border-radius: 5px;
+  color: #c6c4c9;
+}
+.route-btn:hover:enabled, .route-btn[aria-expanded="true"] { background: #38363b; color: #f2f0f4; }
+.route-btn .ico { width: 15px; height: 15px; }
+.route-btn:focus-visible,.route-name:focus-visible,.route-fragment:focus-visible { outline-offset: -1px; }
+.route-start { flex: 1; min-width: 0; justify-content: flex-start; text-align: left; }
+.route-ellipsis { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.route-start small { margin-left: auto; }
+.route-start small,.route-stop-number,.route-count span,.route-position { color: var(--muted); font: 11px var(--mono); }
+.route-new { justify-content: flex-start; padding: 0 8px; color: var(--text); }
+.route-list-items:not(:empty) + .route-new { margin-top: 5px; border-top: 1px solid var(--border); border-radius: 0 0 5px 5px; }
+.map-route-edit,.map-route-play {
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+}
+.map-route-edit { padding: 5px; }
+.route-edit-bar { gap: 3px; }
+.route-name,.route-fragment {
+  min-width: 0;
+  color: var(--text);
+  background: #1c1c1d;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.route-name { width: 156px; height: 30px; padding: 0 8px; }
+.route-save { background: #d9d7dc; color: #212022; }
+.route-save:hover:enabled { background: #eeecf0; color: #212022; }
+.route-hint { padding: 3px 4px 7px; color: #bebbc2; font-size: 11px; }
+.route-edit-stops {
+  margin: 0 0 5px;
+  padding: 2px;
+  max-height: min(32vh, 245px);
+  overflow: auto;
+  border-bottom: 1px solid var(--border);
+}
+.route-edit-stops li {
+  display: grid;
+  grid-template-columns: 22px minmax(0,1fr) repeat(3,28px);
+  align-items: center;
+  gap: 2px;
+  padding: 2px 0 4px;
+}
+.route-edit-stops li + li { border-top: 1px solid var(--border); }
+.route-edit-stops .route-btn { min-width: 0; height: 27px; }
+.route-stop-number { text-align: center; }
+.route-fragment { grid-column: 2 / -1; width: 100%; padding: 3px 5px; font-size: 11px; }
+.route-up .ico { transform: rotate(-90deg); }
+.route-down .ico { transform: rotate(90deg); }
+.route-prev .ico { transform: rotate(180deg); }
+.map-route-play { gap: 1px; padding: 4px; }
+.route-caption { display: grid; gap: 1px; min-width: 0; max-width: 180px; padding: 2px 11px 2px 5px; }
+.route-caption small { font-size: 10px; color: var(--muted); }
+.route-caption strong { font-weight: 500; }
+.route-position { white-space: nowrap; padding: 0 3px; color: #e2dee7; }
+.map-stage:is([data-route-mode="edit"],[data-route-mode="play"]) :is(.selection,.map-area-action) { visibility: hidden; }
+.map-stage[data-route-mode="edit"] canvas { cursor: crosshair; }
+@media (max-width: 1020px) {
+  .map-route-edit,.map-route-play { bottom: 67px; }
+}
+@media (max-width: 430px) {
+  .map-route-edit,.map-route-play { bottom: 59px; }
+  .route-name { width: 118px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .map-routes { animation: route-appear .14s ease-out; }
+  @keyframes route-appear { from { opacity: 0; } to { opacity: 1; } }
+}

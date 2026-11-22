@@ -1,0 +1,12 @@
+{
+  "name": "Videron",
+  "outputfilename": "Videron",
+  "frontend:dir": "frontend",
+  "wailsjsdir": "build/generated",
+  "info": {
+    "companyName": "Videron",
+    "productName": "Videron",
+    "productVersion": "0.47.0",
+    "comments": "Videron"
+  }
+}

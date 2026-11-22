@@ -1,0 +1,112 @@
+.ve-inline-board {
+  position: relative;
+  width: min(100%, 840px);
+  height: 355px;
+  max-width: 100%;
+  margin: 18px 0;
+  padding: 0;
+  border: 1px solid var(--ve-line);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 120ms;
+}
+.ve-inline-board.ve-inline-table { width: 100%; height: 375px; }
+.ve-inline-board.ve-inline-single-table { width: min(100%, 650px); height: 350px; }
+.ve-inline-board.is-active { border-color: #646469; }
+.ve-inline-host { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
+.ve-inline-board:not(.is-active) :is(.vb-dock,.vb-props,.vb-selection-layer,.vb-chain-hint,.vt-footer,.vt-menu,.vt-chart-controls),
+.ve-inline-board:not(.is-active) > button { display: none; }
+.ve-inline-board:not(.is-active) .vt-more { visibility: hidden; }
+.ve-inline-host .vb-image { max-width: none; }
+.ve-inline-remove,.ve-inline-resize {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #aaa;
+  background: #222;
+  border: 1px solid #454545;
+}
+.ve-inline-remove { right: 6px; top: 6px; width: 24px; height: 24px; border-radius: 5px; }
+.ve-inline-remove:hover,.ve-inline-resize:hover { background: #383838; color: #fff; }
+.ve-inline-resize {
+  right: -1px; bottom: -1px; width: 16px; height: 16px;
+  border-radius: 3px 0 7px 0;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.ve-inline-remove svg,.ve-inline-resize svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+
+.ve-direct-tables {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 18px 0;
+  outline: none;
+}
+.ve-direct-tables > .vt-table,
+.ve-direct-tables > .vt-chart {
+  height: auto;
+  max-width: 100%;
+  min-width: 0;
+}
+.ve-direct-tables .vt-table { --vt-base: var(--ve-bg); }
+.ve-direct-tables .vt-grip { cursor: default; }
+.ve-direct-tables .vt-grip > svg { display: none; }
+.ve-direct-tables .vt-head:has(.vt-rename) .vt-grip { flex-basis: 0; }
+.ve-direct-tables .vt-scroll {
+  flex: 0 1 auto;
+  max-height: min(58vh, 560px);
+  overscroll-behavior: auto;
+}
+.ve-direct-tables .vt-footer {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  max-width: 100%;
+  box-shadow: none;
+  border: 0;
+  border-top: 1px solid var(--vt-line);
+  border-radius: 0 0 6px 6px;
+}
+.ve-direct-tables .vt-stats { flex-wrap: wrap; }
+.ve-direct-tables .vt-table:not(:hover,:focus-within) .vt-more { opacity: 0; }
+.ve-direct-tables .ve-sheet-unlock {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  min-width: 24px;
+  height: 24px;
+  border: 1px solid var(--ve-line);
+  border-radius: 4px;
+  background: var(--ve-panel);
+  color: var(--ve-muted);
+  cursor: pointer;
+}
+.ve-sheet-resize {
+  position: absolute;
+  z-index: 5;
+  right: -4px;
+  bottom: -4px;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1px solid var(--vt-edge);
+  border-radius: 3px;
+  background: var(--vt-head);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.ve-sheet-resize::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background: repeating-linear-gradient(135deg, transparent 0 2px, var(--vt-muted) 2px 3px);
+  clip-path: polygon(100% 0,100% 100%,0 100%);
+}
+.vt-table:not(:hover,:focus-within) .ve-sheet-resize,
+.ve-sheet-resize:disabled { visibility: hidden; }

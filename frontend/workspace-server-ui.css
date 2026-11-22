@@ -1,0 +1,26 @@
+.space-server-dialog .server-address {font:13px/1.55 var(--mono);color:var(--text);overflow-wrap:anywhere;user-select:text;margin:0 0 8px}
+.space-server-dialog .dialog-actions {flex-wrap:wrap}
+.server-summary {display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:3px 12px;margin:4px 0 14px}
+.server-summary .server-address {grid-column:1/-1;margin:0}
+.server-verified {display:flex;align-items:center;gap:6px;color:#a9d3b1;font-size:13px;font-weight:550}
+.server-verified .ico {width:16px;height:16px}
+.server-method {margin-right:auto;padding:5px 0;font-size:12px;color:var(--muted);text-align:left;text-decoration:underline;text-underline-offset:3px}
+.server-method:hover,.server-method:focus-visible {color:var(--text)}
+.server-copies {display:grid;gap:10px;max-height:32vh;overflow:auto}
+.server-copy {display:grid;gap:2px;min-width:0}
+.server-copy .button {justify-self:start;max-width:100%;height:auto;min-height:32px;white-space:normal;overflow-wrap:anywhere;text-align:left}
+.server-copy .space-detail {font-family:var(--mono);user-select:text}
+.space-server-dialog {max-height:calc(100dvh - 32px);overflow:auto}
+.space-server-dialog .server-projects:not(:empty) {margin:12px 0;min-width:0}
+.server-projects select {min-width:0;text-overflow:ellipsis}
+.server-project-hint {margin-bottom:0}
+.server-projects .dialog-actions {margin-top:15px}
+.server-project-links {display:flex;align-items:center;flex-wrap:wrap;gap:4px 14px;margin:-9px 0 14px}
+.server-project-link {display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:0 2px;color:var(--muted);font-size:12px}
+.server-project-link:hover,.server-project-link:focus-visible {color:var(--text)}
+.server-project-link .ico {width:14px;height:14px}
+.server-project-change {border-top:1px solid var(--border);margin:14px 0 0;padding-top:14px}
+.server-project-change .space-hint {margin:7px 0}
+.server-change-buttons {display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:14px}
+.server-delete-confirm {background:#4c3334;border:1px solid #815657;color:#ffdedd}
+.server-delete-confirm:hover {background:#5f3d3e}
