@@ -61,7 +61,7 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 		t.Fatal("published project", err)
 	}
 	candidates, err := a.MatchingServerFolders(selected.Ticket, []string{first, second})
-	if err != nil || !slices.Equal(candidates, []string{second}) {
+	if err != nil || !slices.Equal(candidates, []string{canonicalTestFolder(t, second)}) {
 		t.Fatal("wrong project suggested", err)
 	}
 	if err = a.JoinSpaceServer(selected.Ticket, first); !errors.Is(err, errServerSpace) {
