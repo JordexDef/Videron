@@ -1238,6 +1238,12 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   let typeMark
   kind.onpointerdown=()=>{typeMark=position()}
   kind.onblur=()=>{typeMark=null}
+  kind.onkeydown=e=>{
+    if(e.key!=='Escape'||e.isComposing)return
+    e.stopPropagation()
+    const mark=typeMark||position()
+    focusBlock(mark.index,mark.start,mark.end)
+  }
   kind.onchange=()=>{
     const type=kind.value,mark=typeMark||position();typeMark=null
     if(type==='divider'){insertDivider(mark);return}
