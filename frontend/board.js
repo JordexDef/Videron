@@ -1,4 +1,5 @@
 import { tr } from './i18n.js';
+import { historyDirection, primaryCommand, shortcutLabel } from './shortcuts.js';
 import { icon } from './art.js';
 import { canPickFolder, folderError, folderLabel, isFolderPath, openFolder, pickFolder } from './folder-links.js';
 import { bindingPoint, magnets, roundedCorners } from './board-connectors.js';
@@ -852,7 +853,7 @@ export function mountBoard(container, options = {}) {
   function button(host, key, label, fn, shortcut = '') {
     const b = node('button', 'vb-button');
     b.type = 'button';
-    b.title = label + (shortcut ? ' (' + shortcut + ')' : '');
+    b.title = label + (shortcut ? ' (' + shortcutLabel(shortcut) + ')' : '');
     b.setAttribute('aria-label', label);
     b.innerHTML = pict(key);
     b.onclick = fn;
@@ -1412,10 +1413,10 @@ export function mountBoard(container, options = {}) {
       if (!memberOutlines.has(id)) views.get(id)?.wrap.classList.add('vb-member-outline');
     memberOutlines = new Set(outlines);
     const groupLabel = grouped ? tr('Разгруппировать', 'Ungroup') : tr('Сгруппировать', 'Group');
-    groupBtn.title = groupLabel + (grouped ? ' (Ctrl+Shift+G)' : ' (Ctrl+G)');
+    groupBtn.title = groupLabel + shortcutLabel(grouped ? ' (Ctrl+Shift+G)' : ' (Ctrl+G)');
     groupBtn.setAttribute('aria-label', groupLabel);
     const lockLabel = locked ? tr('Открепить', 'Unlock') : tr('Закрепить', 'Lock');
-    lockBtn.title = lockLabel + ' (Ctrl+Shift+L)';
+    lockBtn.title = lockLabel + shortcutLabel(' (Ctrl+Shift+L)');
     lockBtn.setAttribute('aria-label', lockLabel);
     if (lockBtn.dataset.locked !== String(locked)) {
       lockBtn.dataset.locked = String(locked);
@@ -1550,11 +1551,11 @@ export function mountBoard(container, options = {}) {
         event => {
           event.stopPropagation();
           if (event.isComposing || event.keyCode === 229) return;
-          const cmd = event.ctrlKey || event.metaKey;
-          if (event.key === 'Escape' || (cmd && event.key === 'Enter')) {
+          const direction = historyDirection(event);
+          if (event.key === 'Escape' || (primaryCommand(event) && !event.shiftKey && event.key === 'Enter')) {
             event.preventDefault(); stage.focus({preventScroll:true});
-          } else if (cmd && !event.altKey && (event.code === 'KeyZ' || event.code === 'KeyY')) {
-            event.preventDefault(); undo(event.code === 'KeyY' || event.shiftKey);
+          } else if (direction) {
+            event.preventDefault(); undo(direction === 'redo');
           }
         });
     }
@@ -3023,7 +3024,7 @@ export function mountBoard(container, options = {}) {
     KeyE: 'erase'
   };
   listen(root, 'keydown', (e) => {
-    if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+    if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.altKey) return;
     if (e.target.closest('.vb-rich-item')) {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -3033,30 +3034,24 @@ export function mountBoard(container, options = {}) {
       return;
     }
     const typing = e.target.matches('.vb-text');
-    const cmd = e.ctrlKey || e.metaKey;
-    const historyKey = cmd && !e.altKey && (e.code === 'KeyZ' || e.code === 'KeyY');
+    const cmd = primaryCommand(e);
+    if (!cmd && (e.ctrlKey || e.metaKey)) return;
+    const direction = historyDirection(e);
     if (e.target.matches('input,select,textarea:not(.vb-text)')) {
-      if (historyKey && e.target.matches('select,input[type=range],input[type=color]')) {
+      if (direction && e.target.matches('select,input[type=range],input[type=color]')) {
         e.preventDefault();
-        undo(e.code === 'KeyY' || e.shiftKey);
+        undo(direction === 'redo');
       }
       e.stopPropagation();
       return;
     }
     if (typing) {
-      const field = e.target;
-      const deleteKey = e.key === 'Delete' || e.key === 'Backspace';
-      if (!cmd && !e.altKey && !e.shiftKey && deleteKey && !field.readOnly &&
-          field.selectionStart === 0 && field.selectionEnd === field.value.length) {
+      if (cmd && e.shiftKey && e.code === 'KeyL') {
         e.preventDefault();
-        selection = new Set([field.closest('.vb-object').dataset.id]);
-        removeSelected();
-      } else if (cmd && e.shiftKey && e.code === 'KeyL') {
+        if (!e.repeat) toggleLock();
+      } else if (direction) {
         e.preventDefault();
-        toggleLock();
-      } else if (historyKey) {
-        e.preventDefault();
-        undo(e.code === 'KeyY' || e.shiftKey);
+        undo(direction === 'redo');
       }
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -3065,7 +3060,7 @@ export function mountBoard(container, options = {}) {
       e.stopPropagation();
       return;
     }
-    if (chain && ['Enter', 'Escape', 'Backspace', 'Delete'].includes(e.key)) {
+    if (chain && !cmd && !e.shiftKey && ['Enter', 'Escape', 'Backspace', 'Delete'].includes(e.key)) {
       e.preventDefault();
       e.stopPropagation();
       if (e.key === 'Backspace' || e.key === 'Delete') backtrackChain();
@@ -3073,8 +3068,8 @@ export function mountBoard(container, options = {}) {
       return;
     }
     if (cmd) {
-      if (historyKey) undo(e.code === 'KeyY' || e.shiftKey);
-      else if (e.code === 'KeyA') {
+      if (direction) undo(direction === 'redo');
+      else if (!e.shiftKey && e.code === 'KeyA') {
         tool = 'select';
         const blocked = new Set(
           elements
@@ -3086,10 +3081,13 @@ export function mountBoard(container, options = {}) {
           elements.filter((el) => !el.locked && !blocked.has(groupPath(el).at(-1))).map((el) => el.id)
         );
         updateUI();
-      } else if (e.code === 'KeyD') duplicate();
-      else if (e.code === 'KeyG') groupSelected(e.shiftKey);
-      else if (e.code === 'KeyL' && e.shiftKey) toggleLock();
-      else return;
+      } else if (e.code === 'KeyD' && !e.shiftKey) {
+        if (!e.repeat) duplicate();
+      } else if (e.code === 'KeyG') {
+        if (!e.repeat) groupSelected(e.shiftKey);
+      } else if (e.code === 'KeyL' && e.shiftKey) {
+        if (!e.repeat) toggleLock();
+      } else return;
     } else if (e.key === 'Escape') {
       if (gesture) finishGesture(true);
       else if (!panel.hidden) panel.hidden = true;
@@ -3101,10 +3099,14 @@ export function mountBoard(container, options = {}) {
     } else if (e.key === ' ' && e.target === stage) {
       spaceDown = true;
       root.classList.add('vb-space');
-    } else if (e.code === 'KeyF') {
+    } else if (e.key === 'Enter' && !e.shiftKey && e.target === stage && selection.size === 1) {
+      const [item] = selected();
+      if (!item || item.locked || !shapes.has(item.type)) return;
+      shapeCaption(views.get(item.id), item).start();
+    } else if (!e.shiftKey && e.code === 'KeyF') {
       fit();
-    } else if (keys[e.code]) setTool(keys[e.code]);
-    else if (e.key === 'Delete' || e.key === 'Backspace') {
+    } else if (!e.shiftKey && keys[e.code]) setTool(keys[e.code]);
+    else if (!e.shiftKey && (e.key === 'Delete' || e.key === 'Backspace')) {
       const chart = e.target.closest('.vt-chart-controls')?.closest('.vb-object');
       if (chart && !selection.has(chart.dataset.id)) {
         const item = elements.find(el => el.id === chart.dataset.id);
@@ -3130,6 +3132,24 @@ export function mountBoard(container, options = {}) {
     tableUI.finishEdit();
     finishGesture();
     finishChain();
+  }
+  async function commitDraft(closing = false) {
+    if (closing) folderPicker = null;
+    // Capture interrupted IME input before a table commit or gesture redraws the board.
+    for (const item of elements) {
+      const view = views.get(item.id);
+      const caption = view?.caption?.field;
+      if (caption) changeShapeLabel(item.id, caption.value, 'insertText');
+      if (item.type === 'text' && !item.folderPath && !item.locked && !item.body &&
+          view?.content && view.content.value !== item.text) onTextInput(item.id, view.content);
+    }
+    await Promise.all([...views.values()].filter(v => v.rich).map(v => v.rich.flush()));
+    if (closing) flush();
+    else if (!tableUI.commitDraft()) return false;
+    await Promise.allSettled([...pending]);
+    if (closing) finishGesture();
+    if (fitRichHeights(views.keys())) { draw(); emit(); }
+    return true;
   }
   function setActive(next) {
     if (!inline || active === next || dead) return;
@@ -3221,24 +3241,8 @@ export function mountBoard(container, options = {}) {
     refreshHistory,
     fit,
     focus: () => stage.focus({ preventScroll: true }),
-    async prepareClose() {
-      folderPicker = null;
-      // A locked Windows desktop can interrupt the final input event of an IME.
-      // Capture the visible textarea value before completing a gesture redraws it.
-      for (const item of elements) {
-        const caption = views.get(item.id)?.caption?.field;
-        if (caption) changeShapeLabel(item.id, caption.value, 'insertText');
-        if (item.type !== 'text' || item.folderPath || item.locked || item.body) continue;
-        const field = views.get(item.id)?.content;
-        if (field && field.value !== item.text) onTextInput(item.id, field);
-      }
-      await Promise.all([...views.values()].filter(v => v.rich).map(v => v.rich.flush()));
-      flush();
-      await Promise.allSettled([...pending]);
-      finishGesture();
-      if (fitRichHeights(views.keys())) { draw(); emit(); }
-      return true;
-    },
+    commitDraft,
+    prepareClose: () => commitDraft(true),
     destroy() {
       if (dead) return;
       closeFileMenu?.(false);

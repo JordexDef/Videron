@@ -243,7 +243,7 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
   escape.onclick=dismiss
   shade.onpointerdown=e=>{if(e.target===shade)dismiss()}
   shade.onkeydown=e=>{
-    if(e.isComposing)return
+    if(e.defaultPrevented||e.isComposing||e.keyCode===229||e.ctrlKey||e.metaKey||e.altKey||(e.shiftKey&&e.key!=='Tab'))return
     if(e.key==='Escape'){e.preventDefault();e.stopPropagation();dismiss();return}
     const inResults=e.target===query||results.contains(e.target)
     if(inResults && list.length && (e.key==='ArrowDown'||e.key==='ArrowUp')){
@@ -254,6 +254,7 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
       if(e.target!==query)results.children[index].focus()
     }else if(e.target===query&&e.key==='Enter'){
       e.preventDefault()
+      if(e.repeat)return
       if(list[active])open(list[active])
       else openWhenReady=true
     }else if(e.key==='Tab'){

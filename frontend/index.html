@@ -47,7 +47,7 @@
       <div class="sidebar-foot">
         <button class="nav-item" id="settings"><i data-i="sliders"></i><span data-en="Settings">Настройки</span></button>
         <button class="nav-item" id="extensions"><i data-i="extensions"></i><span data-en="Extensions">Расширения</span></button>
-        <button class="nav-item" id="help"><i data-i="help"></i><span data-en="Controls">Управление</span><kbd>?</kbd></button>
+        <button class="nav-item" id="help" aria-keyshortcuts="F1" title="Управление (F1 / ?)" data-en-title="Controls (F1 / ?)"><i data-i="help"></i><span data-en="Controls">Управление</span><kbd>F1</kbd></button>
         <label class="language-row"><i data-i="globe"></i><span data-en="Language">Язык</span><select id="language-select" aria-label="Язык интерфейса" data-en-aria="Interface language"><option value="ru" lang="ru">Русский</option><option value="en" lang="en">English</option></select></label>
         <div class="storage workspace-status">
           <button id="workspace-status-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="workspace-status-details">
@@ -116,9 +116,9 @@
             <span></span><button data-tool="link" class="icon-button" title="Связать заметки (L)" aria-label="Связать заметки" data-en-title="Link notes (L)" data-en-aria="Link notes"><i data-i="link"></i></button>
           </div>
           <div class="dock scale">
-            <button id="minus" class="icon-button" title="Отдалить" aria-label="Отдалить" data-en-title="Zoom out" data-en-aria="Zoom out"><i data-i="minus"></i></button>
-            <button id="actual-size" title="Сбросить масштаб" aria-label="Сбросить масштаб" data-en-title="Reset zoom" data-en-aria="Reset zoom">100%</button>
-            <button id="plus" class="icon-button" title="Приблизить" aria-label="Приблизить" data-en-title="Zoom in" data-en-aria="Zoom in"><i data-i="plus"></i></button><span></span>
+            <button id="minus" class="icon-button" aria-keyshortcuts="-" title="Отдалить (−)" aria-label="Отдалить" data-en-title="Zoom out (−)" data-en-aria="Zoom out"><i data-i="minus"></i></button>
+            <button id="actual-size" aria-keyshortcuts="0" title="Масштаб 100% (0)" aria-label="Масштаб 100%" data-en-title="Actual size (0)" data-en-aria="Actual size">100%</button>
+            <button id="plus" class="icon-button" aria-keyshortcuts="Plus =" title="Приблизить (+)" aria-label="Приблизить" data-en-title="Zoom in (+)" data-en-aria="Zoom in"><i data-i="plus"></i></button><span></span>
             <button id="fit" class="icon-button" title="Уместить карту (F)" aria-label="Уместить карту" data-en-title="Fit map (F)" data-en-aria="Fit map"><i data-i="fit"></i></button>
           </div>
         </div>

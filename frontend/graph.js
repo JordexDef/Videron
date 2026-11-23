@@ -218,14 +218,12 @@ export class Graph {
     listen(canvas, 'contextmenu', e => this.contextMenu(e));
     listen(canvas, 'wheel', e => this.wheel(e), { passive: false });
     listen(canvas, 'keydown', e => {
+      if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape' && (this.drag || this.pinch)) {
         e.preventDefault(); e.stopPropagation(); this.cancelDrag(); return;
       }
-      if (this.tool !== 'select' || this.linking || e.altKey) return;
-      if (e.code === 'KeyA' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault(); e.stopPropagation();
-        this.changeSelection(new Set(this.nodes.keys()));
-      } else if (e.code === 'Space' && !e.ctrlKey && !e.metaKey) {
+      if (this.tool !== 'select' || this.linking || e.altKey || e.shiftKey || e.ctrlKey || e.metaKey) return;
+      if (e.code === 'Space') {
         e.preventDefault(); this.spacePan = true; this.updateCursor();
       }
     });

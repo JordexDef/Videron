@@ -1,4 +1,5 @@
 import { tr } from './i18n.js'
+import { primaryCommand, shortcutLabel } from './shortcuts.js'
 import { CODE_LANGUAGES, codeLanguage, detectCodeLanguage, formatJSON, highlightCode, indentCodeSelection } from './code-block.js'
 
 const languageNames = {
@@ -48,7 +49,7 @@ export function createCodeBlockView(block, {el, button, index, activate, beforeE
   source.spellcheck = false
   source.value = typeof block.text === 'string' ? block.text : ''
   source.placeholder = tr('Введите или вставьте код…', 'Type or paste code…')
-  const nextLabel = tr('Продолжить заметку (Ctrl+Enter)', 'Continue note (Ctrl+Enter)')
+  const nextLabel = shortcutLabel(tr('Продолжить заметку (Ctrl+Enter)', 'Continue note (Ctrl+Enter)'))
   const format = button(tr('Форматировать JSON', 'Format JSON'), null, () => {
     const result = formatJSON(source.value)
     if (!result.ok) {
@@ -133,7 +134,7 @@ export function createCodeBlockView(block, {el, button, index, activate, beforeE
   source.onscroll = syncScroll
   source.onkeydown = event => {
     if (event.isComposing || event.keyCode === 229 || event.altKey) return
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (event.key === 'Enter' && !event.shiftKey && primaryCommand(event)) {
       event.preventDefault()
       move(index,1,true)
     } else if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey) {

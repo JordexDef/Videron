@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pasteCellsAtRange, tabDestination } from '../frontend/table-view.js';
+import { arrowDestination, pasteCellsAtRange, tabDestination } from '../frontend/table-view.js';
 import { tableBarPosition } from '../frontend/table-canvas-footer.js';
 
 const item = {rows:3, cols:3, cells:{A1:'keep', B2:'old'}};
@@ -25,6 +25,19 @@ test('Tab follows the reading order and releases focus at both ends', () => {
   assert.equal(tabDestination(item, 'A1', true), null);
   assert.equal(tabDestination(item, 'C3', false), null);
   assert.equal(tabDestination({rows:2, cols:1}, 'A1', false), 'A2');
+});
+
+test('modified arrow keys navigate across filled runs and gaps within the table', () => {
+  const sheet = {rows:8, cols:5, cells:{A1:'0', A2:'2', A3:'=B1', A6:'6', C1:'text', D1:'d'}};
+  assert.equal(arrowDestination(sheet,'A1','ArrowDown',true),'A3');
+  assert.equal(arrowDestination(sheet,'A3','ArrowDown',true),'A6');
+  assert.equal(arrowDestination(sheet,'A6','ArrowDown',true),'A8');
+  assert.equal(arrowDestination(sheet,'A8','ArrowUp',true),'A6');
+  assert.equal(arrowDestination(sheet,'A2','ArrowUp',true),'A1');
+  assert.equal(arrowDestination(sheet,'A1','ArrowRight',true),'C1');
+  assert.equal(arrowDestination(sheet,'C1','ArrowRight',true),'D1');
+  assert.equal(arrowDestination(sheet,'E8','ArrowRight',true),'E8');
+  assert.equal(arrowDestination(sheet,'B3','ArrowLeft',false),'A3');
 });
 
 test('pasting one value fills the selected rectangle and shifts each copied formula from its original cell', () => {

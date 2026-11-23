@@ -1,4 +1,5 @@
 import { getLanguage, tr } from './i18n.js';
+import { historyDirection, primaryCommand, shortcutLabel } from './shortcuts.js';
 import { planAutofill } from './table-autofill.js';
 import { mountTableControls } from './table-controls.js';
 import { trackFill } from './table-fill-gesture.js';
@@ -89,6 +90,23 @@ export function tabDestination(item, address, backwards) {
 
 function rawAt(item, addr) {
   return item.cells[addr] ?? '';
+}
+
+// Move to the far end of a filled run, or across a gap to the next filled cell.
+export function arrowDestination(item, address, key, jump = false) {
+  const {row,col} = parseAddress(address);
+  const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
+  const step = key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : 1;
+  const limit = horizontal ? item.cols : item.rows;
+  const cell = i => horizontal ? addressOf(row,i) : addressOf(i,col);
+  let next = (horizontal ? col : row) + step;
+  if (next < 0 || next >= limit) return address;
+  if (jump) {
+    const end = step > 0 ? limit - 1 : 0;
+    const inRun = rawAt(item,address) !== '' && rawAt(item,cell(next)) !== '';
+    while (next !== end && (inRun ? rawAt(item,cell(next+step)) !== '' : rawAt(item,cell(next)) === '')) next += step;
+  }
+  return cell(next);
 }
 
 function putCell(cells, address, value) {
@@ -600,17 +618,26 @@ export function makeTableUI({
     edit = null;
     stopPicking?.();
     suggestions.destroy();
-    const value = field.value;
     field.remove();
     refHost?.remove();
     clearReferenceColors(v);
+    if (!cancel) writeCell(v,address,field.value);
+    refreshSelection(v);
+  }
+
+  function writeCell(v,address,value) {
     const item = getTable(v.id);
-    if (!cancel && item && !item.locked && rawAt(item, address) !== value) {
+    if (item && !item.locked && rawAt(item, address) !== value) {
       const cells = { ...item.cells };
       putCell(cells, address, value);
       onChange(v.id, { cells });
     }
-    refreshSelection(v);
+  }
+
+  function commitDraft() {
+    if (renaming) return finishRename(false,true);
+    if (edit) writeCell(edit.v,edit.address,edit.field.value);
+    return true;
   }
 
   function finishRename(cancel = false, report = false) {
@@ -911,45 +938,43 @@ export function makeTableUI({
       return;
     }
     e.stopPropagation();
-    if (e.isComposing) return;
+    if (e.isComposing || e.keyCode === 229 || e.altKey) return;
     if (e.key === 'F3' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !v.functions.hidden) {
       e.preventDefault(); browseFunctions(v); return;
     }
-    const cmd = e.ctrlKey || e.metaKey;
-    const { row, col } = parseAddress(e.shiftKey ? active.last : active.first);
+    const cmd = primaryCommand(e);
+    if (!cmd && (e.ctrlKey || e.metaKey)) return;
+    const direction = historyDirection(e);
+    const edge = e.shiftKey ? active.last : active.first;
     let next;
     if (cmd && ['KeyC', 'KeyX', 'KeyV'].includes(e.code)) return;
-    if (cmd && e.code === 'KeyA') selectRange(v, 'A1', addressOf(v.item.rows - 1, v.item.cols - 1));
+    if (cmd && !e.shiftKey && e.code === 'KeyA') selectRange(v, 'A1', addressOf(v.item.rows - 1, v.item.cols - 1));
     else if (e.code === 'Space' && cmd !== e.shiftKey) {
       const axis = cmd ? 'cols' : 'rows', r = sortedRange(active.first, active.last);
       const first = cmd ? r.left : r.top, last = cmd ? r.right : r.bottom;
       if (active.axis !== axis) setAxes(v, axis, new Set(interval(first, last)), first, last);
-    } else if (active.axis && e.shiftKey && (active.axis === 'rows'
+    } else if (active.axis && !cmd && e.shiftKey && (active.axis === 'rows'
       ? ['ArrowUp','ArrowDown'] : ['ArrowLeft','ArrowRight']).includes(e.key)) {
       const axis = active.axis, sign = ['ArrowUp','ArrowLeft'].includes(e.key) ? -1 : 1;
       const edge = Math.max(0, Math.min(v.item[axis] - 1, active.edge + sign));
       reveal(v, addressOf(axis === 'rows' ? edge : 0, axis === 'cols' ? edge : 0));
       setAxes(v, axis, new Set(interval(active.pivot, edge)), active.pivot, edge);
-    } else if (cmd && ['KeyZ', 'KeyY'].includes(e.code)) onUndo?.(e.shiftKey || e.code === 'KeyY');
+    } else if (direction) onUndo?.(direction === 'redo');
     else if (e.key === 'Escape') {
       clearSelection();
       v.root.closest('.vb-stage')?.focus({ preventScroll: true });
-    } else if (e.key === 'Delete' && active.axis && !cmd) {
+    } else if (e.key === 'Delete' && active.axis && !cmd && !e.shiftKey) {
       deleteAxes(v, active.axis, [...active.indices].sort((a, b) => a - b));
-    } else if (e.key === 'Delete' || e.key === 'Backspace') eraseCells(v);
-    else if (e.key === 'F2' || e.key === 'Enter') startEdit(v, active.first);
-    else if (e.key === 'Tab') {
-      next = tabDestination(v.item, e.shiftKey ? active.last : active.first, e.shiftKey);
+    } else if (!cmd && !e.shiftKey && (e.key === 'Delete' || e.key === 'Backspace')) eraseCells(v);
+    else if (!cmd && !e.shiftKey && (e.key === 'F2' || e.key === 'Enter')) startEdit(v, active.first);
+    else if (!cmd && e.key === 'Tab') {
+      next = tabDestination(v.item, edge, e.shiftKey);
       if (!next) return;
     }
-    else if (e.key === 'Home') next = boundedCell(v.item, cmd ? 0 : row, 0);
-    else if (e.key === 'End') next = boundedCell(v.item, cmd ? v.item.rows - 1 : row, v.item.cols - 1);
+    else if (e.key === 'Home') next = boundedCell(v.item, cmd ? 0 : parseAddress(edge).row, 0);
+    else if (e.key === 'End') next = boundedCell(v.item, cmd ? v.item.rows - 1 : parseAddress(edge).row, v.item.cols - 1);
     else if (/^Arrow(Up|Down|Left|Right)$/.test(e.key)) {
-      next = boundedCell(
-        v.item,
-        row + (e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0),
-        col + (e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0)
-      );
+      next = arrowDestination(v.item,edge,e.key,cmd);
     } else if (e.key.length === 1 && !cmd && !e.altKey) startEdit(v, active.first, e.key);
     else return;
     if (next) {
@@ -1065,7 +1090,7 @@ export function makeTableUI({
     menu.setAttribute('role', 'menu');
     menu.hidden = true;
     const fillHandle = button('vt-fill-handle', tr('Автозаполнение', 'Autofill'));
-    fillHandle.title = tr('Потяните, чтобы продолжить ряд. Ctrl — копировать значения.', 'Drag to continue the series. Hold Ctrl to copy values.');
+    fillHandle.title = shortcutLabel(tr('Потяните, чтобы продолжить ряд. Ctrl — копировать значения.', 'Drag to continue the series. Hold Ctrl to copy values.'));
     fillHandle.tabIndex = -1;
     const fillOverflow = node('div', 'vt-fill-overflow');
     fillOverflow.hidden = true;
@@ -1282,6 +1307,7 @@ export function makeTableUI({
     updateView,
     focusCell,
     finishEdit,
+    commitDraft,
     clearSelection,
     removeView,
     destroy,

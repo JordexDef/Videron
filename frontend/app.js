@@ -25,6 +25,7 @@ import { openWorkspaceServer, dismissWorkspaceServer } from './workspace-server-
 import { rememberServerAddress } from './server-address.js';
 import { createEditorSaveStatus, mountWorkspaceStatus } from './workspace-status.js';
 import { bindStaticTranslations, getLanguage, setLanguage, tr } from './i18n.js';
+import { isMacPlatform, primaryCommand, shortcutLabel, shortcutAria } from './shortcuts.js';
 import { deleteNotes } from './note-deletion.js';
 import { isProtectedNote, protectedNoteTitle, openNoteSession } from './note-vault.js';
 import { openVaultSettings, openVaultPassword, showVaultUnlock, interruptVaultDialogs } from './vault-ui.js';
@@ -84,7 +85,7 @@ function notify(message,action){
   toast.replaceChildren(element('span','toast-message',message));
   if(action){
     const undo=element('button','toast-action',action.label);
-    undo.type='button';undo.title=action.label+' (Ctrl+Z)';
+    undo.type='button';undo.title=shortcutLabel(action.label+' (Ctrl+Z)');
     undo.onclick=action.run;toast.append(undo);
   }
   const schedule=()=>{
@@ -233,6 +234,17 @@ function flush(){
     editor?.saveStatus.saved();status('local');
   })().catch(error=>{status('failed');throw error}).finally(()=>{pending=null});
   return pending;
+}
+
+async function saveOpenEditor(){
+  const current=editor;
+  if(!current)return;
+  try{
+    // Finish the active draft only for an explicit save. Background autosave
+    // must leave the formula, shape or paragraph the user is typing intact.
+    if(await current.commitDraft?.()===false || editor!==current || lockScreen)return;
+    await flush();
+  }catch(error){reportWriteError(error)}
 }
 
 function syncIdle(){
@@ -391,7 +403,7 @@ function dialog(title, dismissible=true){
   box.append(heading);shade.append(box);document.body.append(shade);
   shade.addEventListener('pointerdown',e=>{if(e.target===shade&&dismissible)close()});
   shade.addEventListener('keydown',e=>{
-    if(e.key==='Escape'){e.preventDefault();if(dismissible)close();return}
+    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();if(dismissible)close();return}
     if(e.key!=='Tab')return;
     const list=[...box.querySelectorAll('button:enabled,input:enabled,select:enabled')].filter(control=>control.getClientRects().length);
     const i=list.indexOf(document.activeElement);
@@ -700,22 +712,23 @@ function showHelp(){
     [tr('Отменить перенос или удаление','Undo a move or deletion'),'Ctrl Z'],
     [tr('Поиск с карты','Search from the map'),'Ctrl K'],
     [tr('Поиск из любого редактора','Search from any editor'),'Ctrl Shift F'],
-    [tr('Открыть заметку','Open a note'),tr('Двойной щелчок','Double-click')],
+    [tr('Открыть выбранную заметку','Open the selected note'),tr('Enter или двойной щелчок','Enter or double-click')],
     [tr('Действия и внешний вид','Actions and appearance'),tr('Правый щелчок','Right-click')],
     [tr('Выбрать несколько заметок на карте','Select several notes on the map'),tr('Рамка или Ctrl / Shift + щелчок','Drag a box or Ctrl / Shift + click')],
-    [tr('Удалить выбранные заметки','Delete selected notes'),'Delete'],
+    [tr('Выбрать все заметки','Select all notes'),'Ctrl A'],
+    [tr('Удалить выбранные заметки, сетку или дорожку','Delete selected notes, grid or track'),isMacPlatform()?'⌫ / Delete':'Delete'],
     [tr('Переместить заметки в область','Move notes into an area'),tr('Потянуть в контур или на папку','Drag into its outline or sidebar folder')],
     [tr('Изменить порядок этапов','Reorder stages'),tr('Потянуть ручку у названия этапа','Drag the handle beside a stage name')],
     [tr('Вставить этап','Insert a stage'),tr('Плюс между заголовками','Plus between stage headings')],
     [tr('Удалить этап','Delete a stage'),tr('Правый щелчок по названию этапа','Right-click its heading')],
-    [tr('Удалить выбранную сетку или дорожку','Delete the selected grid or stage track'),'Delete'],
     [tr('Изменить шаг сетки','Change grid spacing'),tr('Потянуть правый нижний угол','Drag the bottom-right corner')],
     [tr('Выбор / перемещение','Select / pan'),'V / H'],
     [tr('Связать две заметки','Link two notes'),'L'],
-    [tr('Масштаб','Zoom'),tr('Колесо мыши','Mouse wheel')],
-    [tr('Уместить карту','Fit map'),'F']
+    [tr('Масштаб','Zoom'),tr('+ / − или колесо','+ / − or wheel')],
+    [tr('Масштаб 100% / уместить карту','Actual size / fit map'),'0 / F'],
+    [tr('Скрыть или показать боковую панель','Toggle sidebar'),'Ctrl + \\']
   ]){
-    const row=element('div');row.append(element('span','',label),element('kbd','',key));rows.append(row);
+    const row=element('div');row.append(element('span','',label),element('kbd','',shortcutLabel(key)));rows.append(row);
   }
   d.box.append(element('p','',tr('Размер фигуры зависит от наполнения заметки. Частые открытия добавляют мягкое свечение. Закрепление удерживает заметку на выбранном месте.','A shape grows with its note. Opening a note more often gives it a soft glow. Pin it to keep it in place.')),rows);
 }
@@ -1357,7 +1370,7 @@ async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
   if(source && !lockScreen)playNoteTransition('open',source,editor.element);
 }
 function addNote(pos=graph.worldCenter(),type='text',seat=null){
-  if(!library.active)return;
+  if(!ready || !library.active || editor || openingNote || spaceOperation || lockScreen)return;
   const space=workspace(),n=createNote(pos.x,pos.y,null,type);
   space.notes.push(n);
   const placement=(seat || page==='area')?placeAreaNotes(space,[n.id],seat?.areaId??currentArea,seat?.slot??null):null;
@@ -1472,7 +1485,7 @@ function removeNotes(ids){
   const title=single?noteTitle(record):'';
   const d=dialog(single?tr('Удалить заметку?','Delete note?'):tr('Удалить выбранные заметки?','Delete selected notes?'));
   d.box.append(element('p','',single?tr('«'+title+'» и её связи будут удалены из этого пространства.','“'+title+'” and its links will be removed from this workspace.'):
-    tr('Выбрано заметок · ','Selected notes · ')+ids.length+tr('. Удаление можно отменить через Ctrl+Z.','. You can undo this with Ctrl+Z.')));
+    tr('Выбрано заметок · ','Selected notes · ')+ids.length+shortcutLabel(tr('. Удаление можно отменить через Ctrl+Z.','. You can undo this with Ctrl+Z.'))));
   const actions=element('div','dialog-actions');actions.append(button(tr('Отмена','Cancel'),d.close),button(tr('Удалить','Delete'),()=>{
     d.close();
     if(space!==workspace() || !ready || lockScreen || spaceOperation || editor || reviewing)return;
@@ -1726,7 +1739,7 @@ function sidebarRow(item){
     open.classList.add('add-area-inline');open.onclick=()=>areaDialog();row.append(open);
   }
   if(folder || item.kind==='note')open.onkeydown=e=>{
-    if(e.key!=='Delete' || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey ||
+    if(!isDeleteKey(e) || e.defaultPrevented || e.isComposing || e.keyCode===229 || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey ||
         !ready || editor || openingNote || lockScreen || reviewing || spaceOperation || popover)return;
     e.preventDefault();e.stopPropagation();
     if(folder){
@@ -1824,11 +1837,14 @@ const narrowSidebar=matchMedia('(max-width:680px)');
 function updateSidebarToggle(){
   const open=narrowSidebar.matches?$('shell').classList.contains('mobile-open'):!$('shell').classList.contains('collapsed');
   const b=$('sidebar-toggle'),label=open?tr('Скрыть боковую панель','Hide sidebar'):tr('Показать боковую панель','Show sidebar');
-  b.title=label+' (Ctrl+\\)';b.setAttribute('aria-label',label);b.setAttribute('aria-expanded',String(open));
+  b.title=shortcutLabel(label+' (Ctrl+\\)');b.setAttribute('aria-keyshortcuts',shortcutAria('Ctrl+\\'));b.setAttribute('aria-label',label);b.setAttribute('aria-expanded',String(open));
   b.replaceChildren(iconEl(open?'panelClose':'panelOpen'));
 }
 function toggleSidebar(){
   $('shell').classList.toggle(narrowSidebar.matches?'mobile-open':'collapsed');updateSidebarToggle();
+}
+function isDeleteKey(event){
+  return event.key==='Delete' || (event.key==='Backspace' && isMacPlatform());
 }
 function bindUI(){
   $('sync-review').onclick=async()=>{
@@ -1880,30 +1896,51 @@ function bindUI(){
   $('help').onclick=showHelp;$('search').onclick=()=>search();$('settings').onclick=settings;
   $('extensions').onclick=()=>openExtensions({workspace:workspace(),plugins:library.plugins,onSavePlugins:items=>{library.plugins=items;dirty({settings:['plugins']})},onOpenNote:edit,notify});
   document.addEventListener('keydown',e=>{
-    if(!ready||!library.active||spaceOperation||e.isComposing||e.altKey||!(e.ctrlKey||e.metaKey)||!e.shiftKey||e.code!=='KeyF')return;
+    const find=e.code==='KeyF' && e.shiftKey, save=e.code==='KeyS' && !e.shiftKey && editor && !editor.element.inert;
+    if(!(find||save)||!primaryCommand(e)||e.isComposing||e.keyCode===229||e.defaultPrevented)return;
+    if(!ready||!library.active||spaceOperation||openingNote||lockScreen||reviewing)return;
     if(document.querySelector('.shade,dialog[open],[role="dialog"]:not(.vd-editor)'))return;
-    e.preventDefault();e.stopPropagation();search();
+    e.preventDefault();e.stopPropagation();
+    if(!e.repeat){if(save)void saveOpenEditor();else search()}
   },true);
   document.addEventListener('keydown',e=>{
-    if(!ready||!library.active||spaceOperation||reviewing||editor||document.querySelector('.shade,[role="dialog"],dialog[open]')||e.isComposing)return;
-    if(!lockScreen && showingMap() && !popover && routes.keydown(e))return;
-    const command=e.ctrlKey||e.metaKey;
-    if(e.key==='Escape'){closeMenu();selected=null;graph.select(null);listSelection.clear();lastListId=null;chooseTool('select');renderSelection();renderListSelection();return}
-    if(command && e.code==='KeyA' && !showingMap() && $('list-stage').contains(e.target)){
-      e.preventDefault();
-      for(const row of $('list-stage').querySelectorAll('[data-note-id]'))listSelection.add(row.dataset.noteId);
-      renderListSelection();return;
+    if(e.defaultPrevented||e.isComposing||e.keyCode===229||e.altKey)return;
+    const command=primaryCommand(e);
+    if((e.ctrlKey||e.metaKey) && !command)return;
+    if(!ready||!library.active||spaceOperation||openingNote||openingSearch||reviewing||editor||lockScreen||popover||
+        document.querySelector('.shade,[role="dialog"],dialog[open]'))return;
+    if(e.target.isContentEditable || e.target.closest?.('input:not([type=checkbox]),textarea,select'))return;
+    const mapFocused=showingMap() && (e.target===document.body || e.target.closest?.('.page'));
+    if(mapFocused && routes.keydown(e))return;
+    if(!command && !e.shiftKey && e.key==='Escape'){
+      if(e.repeat)return;
+      selected=null;graph.select(null);listSelection.clear();lastListId=null;chooseTool('select');renderSelection();renderListSelection();return;
     }
-    if(e.target.matches('input:not([type=checkbox]),textarea,[contenteditable="true"]'))return;
-    if(command&&!e.shiftKey&&!e.altKey&&e.code==='KeyZ'&&!popover&&!e.target.matches('select')&&lastMapAction(workspace())){
+    if(command && !e.shiftKey && e.code==='KeyA'){
+      if(e.target===$('graph') && showingMap()){
+        e.preventDefault();
+        if(!e.repeat && !graph.drag && !graph.pinch && !$('map-stage').dataset.routeMode){
+          if(tool!=='select')chooseTool('select');
+          graph.changeSelection(new Set(graph.nodes.keys()));
+        }
+      }else if(!showingMap() && $('list-stage').contains(e.target)){
+        e.preventDefault();
+        if(!e.repeat){
+          for(const row of $('list-stage').querySelectorAll('[data-note-id]'))listSelection.add(row.dataset.noteId);
+          renderListSelection();
+        }
+      }
+      return;
+    }
+    if(command && !e.shiftKey && e.code==='KeyZ' && lastMapAction(workspace())){
       e.preventDefault();if(!e.repeat)undoWorkspaceChange();return;
     }
-    if(command&&e.code==='KeyK'){e.preventDefault();search();return}
-    if(command&&e.code==='KeyN'){e.preventDefault();addNote(graph.worldCenter(),e.shiftKey?'canvas':'text');return}
-    if(command&&e.code==='Backslash'){e.preventDefault();toggleSidebar();return}
-    if(command||e.altKey||popover||e.target.matches('select'))return;
-    if(e.key==='?'){showHelp();return}
-    if(e.key==='Delete' && !e.shiftKey && !e.repeat && !lockScreen){
+    if(command && !e.shiftKey && e.code==='KeyK'){e.preventDefault();if(!e.repeat)search();return}
+    if(command && e.code==='KeyN'){e.preventDefault();if(!e.repeat)addNote(graph.worldCenter(),e.shiftKey?'canvas':'text');return}
+    if(command && !e.shiftKey && e.code==='Backslash'){e.preventDefault();if(!e.repeat)toggleSidebar();return}
+    if(command)return;
+    if(e.key==='?' || (e.key==='F1' && !e.shiftKey)){e.preventDefault();if(!e.repeat)showHelp();return}
+    if(isDeleteKey(e) && !e.shiftKey && !e.repeat){
       if(showingMap() && e.target===$('graph') && tool==='select' && !graph.drag && !graph.pinch && !$('map-stage').dataset.routeMode){
         const grid=areaById(graph.selectedGridId);
         if(grid?.grid){e.preventDefault();deleteFolder(grid)}
@@ -1915,10 +1952,18 @@ function bindUI(){
       }
       return;
     }
-    if(!showingMap())return;
-    if(e.code==='KeyF')graph.fit();
-    if(['KeyV','KeyH','KeyL'].includes(e.code)){chooseTool({KeyV:'select',KeyH:'hand',KeyL:'link'}[e.code]);renderSelection()}
-    if(e.key==='Enter'&&e.target===$('graph')&&selected)editFromMap(selected);
+    if(!mapFocused || graph.drag || graph.pinch)return;
+    if(e.key==='+' || e.key==='=' || e.key==='-' || e.key==='0'){
+      e.preventDefault();
+      if(e.key==='0')graph.zoomBy(1/graph.zoom);
+      else graph.zoomBy(e.key==='-'?1/1.2:1.2);
+      return;
+    }
+    if(e.shiftKey || e.repeat)return;
+    if(e.code==='KeyF'){e.preventDefault();graph.fit();return}
+    const nextTool={KeyV:'select',KeyH:'hand',KeyL:'link'}[e.code];
+    if(nextTool){e.preventDefault();chooseTool(nextTool);return}
+    if(e.key==='Enter'&&e.target===$('graph')&&selected){e.preventDefault();editFromMap(selected)}
   });
 }
 async function loadDesktopLibrary(){

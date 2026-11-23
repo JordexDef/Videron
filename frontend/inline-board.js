@@ -135,6 +135,7 @@ export function createInlineBoard(initial, callbacks) {
     flush() { endResize(false);board?.flush() },
     refreshHistory: () => board?.refreshHistory(),
     prepareClose() { endResize(false); return board?.prepareClose() },
+    commitDraft() { return board?.commitDraft() },
     destroy() { endResize(true);board?.destroy() }
   }
 }

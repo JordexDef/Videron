@@ -1,5 +1,11 @@
 import {tr} from './i18n.js'
+import {primaryCommand} from './shortcuts.js'
 import {isProtectedNote} from './note-vault.js'
+
+function opensTag(event) {
+  return event.key === 'Enter' && primaryCommand(event) && !event.shiftKey &&
+    !event.repeat && !event.defaultPrevented && !event.isComposing && event.keyCode !== 229
+}
 
 export function tagRanges(text) {
   const tags = []
@@ -153,7 +159,7 @@ export function createTagNavigator({root,notes,noteId,onOpenNote}) {
     return true
   }
   function keydown(e, editable) {
-    if (!onOpenNote || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.isComposing) return false
+    if (!onOpenNote || !opensTag(e)) return false
     const sel = doc.getSelection()
     if (!sel?.rangeCount || !sel.isCollapsed || !editable.contains(sel.focusNode)) return false
     const hit = (ranges.get(editable)||[]).find(({range})=>range.isPointInRange(sel.focusNode,sel.focusOffset))
@@ -209,8 +215,7 @@ export function createTagNavigator({root,notes,noteId,onOpenNote}) {
         }
       },opts)
       field.addEventListener('keydown',e=>{
-        if (!onOpenNote || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.isComposing ||
-            field.selectionStart !== field.selectionEnd) return
+        if (!onOpenNote || !opensTag(e) || field.selectionStart !== field.selectionEnd) return
         const hit = tags.find(t=>t.start<=field.selectionStart && t.end>=field.selectionStart)
         if (hit) { e.preventDefault(); e.stopImmediatePropagation(); open(hit.tag,hit.span) }
       },{...opts,capture:true})

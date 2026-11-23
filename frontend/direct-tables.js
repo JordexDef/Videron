@@ -274,6 +274,7 @@ export function createDirectTables(initial, callbacks) {
     pickExternalCell:(event,table,allowed) => ui.pickExternalCell(event,table.name,allowed),
     refreshWorkbook:render,
     flush() { finishResize?.(false); ui.finishEdit() },
+    commitDraft: ui.commitDraft,
     prepareClose() { finishResize?.(false); ui.finishEdit() },
     destroy() {
       mounted = false; finishResize?.(true); closeFiles?.(); ui.finishEdit(true); ui.destroy(); nodes.clear()

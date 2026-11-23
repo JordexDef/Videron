@@ -1,4 +1,5 @@
 import { tr, getLanguage } from './i18n.js'
+import { primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
 import { openDelimitedSession } from './delimited-worker.js'
 
 const rowHeight = 28, headerHeight = 34, columnWidth = 164, gutter = 62
@@ -37,6 +38,7 @@ export function mountDelimitedGrid(host, {source,format,header=true,restore,onCh
   toolbar.append(headerLabel,unique)
   const scroll = node('div','vd-grid-scroll'), space = node('div','vd-grid-space'), plane = node('div','vd-grid-plane')
   scroll.tabIndex = 0; scroll.setAttribute('role','grid'); scroll.setAttribute('aria-label',tr('Таблица данных','Data table'))
+  scroll.setAttribute('aria-keyshortcuts',shortcutAria('Ctrl+C Ctrl+ArrowUp Ctrl+ArrowDown Ctrl+ArrowLeft Ctrl+ArrowRight'))
   scroll.setAttribute('aria-readonly','true')
   const head = node('div','vd-grid-header'), corner = node('div','vd-grid-corner','#'), headClip = node('div','vd-grid-head-clip')
   head.setAttribute('role','row'); head.setAttribute('aria-rowindex','1')
@@ -50,6 +52,8 @@ export function mountDelimitedGrid(host, {source,format,header=true,restore,onCh
   status.setAttribute('role','status')
   const cancel = button('vd-grid-cancel',tr('Отмена','Cancel'))
   const edit = button('vd-grid-edit',tr('Открыть в тексте','Open in text'))
+  cancel.title=cancel.textContent+' (Esc)';cancel.setAttribute('aria-keyshortcuts','Escape')
+  edit.title=edit.textContent+' (Enter / F2)';edit.setAttribute('aria-keyshortcuts','Enter F2')
   foot.append(count,status,cancel,edit)
   root.append(toolbar,scroll,foot); host.replaceChildren(root)
   root.style.setProperty('--vd-grid-row',rowHeight+'px'); root.style.setProperty('--vd-grid-head',headerHeight+'px')
@@ -133,7 +137,7 @@ export function mountDelimitedGrid(host, {source,format,header=true,restore,onCh
       const target=button('vd-grid-sort','');target.dataset.sort=index
       target.append(node('span','vd-grid-col-name',title),node('span','vd-grid-arrow'))
       target.setAttribute('aria-label',tr('Сортировать по столбцу ','Sort by column ')+title)
-      target.title=title+' · '+tr('Сортировать. Ctrl/⌘ + щелчок — выбрать для поиска дубликатов','Sort. Ctrl/⌘ + click to select for duplicate removal')
+      target.title=title+' · '+shortcutLabel(tr('Сортировать. Ctrl + щелчок — выбрать для поиска дубликатов','Sort. Ctrl + click to select for duplicate removal'))
       target.lastChild.setAttribute('aria-hidden','true')
       cell.append(check,target);next.append(cell)
     })
@@ -227,7 +231,9 @@ export function mountDelimitedGrid(host, {source,format,header=true,restore,onCh
       if(bookmark){scroll.scrollTop=bookmark.scrollTop || 0;scroll.scrollLeft=bookmark.scrollLeft || 0;restore=null}
       await draw()
       if(session!==current || finished || state==='error')return false
-      setState('ready',message);paintActive()
+      setState('ready',message)
+      if(!active && document.activeElement===scroll)setActive(0,0)
+      else paintActive()
       return true
     }catch(error){if(!finished && session===current)showError(error);return false}
   }
@@ -239,6 +245,7 @@ export function mountDelimitedGrid(host, {source,format,header=true,restore,onCh
   async function run(op) {
     if(state!=='ready')return
     const current=session, controller=new AbortController();task=controller
+    scroll.focus({preventScroll:true})
     setState('working',op.kind==='sort'?tr('Сортировка…','Sorting…'):tr('Поиск дубликатов…','Finding duplicates…'))
     try{
       const result=await current.transform({...op,header:first.checked,language:getLanguage()})
@@ -265,10 +272,17 @@ export function mountDelimitedGrid(host, {source,format,header=true,restore,onCh
   headings.addEventListener('click',event=>{
     const target=event.target.closest('[data-sort]')
     if(!target)return
-    if(event.ctrlKey || event.metaKey)toggleKey(+target.dataset.sort);else sortColumn(+target.dataset.sort)
+    if(primaryCommand(event))toggleKey(+target.dataset.sort)
+    else if(!event.ctrlKey && !event.metaKey && !event.altKey)sortColumn(+target.dataset.sort)
   })
   unique.onclick=()=>{if(checked.size)void run({kind:'unique',columns:[...checked]})}
-  cancel.onclick=()=>{if(task)void load(source,tr('Операция отменена','Operation cancelled'))}
+  function cancelOperation() {
+    if(!task)return false
+    scroll.focus({preventScroll:true})
+    void load(source,tr('Операция отменена','Operation cancelled'))
+    return true
+  }
+  cancel.onclick=cancelOperation
   first.onchange=()=>{
     sort=null;active=null;onHeaderChange?.(first.checked);clearWindow();layOut();refreshControls();schedule()
   }
@@ -301,20 +315,45 @@ export function mountDelimitedGrid(host, {source,format,header=true,restore,onCh
     if(event.detail===2)void openSource()
   })
   edit.onclick=openSource
+  async function copyCell() {
+    const current=session, {row,col}=active
+    // Only read the selected field. The visible text can be truncated or show newline markers.
+    const value=current.read(row+headerOffset(),1,col,1).then(rows=>rows[0][0])
+    try {
+      if(window.runtime?.ClipboardSetText)await window.runtime.ClipboardSetText(await value)
+      else if(navigator.clipboard?.write && window.ClipboardItem){
+        // WebKit needs the write to begin in this keyboard gesture, before the worker replies.
+        const blob=value.then(text=>new Blob([text],{type:'text/plain'}))
+        await navigator.clipboard.write([new ClipboardItem({'text/plain':blob})])
+      }else {
+        const text=await value
+        await navigator.clipboard.writeText(text)
+      }
+    }catch{
+      if(!finished && session===current)status.textContent=tr('Не удалось скопировать ячейку','Could not copy cell')
+    }
+  }
+  scroll.addEventListener('focus',()=>{if(!active)setActive(0,0)})
   scroll.addEventListener('keydown',event=>{
-    if(event.target!==scroll || state!=='ready' || event.altKey || event.shiftKey)return
-    const row=active?.row??0,col=active?.col??0, command=event.ctrlKey||event.metaKey
+    if(event.target!==scroll || state!=='ready' || event.altKey || event.shiftKey || event.isComposing || event.keyCode===229)return
+    const row=active?.row??0,col=active?.col??0, command=primaryCommand(event)
+    if(!command && (event.ctrlKey || event.metaKey))return
     const step=Math.max(1,Math.floor((scroll.clientHeight-headerHeight)/rowHeight)-1)
+    if(command && event.code==='KeyC' && active){
+      event.preventDefault();event.stopPropagation()
+      if(!event.repeat)void copyCell()
+      return
+    }
     switch(event.key){
-      case 'ArrowDown':setActive(row+1,col,true);break
-      case 'ArrowUp':setActive(row-1,col,true);break
-      case 'ArrowLeft':setActive(row,col-1,true);break
-      case 'ArrowRight':setActive(row,col+1,true);break
-      case 'PageDown':setActive(row+step,col,true);break
-      case 'PageUp':setActive(row-step,col,true);break
+      case 'ArrowDown':setActive(command?dataRows()-1:row+1,col,true);break
+      case 'ArrowUp':setActive(command?0:row-1,col,true);break
+      case 'ArrowLeft':setActive(row,command?0:col-1,true);break
+      case 'ArrowRight':setActive(row,command?meta.columnCount-1:col+1,true);break
+      case 'PageDown':if(command)return;setActive(row+step,col,true);break
+      case 'PageUp':if(command)return;setActive(row-step,col,true);break
       case 'Home':setActive(command?0:row,0,true);break
       case 'End':setActive(command?dataRows()-1:row,meta.columnCount-1,true);break
-      case 'Enter':case 'F2':void openSource();break
+      case 'Enter':case 'F2':if(command || !active)return;void openSource();break
       default:return
     }
     event.preventDefault();event.stopPropagation()
@@ -322,7 +361,7 @@ export function mountDelimitedGrid(host, {source,format,header=true,restore,onCh
   scroll.addEventListener('scroll',schedule,{passive:true})
   const resize=new ResizeObserver(()=>{if(meta){layOut();schedule()}});resize.observe(scroll)
   const ready=load(source,'',restore)
-  return {ready,focus(){scroll.focus({preventScroll:true})},
+  return {ready,cancelOperation,focus(){scroll.focus({preventScroll:true})},
     snapshot(){
       if(!meta && restore && state==='opening')return restore
       return {scrollTop:scroll.scrollTop,scrollLeft:scroll.scrollLeft,columns:[...checked],

@@ -77,7 +77,7 @@ export function trackFill(v, event, source, axisSelection, { signal, preview, co
   const cellWidth = (v.grid.offsetWidth - labels) / item.cols;
   const cellHeight = parseFloat(getComputedStyle(v.cells.values().next().value.cell).height);
   const start = localPoint(scroller, event, angle, inverseZoom);
-  let pointer = event, moved = false, frame = 0, result, copy = event.ctrlKey;
+  let pointer = event, moved = false, frame = 0, result, copy = event.ctrlKey || event.metaKey;
   const showTip = cursorTip(root, signal);
   const opts = { signal };
 
@@ -141,14 +141,14 @@ export function trackFill(v, event, source, axisSelection, { signal, preview, co
   root.addEventListener('pointermove', e => {
     if (e.pointerId !== event.pointerId) return;
     pointer = e;
-    copy = e.ctrlKey;
+    copy = e.ctrlKey || e.metaKey;
     update(false);
     scheduleScroll();
   }, opts);
   root.addEventListener('pointerup', e => {
     if (e.pointerId !== event.pointerId) return;
     pointer = e;
-    copy = e.ctrlKey;
+    copy = e.ctrlKey || e.metaKey;
     update(false);
     if (result?.added) commit();
     else cancel();
@@ -158,7 +158,8 @@ export function trackFill(v, event, source, axisSelection, { signal, preview, co
   window.addEventListener('blur', cancel, opts);
   for (const type of ['keydown', 'keyup']) window.addEventListener(type, e => {
     if (type === 'keydown' && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
-    if (e.key === 'Control' && e.ctrlKey !== copy) { copy = e.ctrlKey; update(false); }
+    const copyDown = e.ctrlKey || e.metaKey;
+    if ((e.key === 'Control' || e.key === 'Meta') && copyDown !== copy) { copy = copyDown; update(false); }
   }, { signal, capture: true });
   signal.addEventListener('abort', () => {
     cancelAnimationFrame(frame);

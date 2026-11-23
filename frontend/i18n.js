@@ -1,3 +1,5 @@
+import {shortcutLabel, shortcutAria} from './shortcuts.js';
+
 const preferenceKey = 'videron.interface-language.v1';
 let language = 'ru';
 try {
@@ -24,13 +26,17 @@ export function setLanguage(value) {
 // can contain the same words as the interface and must keep their original text.
 export function bindStaticTranslations(root) {
   const entries = [];
+  for (const kbd of root.querySelectorAll('kbd')) kbd.textContent = shortcutLabel(kbd.textContent);
+  for (const el of root.querySelectorAll('[aria-keyshortcuts]')) {
+    el.setAttribute('aria-keyshortcuts', shortcutAria(el.getAttribute('aria-keyshortcuts')));
+  }
   for (const [marker, attribute] of [['data-en', null], ['data-en-title', 'title'], ['data-en-aria', 'aria-label']]) {
     for (const el of root.querySelectorAll('[' + marker + ']')) {
       const russian = attribute ? el.getAttribute(attribute) : el.textContent;
       const english = el.getAttribute(marker);
       entries.push(() => {
         const value = tr(russian, english);
-        if (attribute) el.setAttribute(attribute, value);
+        if (attribute) el.setAttribute(attribute, shortcutLabel(value));
         else el.textContent = value;
       });
     }

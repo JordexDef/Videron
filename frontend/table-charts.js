@@ -1,4 +1,5 @@
 import { getLanguage, tr } from './i18n.js';
+import { historyDirection } from './shortcuts.js';
 import { addressOf, parseAddress, formatValue } from './table-engine.js';
 
 const svgNS = 'http://www.w3.org/2000/svg';
@@ -369,7 +370,7 @@ export function createChartView(onChangeType) {
   }
   // Keep button navigation local. Deletion and history belong to the owning chart or canvas.
   controls.addEventListener('keydown', event => {
-    const history = (event.ctrlKey || event.metaKey) && ['KeyZ','KeyY'].includes(event.code);
+    const history = historyDirection(event);
     if (!history && event.key !== 'Delete' && event.key !== 'Backspace') event.stopPropagation();
   });
   const tooltip = document.createElement('div');

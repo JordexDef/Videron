@@ -24,7 +24,13 @@ For CSV and TSV, use **Text** and **Table** beside the format selector to switch
 
 Turn off the first-row header if your file begins with data. The choice is saved per note. The parser handles quoted fields, embedded delimiters and line breaks. Double-click a cell to jump to it in the source text. Undo sorting or deduplication directly in the table with **Ctrl+Z** or **⌘Z**.
 
+With a cell selected, **Ctrl+C** copies its full value and **Ctrl+Arrow** moves to the edge of its row or column. **Enter** opens the cell in the source text. **Esc** cancels an ongoing sort or import and keeps the editor open.
+
 ## Use the map
+
+Press **F1** on the map for its controls. With the map focused, **+** and **−** change zoom, **0** returns to 100%, and **F** fits the map in the window. On macOS, shortcut hints show **⌘** for Command.
+
+In an open note, **Ctrl+S** (**⌘S** on Mac) writes your current edits to local storage immediately. You can save a formula while the caret is still in its field. Autosave continues as you type.
 
 ### Create, read and link notes
 
@@ -41,7 +47,7 @@ Turn off the first-row header if your file begins with data. The choice is saved
 - Open **Routes**, create a route, and click the notes in presentation order. Reorder the stops and pick an excerpt for each. Save the route and press Play. **←** and **→** move between stops. **Esc** returns to your original map view.
 - Choose **Progress from table…** in an area's menu, then pick a cell and a target. A value of 7 with a target of 10 fills 70% of the outline. Choose **Chart from table…** on a note to link it to a series. Hover over the note to see the chart. Both features read from tables in the current space, including calculated values.
 - On the map, **Ctrl+K** searches note titles, text and tags in the current space. Filter by area or pin status, enable case sensitivity, or use JavaScript regular expressions. Matches are highlighted. Press **Enter** to open a result. Regex searches run in a separate worker and time out if they take too long.
-- **Ctrl+Shift+F** searches the space from the map, a text note or a canvas note. You can also use the magnifier at the top of the editor. Click a result or press **Enter** to scroll to a match and briefly highlight it. This works in titles, paragraphs and code blocks, including long lines that scroll horizontally. **Back to results** restores the query, filters and selected row.
+- **Ctrl+Shift+F** searches the space from the map or any note editor. In a text paragraph, **Ctrl+K** inserts a link. You can also use the magnifier at the top of the editor for workspace search. Click a result or press **Enter** to scroll to a match and briefly highlight it. This works in titles, paragraphs and code blocks, including long lines that scroll horizontally. **Back to results** restores the query, filters and selected row.
 
 ### Organize areas
 
@@ -78,7 +84,7 @@ Click **Insert code block** (`</>`) to create a block at the caret or convert se
 
 ## Canvas notes and drawings
 
-Double-click inside a rectangle, diamond or ellipse to add a label. It stays centered as you move or resize the shape. Double-click again to edit it.
+Double-click inside a rectangle, diamond or ellipse to add a label, or select the shape and press **Enter**. It stays centered as you move or resize the shape.
 
 On a canvas, choose **Text**. Click to create a text area, or drag to set its initial size. When the text or an inserted image needs more room, the bottom edge grows downward. Drag an edge to move the area or a corner to resize it.
 
@@ -112,6 +118,8 @@ Drag across row numbers or column letters to select several rows or columns. Alt
 Use **⋯** to hide the title, row numbers or column letters independently. The same menu lets you mark the first row or first column as headers. To mark a different row or column as headers, use a cell's context menu. With row numbers or column letters hidden, select a cell range and right-click inside it to delete the rows or columns it spans. Deleting every row or column leaves one empty row or column.
 
 ### Edit cells and fill series
+
+**Ctrl+Arrow** (**⌘+Arrow** on Mac) moves to the end of a run of filled cells, or across a gap to the next entry. Hold **Shift** as well to extend the selection.
 
 Select a cell and start typing. **Enter** commits the edit. **Tab** moves right and wraps to the start of the next row at the edge. **Shift+Tab** moves in reverse. Drag or use **Shift** to select a range. Pasting one copied value fills the selection. Relative references in copied formulas adjust to the new position. Paste multiple cells to insert data in rows and columns.
 

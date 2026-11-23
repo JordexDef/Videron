@@ -6,6 +6,7 @@ import {
   indentOnInput, StreamLanguage, tags, json, javascript, python, sql, html, css
 } from './vendor/codemirror/editor-core.js'
 import { tr, getLanguage } from './i18n.js'
+import { historyDirection, primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
 import { editorButton, noteRelations, noteDetails, notePrivacyButton, noteSearchButton,
   finishNoteSession, keepTabInEditor } from './editor.js'
 import { createTagNavigator, noteTags } from './note-tags.js'
@@ -203,10 +204,17 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   bar.append(format,mode,divider,menuHost,insertFile,fileInput,element('span','ve-spacer'),find,undoButton,redoButton)
   const lines = element('span','vd-data-lines'), message = element('span','vd-data-message')
   message.setAttribute('role','status')
-  const cancel = editorButton(tr('Отмена','Cancel'),null,() => running?.abort(),true)
+  function cancelTextOperation() {
+    if (!running) return false
+    running.abort(); return true
+  }
+  const cancel = editorButton(tr('Отмена','Cancel'),null,cancelTextOperation,true)
   cancel.hidden = true
   const cursor = editorButton(tr('Перейти к строке','Go to line'),'hash',() => gotoLine(view),true)
-  cursor.title += ' (Ctrl+G)'
+  for (const [control, chord] of [[find,'Ctrl+F'], [cursor,'Ctrl+G'], [undoButton,'Ctrl+Z'], [redoButton,'Ctrl+Shift+Z'], [cancel,'Escape']]) {
+    control.title += ' ('+shortcutLabel(chord)+')'
+    control.setAttribute('aria-keyshortcuts',shortcutAria(chord))
+  }
   footer.append(lines,element('span','ve-spacer'),message,cancel,cursor)
   main.append(bar,host,tableHost,footer); workspace.append(main,details.panel); root.append(header,workspace); document.body.append(root)
   tagNav.trackTitle(title)
@@ -247,7 +255,8 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     lineEndingSupport(source), languageSlot.of(formats[format.value].extension()), syntaxHighlighting(palette), indentOnInput(),
     bracketMatching(), history(), lineNumbers(), highlightActiveLineGutter(), highlightActiveLine(), drawSelection(),
     search({top:true}), highlights, EditorView.theme({},{dark:true}), EditorState.tabSize.of(4),
-    keymap.of([{key:'Mod-g',run:gotoLine},...searchKeymap,...historyKeymap,indentWithTab,...defaultKeymap]),
+    keymap.of([{key:'Mod-g',run:gotoLine},{win:'Ctrl-Shift-z',run:redo,preventDefault:true},
+      ...searchKeymap,{key:'Escape',run:cancelTextOperation},...historyKeymap,indentWithTab,...defaultKeymap]),
     EditorState.phrases.of(getLanguage() === 'ru' ? russianPhrases : {}),
     EditorView.contentAttributes.of({'aria-label':tr('Содержимое заметки данных','Data note contents'), spellcheck:'false'}),
     placeholder(tr('Введите данные или вставьте файл…','Type data or insert a file…')),
@@ -423,18 +432,22 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   async function navigateTo(id) { if (await close()) onOpenNote?.(id) }
   async function goBack() { if (await close('back')) onReturn?.() }
   root.addEventListener('keydown',event => {
-    if (event.defaultPrevented || event.isComposing) return
-    if (grid && (event.ctrlKey || event.metaKey) && !event.altKey &&
-        !event.target.closest('input:not([type=checkbox]),textarea,[contenteditable=true]')) {
-      if (event.code === 'KeyZ' || event.code === 'KeyY') {
-        event.preventDefault(); applyHistory(event.shiftKey || event.code === 'KeyY' ? redo : undo); return
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
+    if (primaryCommand(event)) {
+      const direction=grid && historyDirection(event)
+      if (direction && !event.target.closest('input:not([type=checkbox]),textarea,[contenteditable=true]')) {
+        event.preventDefault(); applyHistory(direction==='redo' ? redo : undo); return
       }
-      if (!event.shiftKey && event.code === 'KeyF') {event.preventDefault(); findInText(); return}
-      if (!event.shiftKey && event.code === 'KeyG') {event.preventDefault(); showText(); gotoLine(view); return}
+      if (!event.shiftKey && !event.target.closest('.cm-panel')) {
+        if (event.code === 'KeyF') {event.preventDefault(); findInText(); return}
+        if (event.code === 'KeyG') {event.preventDefault(); showText(); gotoLine(view); return}
+      }
     }
-    if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS') {event.preventDefault(); flush(); return}
-    if (event.key === 'Escape' && !event.target.closest('.cm-panel')) {
-      event.preventDefault(); event.stopPropagation(); goBack(); return
+    if (event.key === 'Escape' && !event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.target.closest('.cm-panel')) {
+      event.preventDefault(); event.stopPropagation()
+      if (event.repeat) return
+      if (!cancelTextOperation() && !grid?.cancelOperation()) goBack()
+      return
     }
     keepTabInEditor(event,root)
   })

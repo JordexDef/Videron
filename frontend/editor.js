@@ -10,6 +10,7 @@ import { uniqueTableName } from './table-engine.js'
 import { createCodeBlockView, pastedCode } from './code-block-view.js'
 import { attachTextToolbar } from './canvas-text-toolbar.js'
 import { blockText, textTypes } from './search-location.js'
+import { historyDirection, primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
 import { blockTagText } from './board-rich-text.js'
 import { listStyleForPrefix, isListStyle, listStyleOf, indentOf, listMarkers, atParentLevel } from './note-lists.js'
 import { createSearchReveal, rangeInText } from './search-reveal.js'
@@ -313,8 +314,8 @@ function noteDetails({root,note,notes,areas,current,update,openNote,openTag}) {
 function noteSearchButton(onSearch){
   const label=tr('Поиск по заметкам','Search notes')
   const control=button(label,'search',onSearch)
-  control.title=label+' (Ctrl+Shift+F)'
-  control.setAttribute('aria-keyshortcuts','Control+Shift+F')
+  control.title=label+' ('+shortcutLabel('Ctrl+Shift+F')+')'
+  control.setAttribute('aria-keyshortcuts',shortcutAria('Ctrl+Shift+F'))
   return control
 }
 
@@ -398,6 +399,10 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
     if(!title.value)title.focus()
     else board.focus()
   }
+  function commitDraft(){
+    if(title.value!==savedTitle)emit()
+    return board.commitDraft()
+  }
   function close(reason){
     if(finished)return Promise.resolve(true)
     if(closePending)return closePending
@@ -418,18 +423,18 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   }
   root.addEventListener('keydown',e=>{
     if(e.defaultPrevented||e.isComposing||e.keyCode===229)return
-    if((e.ctrlKey||e.metaKey) && !e.altKey && (e.code==='KeyZ'||e.code==='KeyY') &&
+    const direction=historyDirection(e)
+    if(direction &&
         !host.contains(e.target) && !e.target.closest('dialog,input,select,textarea,[contenteditable="true"]')){
       e.preventDefault();e.stopPropagation()
-      board.undo(e.code==='KeyY'||e.shiftKey)
+      board.undo(direction==='redo')
       return
     }
     if(e.key==='Escape'){e.preventDefault();e.stopPropagation();goBack()}
-    if((e.ctrlKey||e.metaKey)&&e.code==='KeyS')e.preventDefault()
     keepTabInEditor(e,root)
   })
   details.sync();details.setTags(noteTags(title.value,summary.tagText));focus()
-  return {element:root,focus,close,prepareClose:close,revealSearchMatch(target){
+  return {element:root,focus,close,commitDraft,prepareClose:close,revealSearchMatch(target){
     if(target?.kind==='canvasText')board.revealTextBlock(target.id,target.match)
     else if(target?.kind==='canvasLabel')board.revealTextBlock(target.id,target)
     else searchReveal.reveal(target)
@@ -614,10 +619,10 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     }
     if(updated){checkpoint=true;emit()}
   }
-  async function flush(){
+  async function flush(closing=true){
     if(finished)return true
     finishTextInput()
-    if((await Promise.all([...inlineViews.values()].map(v=>v.prepareClose()))).includes(false))return false
+    if((await Promise.all([...inlineViews.values()].map(v=>closing?v.prepareClose():v.commitDraft()))).includes(false))return false
     if(pendingImages.size)await Promise.allSettled([...pendingImages])
     if(embed){
       const loading=[...content.querySelectorAll('img')].filter(image=>!image.complete)
@@ -775,6 +780,14 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(e.isComposing || e.keyCode===229)return
     const mark=currentSelection()
     if(!mark)return
+    if(primaryCommand(e) && !e.shiftKey && ['KeyB','KeyI','KeyK'].includes(e.code)){
+      e.preventDefault();e.stopPropagation()
+      if(!e.repeat){
+        if(e.code==='KeyK')linkDialog()
+        else format(e.code==='KeyB'?'bold':'italic')
+      }
+      return
+    }
     if(!e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && mark.start===mark.end){
       if((e.key==='ArrowUp'||e.key==='ArrowDown') && moveVertically(i,mark.start,e.key==='ArrowUp')){
         e.preventDefault();return
@@ -1188,7 +1201,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     else{block.type=type;delete block.listStyle}
     next[active]=block;applyBody(next,active,mark.start,mark.end)
   }
-  const boldBtn=button(tr('Полужирный (Ctrl+B)','Bold (Ctrl+B)'),'bold',()=>format('bold')),italicBtn=button(tr('Курсив (Ctrl+I)','Italic (Ctrl+I)'),'italic',()=>format('italic'))
+  const boldBtn=button(shortcutLabel(tr('Полужирный (Ctrl+B)','Bold (Ctrl+B)')),'bold',()=>format('bold')),italicBtn=button(shortcutLabel(tr('Курсив (Ctrl+I)','Italic (Ctrl+I)')),'italic',()=>format('italic'))
   function indent(delta){
     ensureText()
     const index=active, mark=position(), block=body[index], depth=indentOf(block)
@@ -1198,12 +1211,14 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     next[index]=listStyleOf(block) && delta<0 ? atParentLevel(body,index) : {...block,indent:level}
     applyBody(next,index,mark.start,mark.end)
   }
-  const undoBtn=button(tr('Отменить (Ctrl+Z)','Undo (Ctrl+Z)'),'undo',()=>history(false)),redoBtn=button(tr('Повторить (Ctrl+Shift+Z)','Redo (Ctrl+Shift+Z)'),'redo',()=>history(true))
+  const undoBtn=button(shortcutLabel(tr('Отменить (Ctrl+Z)','Undo (Ctrl+Z)')),'undo',()=>history(false)),redoBtn=button(shortcutLabel(tr('Повторить (Ctrl+Shift+Z)','Redo (Ctrl+Shift+Z)')),'redo',()=>history(true))
   const imageBtn=button(tr('Вставить изображение','Insert image'),'image',()=>{imageMark=position();filePicker.click()})
   const sketchBtn=button(tr('Вставить рисунок','Insert drawing'),'pen',()=>insertInline(false))
   const tableBtn=button(tr('Вставить таблицу','Insert table'),'table',()=>insertInline(true))
   const codeBtn=button(tr('Вставить блок кода','Insert code block'),'code',()=>insertCode())
   const colorBtn=button(tr('Цвет текста','Text color'),'color',colors),linkBtn=button(tr('Вставить ссылку','Insert link'),'link',()=>linkDialog())
+  linkBtn.title+=' ('+shortcutLabel('Ctrl+K')+')'
+  for(const [control,key] of [[boldBtn,'Ctrl+B'],[italicBtn,'Ctrl+I'],[linkBtn,'Ctrl+K']])control.setAttribute('aria-keyshortcuts',shortcutAria(key))
   const folderBtn=button(tr('Ссылка на папку','Link to folder'),'folder',insertFolder)
   const outdentBtn=button(tr('Уменьшить отступ','Decrease indent'),'outdent',()=>indent(-1)),indentBtn=button(tr('Увеличить отступ','Increase indent'),'indent',()=>indent(1))
   toolbar.append(kind,el('span','ve-divider'),boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,el('span','ve-divider'),outdentBtn,indentBtn,el('span','ve-divider'),imageBtn,...(embed?[]:[sketchBtn,tableBtn]),codeBtn,el('span','ve-spacer'),undoBtn,redoBtn)
@@ -1230,13 +1245,11 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   function editorKeydown(e){
     if(e.target.closest('dialog'))return
     if(e.defaultPrevented||e.isComposing||e.keyCode===229)return
-    const cmd=(e.ctrlKey||e.metaKey) && !e.altKey
-    const historyKey=cmd && (e.code==='KeyZ'||e.code==='KeyY')
+    const direction=historyDirection(e)
     const frame=e.target.closest('[data-note-embed]')
-    if(frame){
-      if(cmd && e.code==='KeyS'){e.preventDefault();inlineRows.get(frame)?.flush();emit()}
-      else if(historyKey && !e.target.closest('input,textarea,select,[contenteditable="true"]')){
-        e.preventDefault();e.stopPropagation();history(e.code==='KeyY'||e.shiftKey)
+    if(frame && root.contains(frame)){
+      if(direction && !e.target.closest('input,textarea,select,[contenteditable="true"]')){
+        e.preventDefault();e.stopPropagation();history(direction==='redo')
       }
       else if(e.key==='Escape' && !e.defaultPrevented){
         e.preventDefault();e.stopPropagation()
@@ -1246,11 +1259,9 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       return
     }
     if(e.key==='Escape'){e.preventDefault();e.stopPropagation();if(embed)embed.onExit();else goBack();return}
-    if(cmd && (historyKey || e.code==='KeyS' || e.code==='KeyK')){
+    if(direction){
       e.preventDefault();e.stopPropagation()
-      if(e.code==='KeyK'){if(body[active]?.type!=='code')linkDialog()}
-      else if(historyKey)history(e.code==='KeyY'||e.shiftKey)
-      else emit()
+      history(direction==='redo')
     }
     if(!embed)keepTabInEditor(e,root)
   }
@@ -1330,5 +1341,5 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(target?.kind==='body')details.uncoverNote()
     searchReveal.reveal(target)
   }
-  return {element:root,close,focus,prepareClose,revealSearchMatch}
+  return {element:root,close,focus,commitDraft:()=>flush(false),prepareClose,revealSearchMatch}
 }
