@@ -1,0 +1,150 @@
+name: Windows and macOS release binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Full commit SHA or release tag (vX.Y.Z)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      source:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-amd64
+            runner: windows-2025
+            artifact: videron-windows-amd64
+          - platform: windows-arm64
+            runner: windows-11-arm
+            artifact: videron-windows-arm64
+          - platform: macOS-universal
+            runner: macos-15
+            artifact: videron-sync-macos
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      SOURCE_REF: ${{ inputs.source }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - name: Resolve release source
+        id: source
+        shell: bash
+        run: |
+          if [[ "$SOURCE_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ref=refs/tags/$SOURCE_REF" >> "$GITHUB_OUTPUT"
+          elif [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ref=$SOURCE_REF" >> "$GITHUB_OUTPUT"
+          else
+            echo "Expected a full commit SHA or vX.Y.Z release tag." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+          persist-credentials: false
+      - name: Verify the release version
+        shell: bash
+        run: |
+          version=$(node -p 'require("./wails.json").info.productVersion')
+          version=${version%$'\r'}
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [[ "$SOURCE_REF" == v* ]]; then
+            test "$SOURCE_REF" = "v$version"
+          else
+            test "$SOURCE_REF" = "$(git rev-parse HEAD)"
+          fi
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Test sync server
+        run: go test ./internal/syncserver
+      - name: Build Windows client and server
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $arch = (go env GOARCH).Trim()
+          if ("windows-$arch" -ne $env:PLATFORM) { throw 'Go toolchain architecture mismatch' }
+          $version = $env:RELEASE_VERSION
+          $desktop = if ($arch -eq 'amd64') { "Videron-$version.exe" } else { "Videron-$version-windows-$arch.exe" }
+          go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -platform "windows/$arch" -s -skipbindings -trimpath -o $desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $stage = New-Item -ItemType Directory -Path build/bin/release-assets -Force
+          Move-Item -LiteralPath "build/bin/$desktop" -Destination $stage.FullName
+          $server = "Videron-Sync-$version-windows-$arch.exe"
+          $env:CGO_ENABLED = '0'
+          go build -trimpath -ldflags='-s -w' -o "$stage/$server" ./cmd/videron-sync
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $machine = if ($arch -eq 'amd64') { 0x8664 } else { 0xaa64 }
+          foreach ($name in $desktop, $server) {
+            $bytes = [IO.File]::ReadAllBytes((Join-Path $stage.FullName $name))
+            $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+            if ([BitConverter]::ToUInt32($bytes, $pe) -ne 0x4550 -or [BitConverter]::ToUInt16($bytes, $pe + 4) -ne $machine) {
+              throw "Invalid PE machine for $name"
+            }
+          }
+          $client = Get-Item -LiteralPath "$stage/$desktop"
+          if ($client.VersionInfo.ProductVersion -ne $version) { throw 'Desktop version mismatch' }
+          $serverExe = Join-Path $stage.FullName $server
+          $data = Join-Path $env:RUNNER_TEMP 'sync-profile'
+          [guid]::NewGuid().ToString() | & $serverExe -set-password -data $data
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((& $serverExe -password-status -data $data) -ne 'configured') { throw 'Server startup check failed' }
+          $env:APPDATA = (New-Item -ItemType Directory -Path "$env:RUNNER_TEMP/desktop-profile").FullName
+          $env:WEBVIEW2_USER_DATA_FOLDER = "$env:RUNNER_TEMP/videron-webview"
+          $app = Start-Process -FilePath $client.FullName -WindowStyle Hidden -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(60)
+            do {
+              $app.Refresh()
+              if ($app.HasExited) { throw "Desktop exited during startup: $($app.ExitCode)" }
+              $browser = Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe' AND ParentProcessId=$($app.Id)"
+              if ($browser) { break }
+              Start-Sleep -Milliseconds 500
+            } while ((Get-Date) -lt $deadline)
+            if (!$browser) { throw 'Desktop did not start a WebView2 process' }
+          } finally {
+            if (!$app.HasExited) { Stop-Process -Id $app.Id }
+          }
+      - name: Build and verify a universal macOS server
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          stage="$RUNNER_TEMP/videron-sync-macos"
+          mkdir -p "$stage" build/bin/release-assets
+          for arch in arm64 amd64; do
+            GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/videron-sync-$arch" ./cmd/videron-sync
+          done
+          lipo -create "$RUNNER_TEMP/videron-sync-arm64" "$RUNNER_TEMP/videron-sync-amd64" -output "$stage/videron-sync"
+          lipo "$stage/videron-sync" -verify_arch arm64 x86_64
+          codesign --force --sign - "$stage/videron-sync"
+          codesign --verify --strict "$stage/videron-sync"
+          archive="build/bin/release-assets/Videron-Sync-${RELEASE_VERSION}-macOS-universal.tar.gz"
+          COPYFILE_DISABLE=1 tar -czf "$archive" -C "$stage" videron-sync
+          mkdir "$RUNNER_TEMP/unpacked"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/unpacked"
+          binary="$RUNNER_TEMP/unpacked/videron-sync"
+          cmp "$stage/videron-sync" "$binary"
+          uuidgen | "$binary" -set-password -data "$RUNNER_TEMP/server-data"
+          test "$("$binary" -password-status -data "$RUNNER_TEMP/server-data")" = configured
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: build/bin/release-assets/*
+          if-no-files-found: error
+          compression-level: 0

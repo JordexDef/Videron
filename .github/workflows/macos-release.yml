@@ -1,6 +1,11 @@
 name: macOS release build
 
 on:
+  workflow_call:
+    inputs:
+      source:
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       source:

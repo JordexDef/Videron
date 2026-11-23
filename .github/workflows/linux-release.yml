@@ -1,0 +1,122 @@
+name: Linux release build
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Full commit SHA or release tag (vX.Y.Z)
+        type: string
+        required: true
+  workflow_call:
+    inputs:
+      source:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      SOURCE_REF: ${{ inputs.source }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Select release source
+        id: source
+        run: |
+          if [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ref=$SOURCE_REF" >> "$GITHUB_OUTPUT"
+          elif [[ "$SOURCE_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ref=refs/tags/$SOURCE_REF" >> "$GITHUB_OUTPUT"
+          else
+            echo "Expected a full commit SHA or vX.Y.Z release tag." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+          persist-credentials: false
+      - name: Verify release version and architecture
+        run: |
+          version=$(jq -er '.info.productVersion' wails.json)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [[ "$SOURCE_REF" == v* ]]; then
+            test "$SOURCE_REF" = "v$version"
+          else
+            test "$SOURCE_REF" = "$(git rev-parse HEAD)"
+          fi
+          test "$ARCH" = "$(dpkg --print-architecture)"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install desktop build and test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config dbus-daemon xauth xdotool xvfb
+      - name: Test and build the desktop app and sync server
+        run: |
+          go test -tags webkit2_41 ./...
+          mkdir -p "$RUNNER_TEMP/server"
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/server/videron-sync" ./cmd/videron-sync
+          go run -tags webkit2_41 github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -platform "linux/$ARCH" -tags webkit2_41 -s -skipbindings -trimpath
+      - name: Package both executables and verify extracted files
+        run: |
+          out="$PWD/build/bin"
+          desktop="$out/Videron-$VERSION-linux-$ARCH.tar.gz"
+          server="$out/Videron-Sync-$VERSION-linux-$ARCH.tar.gz"
+          install -m755 deploy/linux/install.sh "$RUNNER_TEMP/server/"
+          install -m644 docs/server-setup{,.ru}.md "$RUNNER_TEMP/server/"
+          tar -czf "$desktop" -C "$out" Videron
+          tar -czf "$server" -C "$RUNNER_TEMP/server" videron-sync install.sh server-setup.md server-setup.ru.md
+          mkdir "$RUNNER_TEMP/verify"
+          cd "$RUNNER_TEMP/verify"
+          tar -xzf "$desktop"
+          tar -xzf "$server"
+          cmp Videron "$out/Videron"
+          cmp videron-sync "$RUNNER_TEMP/server/videron-sync"
+          test -x Videron && test -x videron-sync
+          ./install.sh --help
+          ./videron-sync -help
+      - name: Open the packaged app and save a note on an isolated display
+        run: |
+          export HOME="$RUNNER_TEMP/desktop-home"
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_RUNTIME_DIR="$HOME/run"
+          mkdir -p -m 700 "$HOME" "$XDG_CONFIG_HOME" "$XDG_RUNTIME_DIR"
+          cd "$RUNNER_TEMP/verify"
+          dbus-run-session -- xvfb-run -a -s "-screen 0 1440x1000x24" bash -eu <<'SMOKE'
+          ./Videron >"$RUNNER_TEMP/desktop.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; cat "$RUNNER_TEMP/desktop.log"' EXIT
+          window=$(timeout 30s xdotool search --sync --onlyvisible --name '^Videron$' | head -1)
+          test -n "$window"
+          workspace="$XDG_CONFIG_HOME/Videron/workspace.json"
+          xdotool windowfocus --sync "$window"
+          for i in {1..30}; do
+            kill -0 "$pid"
+            # A new profile may first reach disk only after the first edit.
+            if [[ -s "$workspace" ]] && jq -e '.spaces[.active].notes | length == 1' "$workspace" >/dev/null; then exit 0; fi
+            xdotool key --clearmodifiers ctrl+n
+            sleep 1
+          done
+          echo "The desktop app did not save the new note." >&2
+          exit 1
+          SMOKE
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: videron-linux-${{ matrix.arch }}
+          path: build/bin/*-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
