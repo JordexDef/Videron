@@ -1,5 +1,51 @@
 .space-dialog {width:min(440px,100%)}
 .space-dialog [hidden] {display:none}
+.workspace-activity {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-height:35px;
+  padding:7px 12px;
+  border:1px solid var(--border);
+  border-radius:7px;
+  background:var(--panel);
+  color:var(--text);
+  font-size:12px;
+  line-height:1.4;
+}
+.space-dialog > .workspace-activity {margin-top:16px;background:#282828}
+.space-dialog > .workspace-activity:focus {outline:none}
+.space-dialog[data-working] :is(.dialog-actions,.server-change-buttons) {display:none}
+.space-dialog[data-working] .dialog-title .icon-button {opacity:.35}
+.workspace-activity::before,.button.is-busy::before {
+  content:"";
+  box-sizing:border-box;
+  width:15px;
+  height:15px;
+  flex:none;
+  border:1.5px solid currentColor;
+  border-right-color:transparent;
+  border-bottom-color:transparent;
+  border-radius:50%;
+  background:radial-gradient(circle,currentColor 1.5px,transparent 2px);
+}
+.button.is-busy:disabled {opacity:.85}
+@media (prefers-reduced-motion:no-preference) {
+  .workspace-activity::before,.button.is-busy::before {animation:workspace-orbit 1s linear infinite}
+}
+@keyframes workspace-orbit {to {transform:rotate(360deg)}}
+.workspace-transition {
+  position:fixed;
+  bottom:72px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:64;
+  max-width:calc(100vw - 32px);
+  width:max-content;
+  box-shadow:0 4px 16px #0003;
+  pointer-events:none;
+}
+body:has(dialog[open]) .workspace-transition {display:none}
 .space-label,.space-choice {font-size:12px;color:#bfbfc2}
 .space-location-controls,.space-choice,.space-heading,.space-row {display:flex;align-items:center;gap:7px}
 .space-location-controls {margin:7px 0}

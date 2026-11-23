@@ -44,16 +44,10 @@ export function openWorkspaceServer(options){
   })
   observer.observe(box.parentElement.parentElement,{childList:true})
 
-  function perform(callback,button,progress){return run(async()=>{
-    const label=button?.textContent
-    if(button)button.textContent=progress
-    try{
-      const result=await callback()
-      if(result!==false && box.isConnected)dismiss()
-    }finally{
-      if(button && button.textContent===progress)button.textContent=label
-    }
-  })}
+  function perform(callback,label){return run(async report=>{
+    const result=await callback(report)
+    if(result!==false && box.isConnected)dismiss()
+  },label)}
   if(connection){
     rememberServerAddress(connection.address)
     const address=node('p','server-address',connection.address)
@@ -70,7 +64,8 @@ export function openWorkspaceServer(options){
       if(!box.isConnected)return
       const reset=()=>{
         clearCredentials();clearCredentials=()=>{}
-        actions.hidden=false;hint.hidden=false;projectName.hidden=false;projects.replaceChildren();manage.focus()
+        actions.hidden=false;hint.hidden=false;projectName.hidden=false;projects.replaceChildren()
+        requestAnimationFrame(()=>{if(box.isConnected && !actions.hidden)manage.focus()})
       }
       projectName.textContent=profile.projectName||tr('Основной проект','Main project')
       const rename=options.onRenameServerProject && (async(...args)=>{
@@ -83,11 +78,12 @@ export function openWorkspaceServer(options){
       clearCredentials=()=>{picker.clear();discard(profile.ticket)}
       const back=action(tr('Назад','Back'),false,reset)
       picker.actions.prepend(back)
-      actions.hidden=true;hint.hidden=true;projectName.hidden=true;picker.focus()
-    }))
+      actions.hidden=true;hint.hidden=true;projectName.hidden=true
+      requestAnimationFrame(()=>{if(box.isConnected && actions.hidden)picker.focus()})
+    },tr('Получаем список проектов…','Loading the project list…')))
     if(native.ConnectedServerTicket && native.ListServerProjects && options.onNewProject)actions.append(manage)
-    actions.append(action(tr('Отключить на этом компьютере','Disconnect on this computer'),false,()=>perform(onDisconnect)),
-      action(tr('Синхронизировать','Sync now'),true,()=>perform(onSync)))
+    actions.append(action(tr('Отключить на этом компьютере','Disconnect on this computer'),false,()=>perform(onDisconnect,tr('Отключаем рабочую копию…','Disconnecting the working copy…'))),
+      action(tr('Синхронизировать','Sync now'),true,()=>perform(onSync,tr('Синхронизируем проект…','Syncing the project…'))))
     box.append(address,projectName)
     box.append(hint,projects,error,actions);actions.lastElementChild.focus()
     return
@@ -103,13 +99,13 @@ export function openWorkspaceServer(options){
   const code=field(tr('Код подключения','Pairing code'),'password')
   legacy.append(code.row)
 
-  let pairing=!native?.VerifySyncServer, verified=null, generation=0, checking=false, differentSpace=false, picker=null
+  let pairing=!native?.VerifySyncServer, verified=null, generation=0, checkProgress='', differentSpace=false, picker=null
   const canChooseProject=!!native?.ListServerProjects && !!options.onNewProject
   function discard(ticket){
     if(ticket && native?.DiscardSyncServerTicket)native.DiscardSyncServerTicket(ticket).catch(()=>{})
   }
   function invalidate(){
-    generation++;checking=false;differentSpace=false
+    generation++;checkProgress='';differentSpace=false
     discard(verified?.ticket);verified=null
     picker?.clear();encryption.clear()
     copies.replaceChildren();projectHost.replaceChildren();picker=null
@@ -149,7 +145,7 @@ export function openWorkspaceServer(options){
       customFolder=dir
       locationInput.querySelector('option[value="custom"]')?.remove()
       locationInput.add(new Option(dir,'custom'),locationInput.options[1]);locationInput.value=chosenLocation='custom';update()
-    })
+    },tr('Выберите папку в открывшемся окне…','Choose a folder in the system dialog…'))
   }
   location.append(locationInput)
   const defaultFolderAvailable=!!options.onNewProject
@@ -164,10 +160,11 @@ export function openWorkspaceServer(options){
   })
   changeMode.className='server-method'
   const check=action('',true,verify)
-  const join=action('',false,()=>perform(async()=>{
+  check.setAttribute('aria-live','polite')
+  const join=action('',false,()=>perform(async report=>{
     const dir=await destination()
     if(dir===null || !box.isConnected)return false
-    const result=await useCredential(credential=>onJoin(credential,dir,false))
+    const result=await useCredential(credential=>onJoin(credential,dir,false,report))
     if(result?.savedFolder && box.isConnected){
       addCopy({folder:result.savedFolder})
       update()
@@ -176,9 +173,9 @@ export function openWorkspaceServer(options){
       return false
     }
     return result
-  },join,tr('Открываем…','Opening…')))
+  },tr('Открываем проект…','Opening the project…')))
   const connect=action(tr('Подключить это пространство','Connect this space'),true,()=>{
-    if(encryption.validate())return perform(connectSpace,connect,tr('Подключаем…','Connecting…'))
+    if(encryption.validate())return perform(connectSpace,tr('Подключаем пространство…','Connecting the space…'))
   })
   async function connectSpace(){
     if(!folder){
@@ -199,7 +196,7 @@ export function openWorkspaceServer(options){
     const row=node('div','server-copy')
     row.dataset.folder=folder
     const open=action(tr('Открыть «'+name+'»','Open “'+name+'”'),true,()=>perform(
-      ()=>useCredential(credential=>onJoin(credential,folder,true)),open,tr('Открываем…','Opening…')))
+      report=>useCredential(credential=>onJoin(credential,folder,true,report)),tr('Открываем проект…','Opening the project…')))
     open.title=folder
     const path=node('span','space-detail',folder)
     path.title=folder;path.id='server-copy-folder-'+copies.childElementCount
@@ -211,13 +208,17 @@ export function openWorkspaceServer(options){
     const first=pairing?code.input:address.input.value?password.input:address.input
     first.focus()
   }
+  function retryCredentials(){
+    clearCredentials();update()
+    requestAnimationFrame(()=>{if(box.isConnected && !verified)focusFirstField()})
+  }
 
   async function findCopies(ticket,attempt){
     let matches
     // An unavailable library folder must not hold up opening a manually chosen folder.
     try{matches=await onFindCopies(ticket)}catch{return}
     if(!matches.length || attempt!==generation || !box.isConnected || !verified?.hasSpace)return
-    const focusCopy=!box.inert && document.activeElement===join
+    const focusCopy=!box.hasAttribute('data-working') && document.activeElement===join
     for(const copy of matches)addCopy(copy)
     update()
     if(focusCopy)defaultAction().focus()
@@ -230,7 +231,7 @@ export function openWorkspaceServer(options){
     catch(e){
       const reason=String(e?.message||e).split('|')[0]
       if(['VD_SERVER_TICKET','VD_SERVER_AUTH','VD_SERVER_CERT','VD_SERVER_CODE'].includes(reason)){
-        clearCredentials();update()
+        if(box.isConnected)retryCredentials()
       }else if(reason==='VD_SERVER_SPACE' || reason==='VD_SERVER_EMPTY'){
         differentSpace=reason==='VD_SERVER_SPACE'
         if(verified)verified.hasSpace=differentSpace
@@ -242,23 +243,26 @@ export function openWorkspaceServer(options){
   }
 
   async function verify(){
-    if(checking || pairing || verified || !address.input.value.trim() || !password.input.value)return
+    if(checkProgress || pairing || verified || !address.input.value.trim() || !password.input.value)return
     const attempt=++generation
     if(document.activeElement===check)password.input.focus({preventScroll:true})
-    checking=true;error.textContent='';update()
+    checkProgress=tr('Проверяем подключение…','Checking connection…');error.textContent='';update()
     let result
     try{
       result=await native.VerifySyncServer(address.input.value.trim(),password.input.value)
       if(attempt!==generation || !box.isConnected){discard(result?.ticket);return}
       if(!result?.ticket || !result.address)throw new Error('VD_SERVER_RESPONSE')
       rememberServerAddress(result.address)
-      const catalog=canChooseProject?await native.ListServerProjects(result.ticket):null
+      let catalog=null
+      if(canChooseProject){
+        checkProgress=tr('Получаем список проектов…','Loading the project list…');update()
+        catalog=await native.ListServerProjects(result.ticket)
+      }
       if(attempt!==generation || !box.isConnected){discard(result.ticket);return}
       password.input.value='';verified=result
       status.replaceChildren(mark,document.createTextNode(tr('Доступ к серверу подтверждён','Server access verified')))
       checkedAddress.textContent=result.address
-      if(catalog)picker=mountServerProjectPicker(projectHost,{...options,verified:result,catalog,run,close:dismiss,
-        onTicketError:()=>{clearCredentials();update();password.input.focus()}})
+      if(catalog)picker=mountServerProjectPicker(projectHost,{...options,verified:result,catalog,run,close:dismiss,onTicketError:retryCredentials})
       update()
       if(picker)picker.focus()
       else{defaultAction().focus();if(result.hasSpace && onFindCopies)void findCopies(result.ticket,attempt)}
@@ -266,7 +270,7 @@ export function openWorkspaceServer(options){
       discard(result?.ticket)
       if(attempt===generation && box.isConnected)error.textContent=onError(e)
     }finally{
-      if(attempt===generation && box.isConnected){checking=false;update()}
+      if(attempt===generation && box.isConnected){checkProgress='';update()}
     }
   }
 
@@ -277,8 +281,10 @@ export function openWorkspaceServer(options){
     changeMode.hidden=!native?.VerifySyncServer || !!verified
     changeMode.textContent=pairing?tr('Ввести адрес и пароль','Use address and password'):tr('Использовать код подключения','Use a pairing code')
     check.hidden=ready
-    check.disabled=checking || !address.input.value.trim() || !password.input.value
-    check.textContent=checking?tr('Проверяем…','Checking…'):tr('Проверить подключение','Check connection')
+    check.disabled=!!checkProgress || !address.input.value.trim() || !password.input.value
+    check.classList.toggle('is-busy',!!checkProgress)
+    const checkLabel=checkProgress || tr('Проверить подключение','Check connection')
+    if(check.textContent!==checkLabel)check.textContent=checkLabel
     const knownCopies=copies.childElementCount
     const canConnect=!differentSpace && verified?.hasSpace!==true && (!!folder || !!onPrepareFolder)
     connect.hidden=!ready || !canConnect;join.hidden=!ready || verified?.hasSpace===false

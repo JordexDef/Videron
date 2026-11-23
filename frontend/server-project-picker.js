@@ -105,7 +105,7 @@ export function mountServerProjectPicker(host,params) {
           }
           ticketFailure(error)
         }
-      }))
+      },isRename?tr('Сохраняем название…','Saving the name…'):tr('Удаляем проект с сервера…','Deleting the server project…')))
     confirm.setAttribute('aria-describedby',detail.id)
     buttons.append(cancel,confirm);panel.append(buttons)
     if(input){
@@ -198,7 +198,7 @@ export function mountServerProjectPicker(host,params) {
   }
   function ticketFailure(error){
     const reason=String(error?.message||error).split('|')[0]
-    if(['VD_SERVER_TICKET','VD_SERVER_AUTH','VD_SERVER_CERT','VD_SERVER_CODE'].includes(reason))onTicketError()
+    if(mounted() && ['VD_SERVER_TICKET','VD_SERVER_AUTH','VD_SERVER_CERT','VD_SERVER_CODE'].includes(reason))onTicketError()
     throw error
   }
   function populateAvailable() {
@@ -232,7 +232,7 @@ export function mountServerProjectPicker(host,params) {
       const entry=projects.find(p=>p.id===id)
       if(entry){entry.name=selected.projectName||'';populateProjects(id)}
       resetLocation();void findCopies()
-    })
+    },tr('Получаем сведения о проекте…','Loading project details…'))
   }
   path.input.onchange=()=>{
     if(path.input.value!==browse){
@@ -249,18 +249,19 @@ export function mountServerProjectPicker(host,params) {
       else if(copies.some(copy=>sameFolder(copy.folder,dir)))location=copies.find(copy=>sameFolder(copy.folder,dir)).folder
       else {location=custom;customFolder=dir}
       populateLocations();update()
-    })
+    },tr('Выберите папку в открывшемся окне…','Choose a folder in the system dialog…'))
   }
   content.input.add(new Option('','keep'))
   content.input.add(new Option(tr('Начать новый пустой проект','Start a new empty project'),'empty'))
   content.input.onchange=()=>{encryption.clear();update();if(!name.row.hidden)name.input.focus()}
   name.input.oninput=update
-  async function applySelection(){
+  async function applySelection(report){
     const fresh=isNew(),dest=chosenFolder()
     try {
       let result
       if(fresh){
         const title=name.input.value.trim()
+        report(tr('Создаём проект…','Creating the project…'))
         if(!created){
           if(dest && native.InspectSpaceFolder && (await native.InspectSpaceFolder(dest)).exists)
             throw new Error('VD_SPACE_EXISTS')
@@ -271,32 +272,41 @@ export function mountServerProjectPicker(host,params) {
           projects.push({id:currentId(),name:title})
           populateProjects(currentId());update()
         }
+        report(tr('Готовим рабочую копию…','Preparing the working copy…'))
         result=await onNewProject(selected.ticket,title,dest,encryption.password)
       }else if(isCurrent() && isCustom()){
+        report(tr('Переносим рабочую копию…','Moving the working copy…'))
         result=await onMoveFolder(dest)
       }else if(isCurrent() && !dest){
+        report(tr('Синхронизируем проект…','Syncing the project…'))
         result=await onSync()
       }else if(selected.hasSpace){
-        result=await onJoin(selected.ticket,dest,!!dest && !isCustom())
+        report(tr('Открываем проект…','Opening the project…'))
+        result=await onJoin(selected.ticket,dest,!!dest && !isCustom(),report)
       }else if(connection || (!folder && !onPrepareFolder)){
+        report(tr('Создаём рабочую копию…','Creating the working copy…'))
         result=await onNewProject(selected.ticket,selected.projectName||tr('Основной проект','Main project'),dest,encryption.password)
       }else{
         if(!folder){
+          report(tr('Готовим рабочую копию…','Preparing the working copy…'))
           folder=await onPrepareFolder(dest,encryption.password,selected.ticket)
           if(!folder || !mounted())return
           update()
         }else if(isCustom() && !sameFolder(folder,dest)){
+          report(tr('Переносим рабочую копию…','Moving the working copy…'))
           if(await onMoveFolder(dest)===false || !mounted())return
           folder=dest
         }
+        report(tr('Подключаем пространство…','Connecting the space…'))
         result=await onConnect(selected.ticket)
       }
+      if(!mounted())return
       if(result?.savedFolder){
         copies=[{folder:result.savedFolder},...copies.filter(copy=>!sameFolder(copy.folder,result.savedFolder))]
         location=result.savedFolder;customFolder='';touched=true
         populateLocations();update()
         hint.hidden=false;hint.textContent=tr('Копия сохранена. Чтобы открыть её, введите пароль пространства.','Your copy has been saved. Enter the space password to open it.')
-      }else if(result!==false && host.isConnected)close()
+      }else if(result!==false)close()
     }catch(error){ticketFailure(error)}
   }
   apply.onclick=()=>{if(encryption.validate())return run(applySelection)}

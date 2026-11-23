@@ -1,6 +1,7 @@
 import {icon} from './art.js';
 import {getLanguage,tr} from './i18n.js';
 import {folderLabel} from './folder-links.js';
+import {createWorkspaceActivity} from './workspace-activity.js';
 
 function element(tag,className,text){
   const node=document.createElement(tag);
@@ -75,22 +76,46 @@ export function spaceDialog(dialog,title,onError){
   const {box,close}=dialog(title),shade=box.parentElement;
   box.classList.add('space-dialog');
   const error=element('div','vault-error');error.setAttribute('role','alert');
+  const activity=createWorkspaceActivity();
+  activity.tabIndex=-1;
+  box.append(activity);
   let busy=false;
   function guard(e){
-    if(busy && (e.type==='pointerdown' || e.key==='Escape')){
+    if(busy && (e.type==='pointerdown' || e.key==='Escape' || e.key==='Tab')){
       e.preventDefault();e.stopPropagation();
     }
   }
   shade.addEventListener('pointerdown',guard,true);shade.addEventListener('keydown',guard,true);
-  async function run(action){
-    if(busy)return;
+  async function run(action,label=tr('Подождите…','Please wait…')){
+    if(busy || !box.isConnected)return;
     const focus=document.activeElement;
-    busy=true;box.inert=true;box.setAttribute('aria-busy','true');error.textContent='';
-    try{await action()}catch(e){error.textContent=onError(e)}
+    busy=true;box.dataset.working='';error.textContent='';
+    box.append(activity);
+    // The live status stays accessible while the rest of the dialog is locked.
+    const locked=[...box.children].filter(node=>node!==activity && !node.inert);
+    for(const node of locked)node.inert=true;
+    let active=true, failure;
+    function report(message){
+      if(active && box.isConnected)activity.setMessage(message);
+    }
+    report(label);
+    activity.focus();
+    try{await action(report)}catch(e){failure=onError(e)}
     finally{
-      busy=false;box.inert=false;box.removeAttribute('aria-busy');
-      if(box.isConnected && document.activeElement===document.body && box.contains(focus))
-        focus.focus({preventScroll:true});
+      active=false;
+      busy=false;
+      const restore=document.activeElement===activity || document.activeElement===document.body;
+      delete box.dataset.working;
+      for(const node of locked)node.inert=false;
+      activity.setMessage('');
+      if(box.isConnected){
+        if(failure)error.textContent=failure;
+        if(restore){
+          const target=box.contains(focus) && !focus.disabled && focus.getClientRects().length ? focus :
+            [...box.querySelectorAll('input:enabled,select:enabled,.button:enabled,button:enabled')].find(el=>el.getClientRects().length);
+          target?.focus();
+        }
+      }
     }
   }
   return {box,close,error,run};
@@ -123,7 +148,7 @@ export function openCreateSpace({dialog,native,projectProtected,onCreate,onError
       folder=selected;
       if(!name.value.trim())name.value=folderLabel(folder).slice(0,80);
       updateLocation();update();
-    }));
+    },tr('Выбираем папку…','Choosing a folder…')));
     choose.append(glyph('folder'),path);
     const clear=iconButton('x',tr('Хранить в библиотеке Videron','Store in the Videron library'),()=>{
       folder='';updateLocation();update();choose.focus();
@@ -148,7 +173,7 @@ export function openCreateSpace({dialog,native,projectProtected,onCreate,onError
     void run(async()=>{
       await onCreate({name:title,folder,password:encryption.password});
       close();
-    });
+    },moving?tr('Переносим пространство…','Moving workspace…'):tr('Создаём пространство…','Creating workspace…'));
   };
 }
 
@@ -170,7 +195,7 @@ export function openSpaceManager({dialog,entries,active,native,onLink,onDelete,o
     const detail=element('span','space-detail',folder||tr('Библиотека Videron','Videron library'));detail.title=detail.textContent;
     info.append(heading,detail);row.append(info);
     if(folder && native){
-      row.append(iconButton('folder',tr('Открыть папку','Open folder')+' · '+name,()=>run(()=>onOpenFolder(folder))));
+      row.append(iconButton('folder',tr('Открыть папку','Open folder')+' · '+name,()=>run(()=>onOpenFolder(folder),tr('Открываем папку…','Opening folder…'))));
     }else if(!folder && native && active===id){
       row.append(button(tr('В папку…','Move to folder…'),'button secondary space-link',()=>{close();onLink()}));
     }
@@ -196,7 +221,7 @@ export function openSpaceManager({dialog,entries,active,native,onLink,onDelete,o
     });
     const submit=button('','button primary',()=>run(async()=>{
       await onDelete(id,canDeleteFile && file.input.checked);close();
-    }));
+    },file.input.checked && canDeleteFile?tr('Удаляем рабочую копию…','Deleting working copy…'):tr('Убираем пространство…','Removing workspace…')));
     function update(){
       const destroyingFile=canDeleteFile && file.input.checked;
       if(folder){

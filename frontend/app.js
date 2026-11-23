@@ -18,6 +18,7 @@ import { paintIcons, icon, drawAtlas } from './art.js';
 import { newLibrary, readLibrary, serializeLibrary, blankWorkspace, isFolderSpace, demoWorkspace, translateDemoSamples, createNote, colors, validSpaceName } from './data.js';
 import { CatalogRecords } from './catalog-records.js';
 import { spaceTitle, localFallback, folderEntry, readSpaceFolder, createSpaceFolder, saveSpaceFolder } from './workspace-storage.js';
+import { createWorkspaceActivity } from './workspace-activity.js';
 import { openCreateSpace, openSpaceManager } from './workspace-ui.js';
 import { compareIncoming, commitIncoming, commitPreparedMerge, preservesOpenNote } from './workspace-reconcile.js';
 import { openWorkspaceConflicts, dismissWorkspaceConflicts } from './workspace-conflicts.js';
@@ -79,6 +80,9 @@ function syncMapVisibility(){
 const collapsedAreas=new Set(), listSelection=new Set();
 let lastListId=null;
 const translateStatic=bindStaticTranslations(document);
+const spaceActivity=createWorkspaceActivity();
+spaceActivity.classList.add('workspace-transition');
+$('shell').after(spaceActivity);
 
 function notify(message,action){
   const toast=$('toast');
@@ -270,6 +274,7 @@ function requestLock(){
   }
   if(lockScreen)return locking;
   if(!projectProtected && !folderSession?.encrypted && !noteSession?.protected && !openingNote && !spaceOperation && !policyWrite && !document.querySelector('.vault-dialog'))return;
+  spaceActivity.setMessage('');
   cancelNoteTransition();
   searchLifetime?.abort();
   dismissExtensions();cancelTransfers();closeMenu();routes?.reset();reading?.hide();mapMetrics=null;lockScreen=showLockScreen();sidebarTree?.clear();syncMapVisibility();syncIdle();
@@ -733,18 +738,22 @@ function showHelp(){
   }
   d.box.append(element('p','',tr('Размер фигуры зависит от наполнения заметки. Частые открытия добавляют мягкое свечение. Закрепление удерживает заметку на выбранном месте.','A shape grows with its note. Opening a note more often gives it a soft glow. Pin it to keep it in place.')),rows);
 }
-function changeSpace(work){
+function changeSpace(work,message){
   if(spaceOperation || !ready || lockScreen || editor || openingNote)return Promise.reject(new Error('VD_LOCKED'));
   $('shell').inert=true;
   cancelTransfers();graph.flushPositions();
   graph.remaining=0; // Keep the flushed positions stable during the folder picker or password prompt.
+  if(message)spaceActivity.setMessage(message);
   spaceOperation=(async()=>{
     if(folderPoll)await folderPoll.catch(()=>{});
     await flush();
     await finishServerWrites();
     if(lockScreen)throw new Error('VD_LOCKED');
     return work();
-  })().finally(()=>{spaceOperation=null;$('shell').inert=!!editor});
+  })().finally(()=>{
+    if(message)spaceActivity.setMessage('');
+    spaceOperation=null;$('shell').inert=!!editor;
+  });
   return spaceOperation;
 }
 function showSpace(next,session){
@@ -785,7 +794,7 @@ function switchSpace(id){
       if(doc)await activateSpace({...library,active:id,spaces:{...library.spaces,[id]:doc.link}},doc);
     }else if(entry)await activateSpace({...library,active:id});
     else if(id==='demo')await activateSpace({...library,active:id,demoHidden:false,spaces:{...library.spaces,demo:demoWorkspace()}});
-  }).catch(error=>notify(storageErrorMessage(error)));
+  },tr('Переключаем пространство…','Switching spaces…')).catch(error=>notify(storageErrorMessage(error)));
 }
 async function createSpace({name,folder,password},sourceId){
   if(!validSpaceName(name))throw new Error('VD_INVALID');
@@ -818,7 +827,7 @@ async function attachSpace(){
       if(id===library.active)return;
       const doc=await readSpaceFolder(native,info,promptForSpace,entry?.[1]);
       if(doc)await activateSpace({...library,active:id,spaces:{...library.spaces,[id]:doc.link}},doc);
-    });
+    },tr('Открываем пространство из папки…','Opening space from folder…'));
   }catch(error){notify(storageErrorMessage(error))}
 }
 async function deleteSpace(id,deleteFile){
@@ -1196,8 +1205,9 @@ async function serverSettings(){
         if(moved.keptSource)notify(tr('Перенос завершён. Часть файлов осталась в прежней папке.','Move complete. Some files remain in the previous folder.'));
         return link.folder;
       }),
-      onJoin:(code,folder,existingOnly=false)=>changeSpace(async()=>{
+      onJoin:(code,folder,existingOnly=false,report)=>changeSpace(async()=>{
         requireCurrent();
+        report?.(tr('Ищем рабочую копию…','Looking for a working copy…'));
         if(!folder){
           const copies=await copiesFor(code);
           folder=copies[0]?.folder || await native.ManagedServerFolder(code);
@@ -1211,12 +1221,16 @@ async function serverSettings(){
         try{
           requireCurrent();
           if(info.exists && !doc){
+            report?.(tr('Открываем рабочую копию…','Opening the working copy…'));
             doc=await readSpaceFolder(native,info,promptForSpace,entry?.[1]);
             if(!doc)return false;
           }
           requireCurrent();
+          report?.(info.exists ? tr('Синхронизируем рабочую копию…','Syncing the working copy…') :
+            tr('Загружаем проект…','Downloading the project…'));
           await native.JoinSpaceServer(code,info.folder);
           requireCurrent();
+          report?.(tr('Открываем пространство…','Opening the workspace…'));
           if(!doc){
             info=await native.InspectSpaceFolder(info.folder);
             requireCurrent();

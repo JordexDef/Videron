@@ -191,12 +191,19 @@ function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlai
     pending = true
     view.setBusy(true)
     const label = submit.textContent
-    submit.textContent = tr('Подождите…', 'Please wait…')
+    submit.classList.add('is-busy')
+    submit.textContent = {
+      set: tr('Шифруем…', 'Encrypting…'),
+      unlock: tr('Разблокируем…', 'Unlocking…'),
+      change: tr('Меняем пароль…', 'Changing password…'),
+      remove: tr('Снимаем пароль…', 'Removing password…')
+    }[mode]
     try {
       await onSubmit({password:password?.value, currentPassword:current?.value})
     } catch (error) {
       pending = false
       if (!view.settled(false)) return
+      submit.classList.remove('is-busy')
       submit.textContent = label
       const message = vaultError(error)
       if (String(error?.message || error).split('|')[0] === 'VD_PASSWORD') {
