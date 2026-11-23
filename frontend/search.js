@@ -1,9 +1,10 @@
 import { tr, getLanguage } from './i18n.js'
 import { areaTreeRows, descendantAreaIds } from './areas.js'
 import { isPinned } from './area-grid.js'
+import { isProtectedNote } from './note-vault.js'
 
 import { icon } from './art.js'
-import { findNotes, installSearchWorker } from './search-worker.js'
+import { findNotes, searchPreview, searchWorkerSource } from './search-worker.js'
 import { searchTarget } from './search-location.js'
 
 function el(tag, className, text) {
@@ -21,7 +22,7 @@ function highlight(node, value, start, length) {
   }
   node.append(el('mark','',value.slice(start,start+length)),el('span','vs-after',value.slice(start+length)))
 }
-export function openSearch({notes, areas=[], onOpen, initialQuery='', initialState={}, onDismiss, signal}) {
+export function openSearch({notes, areas=[], onOpen, initialQuery='', initialState={}, onDismiss, onClose, signal}) {
   if(signal?.aborted)return
   const previous=document.activeElement
   const selection=previous?.isContentEditable?window.getSelection():null
@@ -60,24 +61,27 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
   status.setAttribute('aria-hidden','true')
   results.id='vs-search-results';results.setAttribute('role','listbox')
   results.setAttribute('aria-label',tr('Результаты поиска','Search results'))
-  const more=el('button','option vs-more',tr('Показать ещё','Show more'))
-  more.hidden=true;more.type='button'
-  panel.append(heading,queryRow,options,status,results,more,announcement);shade.append(panel);document.body.append(shade)
+  const rows=el('div','vs-rows')
+  rows.setAttribute('role','presentation');results.append(rows)
+  panel.append(heading,queryRow,options,status,results,announcement);shade.append(panel);document.body.append(shade)
   const background=document.querySelector('.vd-editor')||document.getElementById('shell')
+  const wasInert=background?.inert
   if(background)background.inert=true
-  const byId=new Map(notes.map(n=>[n.id,n]))
-  const source=notes.map(n=>({
-    id:n.id,title:n.title||tr('Без названия','Untitled'),plain:n.type==='data'?n.dataText:n.plain||'',tags:(n.tags||[]).map(t=>'#'+t).join(' '),
-    areaId:n.areaId,pinned:isPinned(n),modified:n.modified||0,
-  }))
-  const titleAreas=new Map(), ambiguousTitles=new Set()
-  for(const {title,areaId} of source){
-    const id=areaId??null
+  const source=[], byId=new Map(), titleAreas=new Map(), ambiguousTitles=new Set()
+  // Only the searchable projection goes to the worker. Keep editor records and attachments here.
+  for(const note of notes){
+    if(isProtectedNote(note))continue
+    const title=note.title||tr('Без названия','Untitled'), id=note.areaId??null
+    const entry={id:note.id,title,plain:(note.type==='data'?note.dataText:note.plain)||'',tags:(note.tags||[]).map(t=>'#'+t).join(' '),
+      areaId:note.areaId,pinned:isPinned(note),modified:note.modified||0}
+    source.push(entry);byId.set(note.id,{note,entry})
     if(!titleAreas.has(title))titleAreas.set(title,id)
     else if(titleAreas.get(title)!==id)ambiguousTitles.add(title)
   }
-  let worker, blobURL, timer, limitTimer, busy=false, closed=false, serial=0, list=[], shown=0, active=-1
-  let pendingTimer, announcementTimer
+  const rowHeight=55, mounted=new Map()
+  rows.style.setProperty('--vs-row-height',rowHeight+'px')
+  let worker, blobURL, timer, limitTimer, busy=false, closed=false, serial=0, displayed=-1, list=[], active=-1
+  let pendingTimer, announcementTimer, fallbackTimer
   let useModule=false, unavailable=false, openWhenReady=false
   function stopWorker(){
     worker?.terminate();worker=null;busy=false
@@ -87,10 +91,12 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
   function interrupt(){close(false)}
   function close(restoreFocus=true){
     if(closed)return
-    closed=true;clearTimeout(timer);clearTimeout(pendingTimer);clearTimeout(announcementTimer);stopWorker();shade.remove()
+    closed=true;clearTimeout(timer);clearTimeout(pendingTimer);clearTimeout(announcementTimer);clearTimeout(fallbackTimer)
+    stopWorker();resize.disconnect();shade.remove()
     signal?.removeEventListener('abort',interrupt)
-    source.length=0;byId.clear();list=[];query.value='';results.replaceChildren()
-    if(background)background.inert=false
+    source.length=0;byId.clear();list=[];mounted.clear();query.value='';rows.replaceChildren()
+    if(background)background.inert=wasInert
+    onClose?.()
     if(!restoreFocus)return
     previous?.focus?.({preventScroll:true})
     if(caret&&previous?.contains(caret.commonAncestorContainer)){
@@ -98,39 +104,67 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
     }
   }
   function dismiss(){if(!closed){close();onDismiss?.()}}
+  function state(id=list[active]?.id){return {query:query.value,area:area.value,flags:{...flags},activeId:id}}
+  dismiss.state=()=>closed?null:{...state(),selection:[query.selectionStart,query.selectionEnd,query.selectionDirection]}
   function open(result){
-    const id=result.id,note=byId.get(id)
-    const state={query:query.value,area:area.value,flags:{...flags},activeId:id}
+    if(closed || results.inert)return
+    const id=result.id,note=byId.get(id)?.note
+    if(!note || isProtectedNote(note))return
+    const saved=state(id)
     const target=(note.modified||0)===result.modified?searchTarget(note,result.position):null
-    close();onOpen?.(id,state,target)
+    close();onOpen?.(id,saved,target)
   }
-  function appendPage(){
-    const end=Math.min(list.length,shown+60), frag=document.createDocumentFragment()
-    for(let i=shown;i<end;i++){
-      const m=list[i], note=byId.get(m.id)
-      const row=el('button','result');row.type='button';row.tabIndex=-1
-      row.id='vs-result-'+i;row.setAttribute('role','option');row.setAttribute('aria-selected','false')
-      row.innerHTML=icon(isPinned(note)?'pin':'circle')
-      const summary=el('span','note-summary'),title=el('strong'),excerpt=el('small')
-      const name=note.title||tr('Без названия','Untitled')
-      highlight(title,name,...(m.title||[0,0]))
-      highlight(excerpt,m.snippet,m.start,m.length)
-      if(ambiguousTitles.has(name)){
-        const header=el('span','vs-result-heading'),place=el('small','vs-location')
-        place.title=areaLabels.get(note.areaId)||tr('Без области','No area')
-        place.append(el('bdi','',place.title));header.append(title,place);summary.append(header)
-      }else summary.append(title)
-      if(m.snippet)summary.append(excerpt)
-      row.append(summary);row.onclick=()=>open(m)
-      row.onfocus=()=>mark(i)
-      frag.append(row)
+  function createRow(i){
+    const m=list[i], {entry}=byId.get(m.id), preview=searchPreview(entry,m)
+    const row=el('button','result');row.type='button';row.tabIndex=-1
+    row.id='vs-result-'+i;row.style.top=i*rowHeight+'px'
+    row.setAttribute('role','option');row.setAttribute('aria-selected','false')
+    row.setAttribute('aria-posinset',i+1);row.setAttribute('aria-setsize',list.length)
+    row.innerHTML=icon(entry.pinned?'pin':'circle')
+    const summary=el('span','note-summary'),title=el('strong'),excerpt=el('small')
+    highlight(title,entry.title,...(m.title||[0,0]))
+    highlight(excerpt,preview.snippet,preview.start,preview.length)
+    if(ambiguousTitles.has(entry.title)){
+      const header=el('span','vs-result-heading'),place=el('small','vs-location')
+      place.title=areaLabels.get(entry.areaId)||tr('Без области','No area')
+      place.append(el('bdi','',place.title));header.append(title,place);summary.append(header)
+    }else summary.append(title)
+    if(preview.snippet)summary.append(excerpt)
+    row.append(summary);row.onclick=()=>open(m);row.onfocus=()=>mark(i)
+    return row
+  }
+  function paint(){
+    if(closed || results.inert)return
+    const first=Math.max(0,Math.floor(results.scrollTop/rowHeight)-3)
+    const end=Math.min(list.length,Math.ceil((results.scrollTop+results.clientHeight)/rowHeight)+3)
+    for(const [i,row] of mounted)if(i!==active && (i<first || i>=end)){row.remove();mounted.delete(i)}
+    // Keep the active option mounted for the keyboard and the combobox, even during mouse scrolling.
+    const indices=[]
+    if(active>=0 && active<first)indices.push(active)
+    for(let i=first;i<end;i++)indices.push(i)
+    if(active>=end && active>=0)indices.push(active)
+    let next=null
+    for(let j=indices.length-1;j>=0;j--){
+      const i=indices[j]
+      if(!mounted.has(i)){
+        const row=createRow(i);rows.insertBefore(row,next);mounted.set(i,row)
+      }
+      next=mounted.get(i)
     }
-    results.append(frag);shown=end;more.hidden=shown>=list.length
   }
-  function mark(index){
-    const previous=results.children[active], current=results.children[index]
+  const resize=new ResizeObserver(paint);resize.observe(results)
+  results.addEventListener('scroll',paint,{passive:true})
+  function mark(index,reveal=false){
+    const previous=mounted.get(active)
     if(previous){previous.classList.remove('vs-active');previous.tabIndex=-1;previous.setAttribute('aria-selected','false')}
     active=index
+    if(reveal && index>=0){
+      const top=index*rowHeight,bottom=top+rowHeight
+      if(top<results.scrollTop)results.scrollTop=top
+      else if(bottom>results.scrollTop+results.clientHeight)results.scrollTop=bottom-results.clientHeight
+    }
+    paint()
+    const current=mounted.get(index)
     if(current){
       current.classList.add('vs-active');current.tabIndex=0;current.setAttribute('aria-selected','true')
       query.setAttribute('aria-activedescendant',current.id)
@@ -147,43 +181,56 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
   }
   function display(response){
     clearTimeout(pendingTimer)
+    displayed=serial
     const openFirst=openWhenReady && document.activeElement===query
     openWhenReady=false
-    list=response.matches||[];shown=0;mark(-1);results.replaceChildren();more.hidden=true
+    list=response.matches||[];active=-1;mounted.clear();rows.replaceChildren()
+    query.removeAttribute('aria-activedescendant');rows.style.height=list.length*rowHeight+'px'
     results.inert=false;results.removeAttribute('aria-busy')
     if(response.error){showStatus(response.error,'error');return}
     const summary=list.length?tr('Найдено заметок · ','Notes found · ')+list.length.toLocaleString(getLanguage()):(source.length?tr('Совпадений нет','No matches'):tr('В этом пространстве пока нет заметок','This workspace has no notes yet'))
     showStatus(summary,'ready')
-    appendPage()
     if(list.length){
       const index=restoreId?list.findIndex(match=>match.id===restoreId):-1
-      while(index>=shown)appendPage()
-      mark(Math.max(0,index))
+      results.scrollTop=index<0?0:index*rowHeight
+      mark(Math.max(0,index),true)
       if(openFirst){open(list[active]);return}
-      if(index>=0)results.children[index].scrollIntoView({block:'nearest'})
-      else results.scrollTop=0
     }
     restoreId=null
   }
   function lookup(){
-    if(busy)return
-    const opts={...flags,query:query.value,area:area.value,language:getLanguage()}
+    if(closed || displayed===serial)return
+    const opts={...flags,query:query.value,area:area.value,language:getLanguage(),deferSnippets:true}
     if(opts.area && opts.area!=='_none')opts.areaIds=[...descendantAreaIds(areas,opts.area)]
-    // The initial recent-notes list uses only metadata and short excerpts.
-    // Defer cloning full data-note text to the worker until a query needs it.
+    // Opening the dialog only needs recency and filters. Transfer bodies on the first nonempty query.
     if(!opts.query){display(findNotes(source,opts));return}
+    if(busy)return
+    const token=serial
     if(unavailable){
       if(opts.regex && opts.query) display({error:tr('Не удалось запустить обработчик регулярных выражений в этом окне.','Could not start the regular expression worker in this window.')})
-      else display(findNotes(source,opts))
+      else {
+        const matches=[]
+        let i=0
+        function scan(){
+          if(closed || token!==serial)return
+          const until=performance.now()+6
+          do {
+            const next=Math.min(source.length,i+32)
+            matches.push(...findNotes(source.slice(i,next),opts).matches)
+            i=next
+          }while(i<source.length && performance.now()<until)
+          if(i<source.length)fallbackTimer=setTimeout(scan,0)
+          else display({matches:matches.sort((a,b)=>b.rank-a.rank || b.modified-a.modified)})
+        }
+        scan()
+      }
       return
     }
-    const token=serial
     try {
       if(!worker){
         if(useModule)worker=new Worker(new URL('./search-worker.js',import.meta.url),{type:'module'})
         else{
-          const code='('+installSearchWorker.toString()+')('+findNotes.toString()+')'
-          blobURL=URL.createObjectURL(new Blob([code],{type:'text/javascript'}))
+          blobURL=URL.createObjectURL(new Blob([searchWorkerSource()],{type:'text/javascript'}))
           worker=new Worker(blobURL)
         }
         worker.postMessage({notes:source})
@@ -219,15 +266,15 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
     }
   }
   function schedule(delay){
-    clearTimeout(timer);serial++;openWhenReady=false
+    clearTimeout(timer);clearTimeout(fallbackTimer);serial++;openWhenReady=false
     // Reuse the worker's copy of the workspace for ordinary queries. A regex
     // can run indefinitely, so still interrupt it immediately when superseded.
     if(limitTimer!=null)stopWorker()
-    list=[];shown=0;mark(-1);more.hidden=true
     results.inert=true;results.setAttribute('aria-busy','true')
+    list=[];mark(-1)
     clearTimeout(pendingTimer);clearTimeout(announcementTimer)
     pendingTimer=setTimeout(()=>{
-      const message=results.childElementCount
+      const message=rows.childElementCount
         ? tr('Идёт поиск · показаны предыдущие результаты','Searching · showing previous results')
         : tr('Поиск…','Searching…')
       showStatus(message,'pending')
@@ -235,36 +282,34 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
     timer=setTimeout(()=>{timer=null;lookup()},delay)
   }
   area.onchange=()=>schedule(0);query.oninput=()=>schedule(50);query.onblur=()=>{openWhenReady=false}
-  more.onclick=()=>{
-    const firstNew=shown
-    appendPage()
-    results.children[firstNew]?.focus()
-  }
   escape.onclick=dismiss
   shade.onpointerdown=e=>{if(e.target===shade)dismiss()}
   shade.onkeydown=e=>{
     if(e.defaultPrevented||e.isComposing||e.keyCode===229||e.ctrlKey||e.metaKey||e.altKey||(e.shiftKey&&e.key!=='Tab'))return
     if(e.key==='Escape'){e.preventDefault();e.stopPropagation();dismiss();return}
-    const inResults=e.target===query||results.contains(e.target)
-    if(inResults && list.length && (e.key==='ArrowDown'||e.key==='ArrowUp')){
+    const inResults=results.contains(e.target), atQuery=e.target===query
+    if((inResults || atQuery) && list.length && (e.key==='ArrowDown'||e.key==='ArrowUp'||
+       ((e.key==='Home'||e.key==='End') && inResults) || e.key==='PageDown' || e.key==='PageUp')){
       e.preventDefault()
-      const index=Math.max(0,Math.min(list.length-1,active+(e.key==='ArrowDown'?1:-1)))
-      if(index>=shown)appendPage()
-      mark(index);results.children[index].scrollIntoView({block:'nearest'})
-      if(e.target!==query)results.children[index].focus()
+      const page=Math.max(1,Math.floor(results.clientHeight/rowHeight))
+      const index={ArrowDown:active+1,ArrowUp:active-1,PageDown:active+page,PageUp:active-page,Home:0,End:list.length-1}[e.key]
+      mark(Math.max(0,Math.min(list.length-1,index)),true)
+      if(inResults)mounted.get(active).focus({preventScroll:true})
     }else if(e.target===query&&e.key==='Enter'){
       e.preventDefault()
       if(e.repeat)return
       if(list[active])open(list[active])
       else openWhenReady=true
     }else if(e.key==='Tab'){
-      const last=more.hidden?(results.children[active]||area):more
+      const last=mounted.get(active)||area
       if(e.shiftKey&&e.target===escape){e.preventDefault();last.focus()}
       else if(!e.shiftKey&&e.target===last){e.preventDefault();escape.focus()}
     }
   }
   signal?.addEventListener('abort',interrupt,{once:true})
-  query.focus();query.select()
+  query.focus()
+  if(initialState.selection)query.setSelectionRange(...initialState.selection)
+  else query.select()
   if(query.value)schedule(0)
   else lookup()
   return dismiss

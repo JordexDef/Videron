@@ -254,6 +254,7 @@ export function createDirectTables(initial, callbacks) {
   })
   return {
     row, key:callbacks.key, direct:true, focus,
+    revealTableCell:ui.revealSearchCell,
     mount() { if (!mounted) { mounted = true; render() } },
     update(next) {
       if (next.board !== block.board) {

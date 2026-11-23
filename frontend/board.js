@@ -18,7 +18,9 @@ import {
 } from './board-fonts.js';
 import { freehandPath, pressureSamples } from './freehand.js';
 import { alignDrag } from './board-alignment.js';
-import { richBlocks, richFrameStyle, richPlain, blockTagText } from './board-rich-text.js';
+import { richBlocks, richFrameStyle, richPlain } from './board-rich-text.js';
+import { boardShapes as shapes } from './board-summary.js';
+export { boardSummary } from './board-summary.js';
 import { normalizeTable, tableNameAllocator, uniqueTableName, createWorkbook } from './table-engine.js';
 import { makeTableUI } from './table-view.js';
 import {
@@ -51,7 +53,6 @@ const kinds = new Set([
   'table',
   'chart'
 ]);
-const shapes = new Set(['rect', 'ellipse', 'diamond']);
 const strokeStyles = new Set(['solid', 'dashed', 'dotted']);
 const fillStyles = new Set(['solid', 'hachure', 'cross-hatch']);
 const textAlignments = new Set(['left', 'center', 'right']);
@@ -247,28 +248,6 @@ export function normalizeBoard(input) {
     }),
     source?.background
   );
-}
-export function boardSummary(input) {
-  const source = input?.board ?? input;
-  const elements = source?.elements || [];
-  const parts = elements.map((e) =>
-      e.type === 'table'
-        ? [e.name, ...Object.values(e.cells || {})].join('\n')
-        : e.type === 'text'
-          ? e.text
-          : e.type === 'image'
-            ? e.alt
-            : shapes.has(e.type) ? e.label : ''
-    );
-  const plain = parts.filter(Boolean).join('\n');
-  const tagText = elements.map((e, i) => e.type === 'text' && Array.isArray(e.body)
-    ? e.body.map(block => blockTagText(block)).join('\n')
-    : parts[i]).filter(Boolean).join('\n');
-  const weight = elements.reduce(
-    (n, e) => n + (e.type === 'image' ? 300 : e.type === 'pen' ? 16 + (e.points?.length || 0) / 5 : 32),
-    plain.length
-  );
-  return { plain, tagText, weight: Math.round(weight + (source?.strokes?.length || 0) * 8) };
 }
 function rotate(x, y, degrees) {
   const rad = (degrees * Math.PI) / 180,
@@ -3203,6 +3182,21 @@ export function mountBoard(container, options = {}) {
   return {
     getDocument,
     undo,
+    revealTableCell(id, address) {
+      setTool('select', false);
+      const cell = tableUI.revealSearchCell(id, address);
+      if (!cell || !stage.clientWidth || !stage.clientHeight) return cell;
+      if (z < .85) zoomAt(1);
+      const bounds = stage.getBoundingClientRect(), box = cell.getBoundingClientRect();
+      if (box.left < bounds.left + 12 || box.right > bounds.right - 12 ||
+          box.top < bounds.top + (inline ? 8 : 55) || box.bottom > bounds.bottom - 50) {
+        tx += (bounds.left + bounds.right - box.left - box.right) / 2;
+        ty += (bounds.top + bounds.bottom - box.top - box.bottom) / 2;
+        camera();
+      }
+      hasView = manualCamera = true;
+      return cell;
+    },
     revealTextBlock(id, target) {
       const item = elements.find(el => el.id === id);
       const view = views.get(id);

@@ -872,7 +872,7 @@ function queueSync(delay=5000){
 }
 function blockedForMerge(){
   return editor || openingNote || spaceOperation || lockScreen || closingApp || policyWrite || graph?.drag ||
-    routes?.isEditing() || popover || document.querySelector('.shade,.vs-shade,dialog[open],[role="dialog"]:not([hidden])');
+    routes?.isEditing() || popover || document.querySelector('.shade:not(.vs-shade),dialog[open],[role="dialog"]:not(.vs-panel):not([hidden])');
 }
 function branchSaved(session){
   if(!session)return;
@@ -1030,7 +1030,13 @@ function pollFolder(force){
       if(!force && session.deferred===update.token)return;
       // The native read can finish after the user has started moving a note.
       if(graph?.drag || graph?.pinch){session.pollAfterGesture=true;return}
-      if(!blockedForMerge())break;
+      if(!blockedForMerge()){
+        // A search can follow conflict-free changes. Leave conflicts for after dismissal.
+        const previous=session.incoming;
+        if(!force && (activeSearch || openingSearch) && previous?.conflict &&
+            previous.token===update.token && previous.revision===revision)return;
+        break;
+      }
       editor?.flush?.();
       const openId=editor && !openingNote && !pending && saved===revision && !policyWrite && !notePrivacyChange &&
         !spaceOperation && !lockScreen ? noteSession?.note.id : null;
@@ -1047,6 +1053,7 @@ function pollFolder(force){
         editorMerge=update.prepared?commitPreparedMerge(native,session,update):commitIncoming(native,session,update,merged,openId);
         try{await editorMerge}finally{editorMerge=null;$('shell').inert=!!editor}
         session.incoming=null;session.deferred=null;
+        refreshOpenSearch();
         library.spaces[library.active]=session.link;dirty({catalogOnly:true});render();branchSaved(session);
       }else session.incoming={token:update.token,conflict:merged.conflicts.length>0,revision,openId};
       return;
@@ -1060,8 +1067,9 @@ function pollFolder(force){
       if(!update.prepared || previewHead!==session.head)update=await checkFolderUpdate(session,'',true);
       if(!update.token){session.incoming=null;return}
       let merged=previewFolderUpdate(session,update),choices;
-      session.incoming={token:update.token,conflict:merged.conflicts.length>0};
+      session.incoming={token:update.token,conflict:merged.conflicts.length>0,revision};
       if(merged.conflicts.length){
+        if(activeSearch || openingSearch)return;
         syncIdle();
         session.choiceToken=update.token;
         try{
@@ -1074,6 +1082,7 @@ function pollFolder(force){
       if(lockScreen || closingApp || spaceOperation || session!==folderSession)return;
       if(update.prepared)await commitPreparedMerge(native,session,update,choices);
       else await commitIncoming(native,session,update,merged);
+      refreshOpenSearch();
       branchSaved(session);
       library.spaces[library.active]=session.link;
       session.incoming=null;session.deferred=null;session.nextExchange=0;session.syncError='';
@@ -1082,7 +1091,7 @@ function pollFolder(force){
       if(currentArea && !areaById(currentArea)){page='map';currentArea=null}
       $('toast').hidden=true;render();dirty({catalogOnly:true});
       queueSync(250);
-    }finally{reviewing=false;$('shell').inert=!!editor;syncIdle()}
+    }finally{reviewing=false;$('shell').inert=!!editor || !!activeSearch;syncIdle()}
   })().catch(error=>{
     if(lockScreen || closingApp || session!==folderSession)return;
     const code=String(error?.message||error).split('|')[0];
@@ -1304,6 +1313,7 @@ async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
         for(const [stop,key] of hiddenRouteFragments)stop.fragment=key;
         hiddenRouteFragments.clear();
       }
+      refreshOpenSearch();
       dirty({meta:true});
       $('list-stage').replaceChildren();$('toast').hidden=true;render();syncIdle();
     },onError:reportWriteError});
@@ -1805,11 +1815,18 @@ function render(){
   if(!map)renderList();else $('list-selection').hidden=true;
   renderSelection();
 }
-let openingSearch=false,searchLifetime=null;
+let openingSearch=false,searchLifetime=null,activeSearch=null;
+function refreshOpenSearch(){
+  if(!activeSearch)return;
+  const {dialog,onDismiss}=activeSearch,state=dialog.state();
+  searchLifetime.abort(); // Drop the old rows and worker before displaying the merged workspace.
+  if(state && !lockScreen && !closingApp)void search(state,onDismiss);
+}
 async function search(initialState={},onDismiss){
-  if(!ready||lockScreen||openingSearch||document.querySelector('.vs-shade'))return;
+  if(!ready||lockScreen||closingApp||spaceOperation||openingSearch||document.querySelector('.vs-shade'))return;
   cancelTransfers();
   openingSearch=true;
+  searchLifetime?.abort();
   const lifetime=new AbortController();
   searchLifetime=lifetime;
   const origin=editor,originId=selected;
@@ -1817,18 +1834,38 @@ async function search(initialState={},onDismiss){
   closeMenu();
   try{
     const {openSearch}=await import('./search.js');
-    if(lockScreen||!ready||lifetime.signal.aborted)return;
+    if(reviewing)await folderPoll;
+    if(editorMerge)await editorMerge.catch(()=>{});
+    if(lockScreen||closingApp||spaceOperation||!ready||lifetime.signal.aborted)return;
     editor?.flush?.();
-    openSearch({notes:workspace().notes.filter(note=>!isProtectedNote(note)),areas:workspace().areas,initialState,onDismiss,signal:lifetime.signal,
+    const dialog=openSearch({notes:workspace().notes,areas:workspace().areas,initialState,signal:lifetime.signal,
+      onClose:()=>{
+        if(searchLifetime===lifetime)activeSearch=null;
+        if(reviewing)$('shell').inert=true;
+      },
+      onDismiss:async()=>{
+        if(reviewing)await folderPoll;
+        if(!lifetime.signal.aborted && !lockScreen && !closingApp)onDismiss?.();
+      },
       onOpen:async(id,state,target)=>{
+        const original=byId(id);
+        if(reviewing)await folderPoll;
+        if(editorMerge)await editorMerge.catch(()=>{});
+        const searchable=()=>{
+          const note=byId(id);
+          return !lifetime.signal.aborted && !lockScreen && !closingApp && note && !isProtectedNote(note);
+        };
+        if(!searchable())return;
         if(origin && id===originId){
-          if(target)origin.revealSearchMatch(target);
+          if(target && byId(id)===original)origin.revealSearchMatch(target);
           return;
         }
         if(origin && !await origin.prepareClose())return;
-        if(lifetime.signal.aborted)return;
+        if(!searchable())return;
+        if(byId(id)!==original)target=null;
         edit(id,search.bind(null,state,returnToOrigin),target);
       }});
+    if(dialog)activeSearch={dialog,onDismiss};
   }
   catch(error){notify(tr('Не удалось открыть поиск. ','Could not open search. ')+String(error))}
   finally{openingSearch=false}

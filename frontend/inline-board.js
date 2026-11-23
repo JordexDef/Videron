@@ -125,6 +125,7 @@ export function createInlineBoard(initial, callbacks) {
   update(initial)
   return {
     row, update, mount, setActive, key: callbacks.key,
+    revealTableCell: (id, address) => board?.revealTableCell(id, address),
     tableAt(target) {
       const id = target.closest('[data-vt-addr]')?.closest('[data-table-id]')?.dataset.tableId
       return id && board?.getDocument().elements.find(e => e.type === 'table' && e.id === id)

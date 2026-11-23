@@ -541,6 +541,25 @@ export function makeTableUI({
     selectRange(v, bounded);
   }
 
+  function revealSearchCell(id, sourceAddress) {
+    const v = views.get(id), at = parseAddress(sourceAddress);
+    if (!v || !at || at.row >= v.item.rows || at.col >= v.item.cols) return null;
+    const addr = addressOf(at.row, at.col);
+    if (isInteractive(v)) {
+      finishEdit();
+      selectRange(v, addr);
+    } else v.root.focus({preventScroll:true});
+    reveal(v, addr);
+    const cell = v.cells.get(addr)?.cell;
+    if (cell) {
+      const tint = 'rgba(233,188,115,.44)';
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      cell.animate([{backgroundColor:tint, offset:0}, {backgroundColor:tint, offset:reduced ? 1 : .78},
+        {offset:1}], {duration:2200});
+    }
+    return cell;
+  }
+
   function moveField(session, host) {
     session.moving = true;
     const { field } = session;
@@ -1306,6 +1325,7 @@ export function makeTableUI({
     makeView,
     updateView,
     focusCell,
+    revealSearchCell,
     finishEdit,
     commitDraft,
     clearSelection,

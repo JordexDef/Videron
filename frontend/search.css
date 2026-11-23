@@ -2,6 +2,8 @@
 .dialog.vs-panel { display: flex; flex-direction: column; max-height: 100%; min-width: 0; padding: 22px; }
 .vs-panel > * { flex: none; }
 .vs-panel .vs-results { flex: 0 1 auto; min-height: 0; overscroll-behavior: contain; }
+.vs-rows { position: relative; }
+.vs-rows > .result { position: absolute; inset-inline: 0; height: var(--vs-row-height); }
 .vs-panel h2 { margin: 0; }
 .vs-query { position: relative; }
 .vs-query .ico { position: absolute; top: 50%; left: 12px; transform: translateY(-50%); width: 17px; height: 17px; color: var(--muted); pointer-events: none; }
@@ -32,8 +34,6 @@
 .vs-hit .vs-before { direction: rtl; text-align: left; flex: 0 2 auto; }
 .vs-hit .vs-after { flex: 0 1 auto; }
 .vs-hit mark { flex: none; max-width: 100%; }
-.vs-more { margin: 10px auto 0; display: block; }
-.vs-more[hidden] { display: none; }
 @media (max-height: 560px) {
   .vs-shade { padding: 12px; }
   .dialog.vs-panel { padding: 16px; }

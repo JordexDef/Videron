@@ -437,6 +437,7 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   return {element:root,focus,close,commitDraft,prepareClose:close,revealSearchMatch(target){
     if(target?.kind==='canvasText')board.revealTextBlock(target.id,target.match)
     else if(target?.kind==='canvasLabel')board.revealTextBlock(target.id,target)
+    else if(target?.kind==='tableCell')board.revealTableCell(target.id,target.address)
     else searchReveal.reveal(target)
   }}
 }
@@ -1338,6 +1339,20 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   }
   focus()
   function revealSearchMatch(target){
+    if(target?.kind==='tableCell'){
+      details.uncoverNote()
+      const view=inlineRows.get(blockRefs[target.index])
+      if(!view)return
+      view.mount()
+      activateInline(view)
+      const cell=view.revealTableCell(target.id,target.address)
+      if(cell){
+        const bounds=scroll.getBoundingClientRect(), box=cell.getBoundingClientRect()
+        if(box.top<bounds.top+32 || box.bottom>bounds.bottom-16)
+          scroll.scrollTop+=(box.top+box.bottom-bounds.top-bounds.bottom)/2
+      }
+      return
+    }
     if(target?.kind==='body')details.uncoverNote()
     searchReveal.reveal(target)
   }
