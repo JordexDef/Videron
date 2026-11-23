@@ -12,6 +12,17 @@ import (
 
 const spaceFixture = `{"name":"PRIVATE-CLOUD","notes":[` + originalNote + `],"areas":[],"routes":[{"title":"PRIVATE-ROUTE"}]}`
 
+// Profiles, catalog links and session keys use the folder resolved by the desktop API.
+// t.TempDir can contain an alias (for example /var on macOS).
+func canonicalTestFolder(t *testing.T, folder string) string {
+	t.Helper()
+	dir, err := spaceDir(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestFolderSpaceVaultIsPortableAndSeparate(t *testing.T) {
 	a, libraryPath := testStore(t)
 	source := t.TempDir()

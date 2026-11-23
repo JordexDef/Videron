@@ -202,7 +202,8 @@ func TestEncryptedSyncUploadBodies(t *testing.T) {
 	if err := a.ConnectSpaceServer(folder, server.code); err != nil {
 		t.Fatal(err)
 	}
-	p, err := loadProfile(folder)
+	profileDir := canonicalTestFolder(t, folder)
+	p, err := loadProfile(profileDir)
 	if err != nil || p == nil {
 		t.Fatal("missing test profile", err)
 	}
@@ -241,7 +242,7 @@ func TestEncryptedSyncUploadBodies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = p.exchange(client, folder, m, a.syncSession()); err != nil {
+		if err = p.exchange(client, profileDir, m, a.syncSession()); err != nil {
 			t.Fatal(err)
 		}
 	}

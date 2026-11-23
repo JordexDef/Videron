@@ -129,7 +129,7 @@ func TestJoinCommitsOnlyInOriginalSession(t *testing.T) {
 			if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
 				t.Fatal("interrupted join left local files", entries, err)
 			}
-			if p, err := loadProfile(dir); err != nil || p != nil {
+			if p, err := loadProfile(canonicalTestFolder(t, dir)); err != nil || p != nil {
 				t.Fatal("interrupted join saved a connection", err)
 			}
 		})
@@ -162,7 +162,7 @@ func TestConnectRechecksSessionBeforePublishing(t *testing.T) {
 	if err := a.ConnectSpaceServer(dir, code); !errors.Is(err, errServerTicket) {
 		t.Fatal("connect completed in a different session", err)
 	}
-	if p, err := loadProfile(dir); err != nil || p != nil {
+	if p, err := loadProfile(canonicalTestFolder(t, dir)); err != nil || p != nil {
 		t.Fatal("interrupted connect saved a profile", err)
 	}
 }
@@ -542,12 +542,13 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 	if _, err = b.OpenFolderSpace(copyDir, testPass); err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := loadProfile(copyDir)
+	profileDir := canonicalTestFolder(t, copyDir)
+	legacy, err := loadProfile(profileDir)
 	if err != nil || legacy == nil || legacy.Transport != transportDirect || legacy.LastSync <= 0 {
 		t.Fatal("pairing link did not persist actual connection details", err)
 	}
 	legacy.Transport, legacy.LastSync = "", 0
-	if err = storeProfile(copyDir, *legacy); err != nil {
+	if err = storeProfile(profileDir, *legacy); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := b.ServerConnection(copyDir); err != nil || info.Address != first.Address || info.Transport != "" || info.LastSync != 0 {
@@ -639,7 +640,10 @@ func TestRejoinWorkingFolder(t *testing.T) {
 			}
 			// A legacy writer updated the main without publishing its revision.
 			// It retained the tracked head, so the edit has a known parent.
-			s := b.folderSpaces[spaceSessionID(copyDir)]
+			s, err := b.currentSpaceSession(copyDir)
+			if err != nil {
+				t.Fatal(err)
+			}
 			main := filepath.Join(copyDir, folderSpaceFilename)
 			edit, err := encodeTrackedSpace(syncDoc("uncaptured edit", "second"), s.sync.meta, s.key)
 			if err != nil {
@@ -671,15 +675,16 @@ func TestRejoinWorkingFolder(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { b.DiscardSyncServerTicket(verified.Ticket) })
-			candidates, err := b.MatchingServerFolders(verified.Ticket, []string{unrelated, copyDir, filepath.Join(copyDir, "."), t.TempDir()})
-			if err != nil || len(candidates) != 1 || spaceSessionID(candidates[0]) != spaceSessionID(copyDir) {
+			profileDir := canonicalTestFolder(t, copyDir)
+			candidates, err := b.MatchingServerFolders(verified.Ticket, []string{unrelated, copyDir, profileDir, t.TempDir()})
+			if err != nil || len(candidates) != 1 || spaceSessionID(candidates[0]) != spaceSessionID(profileDir) {
 				t.Fatal("expected only the disconnected working folder", candidates, err)
 			}
 			if tc.password != "" {
 				if err = b.JoinSpaceServer(verified.Ticket, copyDir); !errors.Is(err, errLocked) {
 					t.Fatal("encrypted rejoin must authenticate the document", err)
 				}
-				if p, err := loadProfile(copyDir); err != nil || p != nil {
+				if p, err := loadProfile(profileDir); err != nil || p != nil {
 					t.Fatal("locked candidate acquired a profile", err)
 				}
 				if _, err = b.OpenFolderSpace(copyDir, tc.password); err != nil {
@@ -736,7 +741,8 @@ func TestRejoinChecksCurrentServerAndDocument(t *testing.T) {
 	if err = a.SaveFolderBranch(dir, syncDoc("offline", "edit")); err != nil {
 		t.Fatal(err)
 	}
-	profile, err := loadProfile(dir)
+	profileDir := canonicalTestFolder(t, dir)
+	profile, err := loadProfile(profileDir)
 	if err != nil || profile == nil {
 		t.Fatal("missing original profile", err)
 	}
@@ -791,7 +797,7 @@ func TestRejoinChecksCurrentServerAndDocument(t *testing.T) {
 	if err = a.JoinSpaceServer(server.code, dir); !errors.Is(err, errServerSpace) {
 		t.Fatal("attached the old local folder to a replacement space", err)
 	}
-	last, err := loadProfile(dir)
+	last, err := loadProfile(profileDir)
 	if err != nil || last == nil || *last != *profile || !bytes.Equal(local, stored(t, main)) {
 		t.Fatal("failed reopen replaced main or profile", err)
 	}

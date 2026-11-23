@@ -6,7 +6,7 @@ Videron is a local-first desktop app for keeping notes on a map. The size of eac
 
 ![Videron's demo map with linked notes grouped into three areas and a note tree in the sidebar](docs/media/videron-map.png)
 
-[Download for Windows](https://github.com/JordexDef/Videron/releases/download/v0.48.0/Videron-0.48.exe) · [Build for macOS](#build-the-desktop-app) · [All releases](https://github.com/JordexDef/Videron/releases)
+[Download for Windows](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1.exe) · [Download for macOS](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-macOS.dmg) · [All releases](https://github.com/JordexDef/Videron/releases)
 
 ## Working with notes
 

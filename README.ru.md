@@ -6,7 +6,7 @@
 
 ![Демонстрационная карта Videron с заметками, связями и областями](docs/media/videron-map.ru.png)
 
-[Скачать для Windows](https://github.com/JordexDef/Videron/releases/download/v0.48.0/Videron-0.48.exe) · [Собрать на Mac](#сборка-приложения) · [Все сборки](https://github.com/JordexDef/Videron/releases)
+[Скачать для Windows](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1.exe) · [Скачать для macOS](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-macOS.dmg) · [Все сборки](https://github.com/JordexDef/Videron/releases)
 
 ## Что можно делать
 

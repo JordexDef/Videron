@@ -105,7 +105,7 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 		t.Fatal("persisted project metadata", err)
 	}
 	for _, dir := range []string{first, second} {
-		file, err := profilePath(dir)
+		file, err := profilePath(canonicalTestFolder(t, dir))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,8 +113,8 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer clear(b)
 		data, err := unprotectPairing(b)
-		clear(b)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -270,7 +270,7 @@ func TestClientRenamesDeletesAndKeepsOfflineCopies(t *testing.T) {
 	if _, err = b.WaitSpaceServerChange(peer, cursor); !errors.Is(err, errProjectDeleted) {
 		t.Fatal("watch tombstone", err)
 	}
-	if p, err := loadProfile(peer); err != nil || p != nil {
+	if p, err := loadProfile(canonicalTestFolder(t, peer)); err != nil || p != nil {
 		t.Fatal("peer connection still active", err)
 	}
 	b.CloseFolderSpace(peer)

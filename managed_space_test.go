@@ -10,8 +10,9 @@ import (
 	"testing"
 )
 
-func movedCatalog(dir string, encrypted bool) string {
-	raw, _ := json.Marshal(map[string]any{"version": 3, "active": "moving", "spaces": map[string]any{"moving": map[string]any{"name": "Move", "folder": dir, "encrypted": encrypted}}})
+func movedCatalog(t *testing.T, dir string, encrypted bool) string {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]any{"version": 3, "active": "moving", "spaces": map[string]any{"moving": map[string]any{"name": "Move", "folder": canonicalTestFolder(t, dir), "encrypted": encrypted}}})
 	return string(raw)
 }
 
@@ -24,7 +25,10 @@ func TestMoveWaitsForMissingCloudHistory(t *testing.T) {
 	if err := a.SaveFolderBranch(from, syncDoc(strings.Repeat("q", separateStringBytes+20), "second")); err != nil {
 		t.Fatal(err)
 	}
-	s := a.folderSpaces[spaceSessionID(from)]
+	s, err := a.currentSpaceSession(from)
+	if err != nil {
+		t.Fatal(err)
+	}
 	rev, err := s.readRevision(s.sync.meta.Head)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +49,7 @@ func TestMoveWaitsForMissingCloudHistory(t *testing.T) {
 		if err := os.Rename(src, late); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := a.MoveFolderSpace(from, to, movedCatalog(to, true)); !errors.Is(err, errSyncPending) {
+		if _, err := a.MoveFolderSpace(from, to, movedCatalog(t, to, true)); !errors.Is(err, errSyncPending) {
 			t.Fatal("incomplete history moved", err)
 		}
 		if err := s.verifyCurrent(); err != nil {
@@ -58,7 +62,7 @@ func TestMoveWaitsForMissingCloudHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err = a.MoveFolderSpace(from, to, movedCatalog(to, true)); err != nil {
+	if _, err = a.MoveFolderSpace(from, to, movedCatalog(t, to, true)); err != nil {
 		t.Fatal("retry after cloud delivery", err)
 	}
 }
@@ -110,7 +114,8 @@ func TestMoveWorkingCopyPreservesStorageAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.Lineage = before
-	if err = storeProfile(from, p); err != nil {
+	profileDir := canonicalTestFolder(t, from)
+	if err = storeProfile(profileDir, p); err != nil {
 		t.Fatal(err)
 	}
 	main := stored(t, filepath.Join(from, folderSpaceFilename))
@@ -119,7 +124,7 @@ func TestMoveWorkingCopyPreservesStorageAndHistory(t *testing.T) {
 	}
 	// Fail after staging both data and credentials. The source remains usable,
 	// and a retry can use the same destination without deleting anything.
-	bad := strings.Replace(movedCatalog(to, true), `"version":3`, `"version":999`, 1)
+	bad := strings.Replace(movedCatalog(t, to, true), `"version":3`, `"version":999`, 1)
 	if _, err = a.MoveFolderSpace(from, to, bad); err == nil {
 		t.Fatal("failed catalog commit reported success")
 	}
@@ -129,17 +134,17 @@ func TestMoveWorkingCopyPreservesStorageAndHistory(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(from, folderSpaceFilename)); err != nil {
 		t.Fatal(err)
 	}
-	result, err := a.MoveFolderSpace(from, to, movedCatalog(to, true))
+	result, err := a.MoveFolderSpace(from, to, movedCatalog(t, to, true))
 	if err != nil || result.KeptSource {
 		t.Fatal(result, err)
 	}
 	if !bytes.Equal(main, stored(t, filepath.Join(to, folderSpaceFilename))) {
 		t.Fatal("encrypted main changed")
 	}
-	if p2, err := loadProfile(to); err != nil || p2 == nil || *p2 != p {
+	if p2, err := loadProfile(canonicalTestFolder(t, to)); err != nil || p2 == nil || *p2 != p {
 		t.Fatal("profile missing", err)
 	}
-	if p2, err := loadProfile(from); err != nil || p2 != nil {
+	if p2, err := loadProfile(profileDir); err != nil || p2 != nil {
 		t.Fatal("old profile retained", err)
 	}
 	if _, err = os.Stat(filepath.Join(from, folderSpaceFilename)); !errors.Is(err, os.ErrNotExist) {
