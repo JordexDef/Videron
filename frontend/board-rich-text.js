@@ -25,6 +25,8 @@ export function richBlocks(body, { localFolders = true } = {}) {
         }
       }
       blocks.push({ ...block, runs });
+    } else if (block?.type === 'divider') {
+      blocks.push({ type: 'divider' });
     } else if (block?.type === 'code') {
       blocks.push({ ...block, text: String(block.text ?? '') });
     } else if (block?.type === 'image' && typeof block.src === 'string' && raster.test(block.src)) {
@@ -34,12 +36,15 @@ export function richBlocks(body, { localFolders = true } = {}) {
   return blocks.length ? blocks : [{ type: 'paragraph', runs: [] }];
 }
 
+export function richBlockText(block) {
+  if (block.type === 'divider') return '';
+  if (block.type === 'image') return block.alt;
+  if (block.type === 'code') return block.text;
+  return block.runs.map(run => run.text).join('');
+}
+
 export function richPlain(body) {
-  return body.map(block => {
-    if (block.type === 'image') return block.alt;
-    if (block.type === 'code') return block.text;
-    return block.runs.map(run => run.text).join('');
-  }).join('\n');
+  return body.map(richBlockText).join('\n');
 }
 
 export function blockTagText(block, fallback = '') {

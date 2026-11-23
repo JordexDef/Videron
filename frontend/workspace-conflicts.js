@@ -77,8 +77,13 @@ function boardContent(node, board) {
       details.append(el('summary','',name + ' · ' + item.rows + ' × ' + item.cols))
       const lines = Object.entries(item.cells || {}).map(([address,value]) => address + '   ' + value)
       details.append(el('pre','',lines.join('\n') || tr('Пустая таблица','Empty table'))); node.append(details)
+    } else if (item.type === 'text' && Array.isArray(item.body)) {
+      for (const block of item.body) {
+        if (block?.type === 'divider') node.append(el('hr'))
+        else node.append(el('p','',block?.alt || readText(block)))
+      }
     } else if (item.type === 'text' || item.label || item.alt) {
-      const text = Array.isArray(item.body) ? item.body.map(b=>b?.alt || readText(b)).join('\n') : item.text || item.label || item.alt
+      const text = item.text || item.label || item.alt
       if (text) node.append(el('p','',text))
     }
   }
@@ -122,6 +127,11 @@ function noteContent(node, note, other) {
     const markers = listMarkers(blocks)
     for (const [i, block] of blocks.entries()) {
       if (!block) continue
+      const counterpart = openOther?.body?.[i]
+      if (block.type === 'divider') {
+        node.append(el('hr',openOther && counterpart?.type !== 'divider' ? 'conflict-divider-change' : ''))
+        continue
+      }
       if (block.type === 'drawing') { boardContent(node, block.board || block); continue }
       if (block.type === 'image') {
         const image = el('img')
@@ -131,7 +141,6 @@ function noteContent(node, note, other) {
         continue
       }
       const part = el(block.type==='code'?'pre':block.type==='heading'||block.type==='subheading'?'h4':block.type==='quote'?'blockquote':'p')
-      const counterpart = openOther?.body?.[i]
       if (block.type === 'code' || !Array.isArray(block.runs) || !block.runs.length) {
         appendText(part,readText(block),counterpart?readText(counterpart):openOther?.plain)
       } else {
@@ -256,7 +265,7 @@ export function openWorkspaceConflicts({conflicts, spaceName, previewSealed}) {
       requestAnimationFrame(()=>{
         if (!dialog.isConnected || position!==index) return
         for (const body of versions.querySelectorAll('.conflict-body')) {
-          const first=body.querySelector('mark')
+          const first=body.querySelector('mark,.conflict-divider-change')
           if (first && first.offsetTop>body.clientHeight-28) body.scrollTop=Math.max(0, first.offsetTop-40)
         }
       })

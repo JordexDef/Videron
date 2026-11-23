@@ -811,7 +811,12 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       const next=[...body];next[i]=atParentLevel(body,i);applyBody(next,i,0);return
     }
     if(e.key==='Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey){
-      e.preventDefault();remember()
+      e.preventDefault()
+      if(!e.altKey && block.type==='paragraph' && !style && mark.start===3 && mark.end===3 && blockText(block)==='---'){
+        insertDivider(mark,true)
+        return
+      }
+      remember()
       const b=body[i],next=[...body]
       const nextBlock={...paragraph(),runs:sliceRuns(b.runs,mark.end)}
       if(b.indent)nextBlock.indent=b.indent
@@ -821,6 +826,10 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     }else if(mark.start===mark.end && ((e.key==='Backspace' && mark.start===0 && i>0)||(e.key==='Delete'&&mark.end===blockText(body[i]).length&&i+1<body.length))){
       e.preventDefault()
       const left=e.key==='Backspace'?i-1:i,right=left+1
+      const adjacent=e.key==='Backspace'?left:right
+      if(body[adjacent].type==='divider' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey){
+        removeBlock(adjacent,left,mark.start);return
+      }
       if(!textTypes.has(body[left].type)||!textTypes.has(body[right].type)){
         focusBlock(e.key==='Backspace'?left:right,0);return
       }
@@ -850,10 +859,27 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       event.stopPropagation();external(event)
     }
   },true)
-  function removeBlock(i) {
+  function removeBlock(i,focus=i,offset=0) {
     remember()
     const next=[...body];next.splice(i,1)
-    applyBody(next,Math.min(i,next.length-1),0)
+    applyBody(next,focus,offset)
+  }
+  function insertDivider({index,start},fromTyping=false) {
+    activeInline?.flush()
+    remember()
+    const block=body[index], inserted=[]
+    const isText=textTypes.has(block.type), splitText=isText && !fromTyping
+    const before=splitText ? sliceRuns(block.runs,0,start) : []
+    const after=splitText ? sliceRuns(block.runs,start) : []
+    if(before.length)inserted.push({...block,runs:before})
+    else if(!isText)inserted.push(block)
+    inserted.push({type:'divider'})
+    const focus=index+inserted.length
+    if(after.length)inserted.push({...block,runs:after})
+    else if(!textTypes.has(body[index+1]?.type))inserted.push(paragraph())
+    const next=[...body]
+    next.splice(index,1,...inserted)
+    applyBody(next,focus,0)
   }
   function insertCode(snippet,mark=position()) {
     activeInline?.flush()
@@ -864,7 +890,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     focusBlock(index,block.text.length)
     blockRefs[index].scrollIntoView({block:'nearest'})
   }
-  function leaveCode(index,direction,continueText) {
+  function moveFromBlock(index,direction,continueText) {
     const next=index+direction
     if(continueText && !textTypes.has(body[next]?.type)){
       remember()
@@ -1065,10 +1091,24 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
             codeViews.delete(body[index]);codeViews.set(next,view)
             body=[...body];body[index]=next;emit()
           },
-          move:leaveCode,remove:removeBlock,
+          move:moveFromBlock,remove:removeBlock,
         })
         codeViews.set(b,view)
         blockRefs.push(view.row);return view.row
+      }
+      if(b.type==='divider'){
+        const row=el('hr','ve-rule')
+        row.tabIndex=0;row.setAttribute('aria-label',tr('Горизонтальная линия','Horizontal rule'))
+        row.onfocus=()=>{active=i;syncTools()}
+        row.onkeydown=e=>{
+          if(e.isComposing || e.keyCode===229 || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey)return
+          if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();removeBlock(i);return}
+          if(['ArrowUp','ArrowLeft','ArrowDown','ArrowRight','Enter'].includes(e.key)){
+            e.preventDefault()
+            moveFromBlock(i,e.key==='ArrowUp'||e.key==='ArrowLeft'?-1:1,e.key==='Enter')
+          }
+        }
+        blockRefs.push(row);return row
       }
       if(b.type==='drawing'&&(Array.isArray(b.strokes)||b.board)){
         const view=inlineFor(b)
@@ -1193,10 +1233,14 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   kind.add(option('bullet',tr('• Список','• List')))
   kind.add(option('decimal',tr('1. Список','1. List')))
   kind.add(option('parenthesis',tr('1) Список','1) List')))
+  const insertGroup=el('optgroup');insertGroup.label=tr('Вставить','Insert')
+  insertGroup.append(option('divider',tr('Горизонтальная линия','Horizontal rule')));kind.append(insertGroup)
   let typeMark
   kind.onpointerdown=()=>{typeMark=position()}
+  kind.onblur=()=>{typeMark=null}
   kind.onchange=()=>{
     const type=kind.value,mark=typeMark||position();typeMark=null
+    if(type==='divider'){insertDivider(mark);return}
     ensureText();remember();const next=[...body], block={...body[active]}
     if(isListStyle(type)){block.type='paragraph';block.listStyle=type}
     else{block.type=type;delete block.listStyle}
@@ -1271,7 +1315,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   content.ondrop=e=>{
     if(e.target.closest('.ve-inline-board') || (e.target.matches('.ve-code-source') && !e.dataTransfer.files.length))return
     e.preventDefault()
-    const target=blockRefs.indexOf(e.target.closest('.ve-text,.ve-code,.ve-media,[data-note-embed]'))
+    const target=blockRefs.indexOf(e.target.closest('.ve-text,.ve-code,.ve-media,.ve-rule,[data-note-embed]'))
     if(target>=0)active=target
     if(e.dataTransfer.files.length)insertImages(e.dataTransfer.files,position())
   }

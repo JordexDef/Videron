@@ -71,6 +71,8 @@ In an open note, **Ctrl+S** (**⌘S** on Mac) writes your current edits to local
 
 ## Lists, tags and folder links
 
+To separate two sections of a text note, type `---` in its own paragraph and press **Enter**. A horizontal line appears and you can keep typing below it. To insert one in existing text, place the cursor where you want to split the paragraph and choose **Paragraph → Horizontal rule**. Click the line and press **Delete** to remove it.
+
 Tags such as `#projects` are highlighted as you type. Click a tag to open another note with the same tag. If several notes match, choose one from the list beside the tag.
 
 At the start of a paragraph, type `-`, `*` or `+` followed by a space for a bulleted list. For a numbered list, start with `1.` or `1)` and a space. **Enter** starts the next item. **Tab** nests the current item and **Shift+Tab** moves it up one level. Press **Enter** on an empty subitem to return to the parent list or on an empty top-level item to end the list.

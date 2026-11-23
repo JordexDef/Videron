@@ -75,6 +75,16 @@ test('global regex positions map across formatting runs and block separators', (
   assert.deepEqual(hit(n, '\n'), {kind:'body', ranges:[{index:0,start:11,end:11}]})
 })
 
+test('a visual divider preserves search offsets in ordinary notes and canvas text', () => {
+  const body = [paragraph('Intro'), {type:'divider'}, paragraph('Next section')]
+  const plain = 'Intro\n\nNext section'
+  const target = {kind:'body', ranges:[{index:2,start:0,end:4}]}
+  assert.deepEqual(hit(note(plain,body),'next'),target)
+  const area = {id:'area',type:'text',body,text:plain}
+  assert.deepEqual(hit(note(plain,[],{type:'canvas',board:{elements:[area]}}),'next'),
+    {kind:'canvasText',id:'area',match:target})
+})
+
 test('plain legacy notes open at the right paragraph and metadata-only results have no body target', () => {
   const n = note('first\n\nlast')
   assert.deepEqual(hit(n, 'last'), {kind:'body', ranges:[{index:2, start:0, end:4}]})

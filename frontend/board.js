@@ -18,7 +18,7 @@ import {
 } from './board-fonts.js';
 import { freehandPath, pressureSamples } from './freehand.js';
 import { alignDrag } from './board-alignment.js';
-import { richBlocks, richFrameStyle, richPlain } from './board-rich-text.js';
+import { richBlocks, richBlockText, richFrameStyle, richPlain } from './board-rich-text.js';
 import { boardShapes as shapes } from './board-summary.js';
 export { boardSummary } from './board-summary.js';
 import { normalizeTable, tableNameAllocator, uniqueTableName, createWorkbook } from './table-engine.js';
@@ -587,8 +587,18 @@ export async function renderBoardPreview(canvas, input) {
       const lineHeight = e.fontSize * lineHeightFor(e);
       const metrics = ctx.measureText('Hg');
       const baseline = (lineHeight + metrics.fontBoundingBoxAscent - metrics.fontBoundingBoxDescent) / 2;
-      const lines = e.autoResize ? e.text.split('\n') : textLines(ctx, e.text, e.body ? Math.max(1, e.w - 24) : e.w);
-      lines.forEach((line, i) => ctx.fillText(line, x, baseline + i * lineHeight));
+      const width = e.body ? Math.max(1, e.w - 24) : e.w;
+      const wrap = text => e.autoResize ? text.split('\n') : textLines(ctx, text, width);
+      const lines = e.body ? e.body.flatMap(block => block.type === 'divider' ? [null] : wrap(richBlockText(block))) : wrap(e.text);
+      lines.forEach((line, i) => {
+        if (line !== null) ctx.fillText(line, x, baseline + i * lineHeight);
+        else {
+          ctx.save();
+          ctx.globalAlpha *= .45;
+          ctx.fillRect(0, (i + .5) * lineHeight, width, 1);
+          ctx.restore();
+        }
+      });
     } else {
       for (const layer of paintLayers(e)) {
         const path = new Path2D(layer.d);
@@ -1655,7 +1665,14 @@ export function mountBoard(container, options = {}) {
   function updateRichView(view, item) {
     view.content.inert = !!item.locked;
     if (!options.mountRichText) {
-      view.content.textContent = item.text;
+      if (view.richBody === item.body) return;
+      view.richBody = item.body;
+      const fragment = document.createDocumentFragment();
+      for (const block of item.body) {
+        if (fragment.hasChildNodes()) fragment.append('\n');
+        fragment.append(block.type === 'divider' ? document.createElement('hr') : richBlockText(block));
+      }
+      view.content.replaceChildren(fragment);
       return;
     }
     if (!view.rich) {

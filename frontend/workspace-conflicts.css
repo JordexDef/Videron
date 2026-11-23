@@ -21,6 +21,8 @@
 .conflict-body h4 {font-size:14px}
 .conflict-body p,.conflict-body blockquote {font-size:13px}
 .conflict-body blockquote {border-left:2px solid #777;padding-left:9px}
+.conflict-body hr {margin:12px 0;border:0;border-top:1px solid var(--border)}
+.conflict-body .conflict-divider-change {border-color:#ac976d}
 .conflict-body pre {background:#202020;padding:7px;font:12px/1.55 var(--mono);border-radius:3px}
 .conflict-body details {margin:7px 0;font-size:12px}
 .conflict-data-pages {display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--muted);font-size:12px}

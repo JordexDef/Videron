@@ -41,12 +41,13 @@ test('canvas text areas keep editable note blocks and publish a portable scene f
   const body = [
     {type:'heading', runs:[{text:'Budget', bold:true}]},
     {type:'paragraph', listStyle:'bullet', indent:1, runs:[reference]},
+    {type:'divider'},
     {type:'code', language:'json', text:'{"total":5}'},
     {type:'image', src:'data:image/png;base64,AQ==', alt:'Diagram'}
   ];
   const doc = normalizeBoard({elements:[item('rich', 'text', {body, text:'old cache'})]});
   const area = doc.elements[0];
-  assert.equal(area.text, 'Budget\nРабота\n{"total":5}\nDiagram');
+  assert.equal(area.text, 'Budget\nРабота\n\n{"total":5}\nDiagram');
   assert.deepEqual(area.body, body);
   assert.deepEqual(normalizeBoard(JSON.parse(JSON.stringify(doc))), doc);
   assert.equal(boardSummary(doc).plain, area.text);
