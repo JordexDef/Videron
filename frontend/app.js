@@ -1,4 +1,5 @@
 import { Graph } from './graph.js';
+import { createMapCameraMemory } from './map-camera-memory.js';
 import { playNoteTransition, cancelNoteTransition } from './note-transition.js';
 import { mountMapReading, readingFragments } from './map-reading.js';
 import { mountMapRoutes } from './map-routes.js';
@@ -61,6 +62,7 @@ let reading,routes,mapMetrics,routeCamera,stageControls;
 let noteSession=null, openingNote=null, projectProtected=false, policyWrite=null;
 let idle=null, lockScreen=null, locking=null, lockDuringStartup=false;
 const storageKey='videron.library.v1';
+const mapCameraMemory=createMapCameraMemory();
 let folderSession=null,spaceOperation=null,catalogSnapshot=null,startupNotice='';
 let catalogRecords=null,catalogRevision=null,pendingCatalogPatch=null;
 let folderPoll=null,editorMerge=null,notePrivacyChange=null,reviewing=false,syncTimer,closingApp=false;
@@ -76,6 +78,24 @@ const gridRecords=id=>({areas:[areaById(id)],notes:workspace().notes.filter(note
 const showingMap=()=>page==='map';
 function syncMapVisibility(){
   graph?.setVisible(showingMap() && !document.hidden && !editor && !lockScreen);
+}
+function rememberMapView(){
+  // A route temporarily borrows the camera. Resume the overview it started from.
+  if(ready && graph && !lockScreen)mapCameraMemory.remember(routeCamera ?? graph.target ?? graph.camera);
+}
+function saveMapView(){
+  rememberMapView();
+  mapCameraMemory.flush();
+}
+function restoreMapView(){
+  const camera=mapCameraMemory.open(library.active);
+  if(camera){
+    graph.restoreCamera({...camera,zoom:Math.max(graph.minZoom,camera.zoom)});
+  }else{
+    graph.fit({readable:true});
+    // A first visit should open already framed, even when switching from a distant map.
+    if(graph.target)graph.restoreCamera(graph.target);
+  }
 }
 const collapsedAreas=new Set(), listSelection=new Set();
 let lastListId=null;
@@ -274,6 +294,7 @@ function requestLock(){
   }
   if(lockScreen)return locking;
   if(!projectProtected && !folderSession?.encrypted && !noteSession?.protected && !openingNote && !spaceOperation && !policyWrite && !document.querySelector('.vault-dialog'))return;
+  saveMapView();
   spaceActivity.setMessage('');
   cancelNoteTransition();
   searchLifetime?.abort();
@@ -757,6 +778,8 @@ function changeSpace(work,message){
   return spaceOperation;
 }
 function showSpace(next,session){
+  saveMapView();
+  if(library.active && !Object.hasOwn(next.spaces,library.active))mapCameraMemory.forget(library.active);
   cancelNoteTransition();
   searchLifetime?.abort();
   dismissExtensions();
@@ -767,7 +790,7 @@ function showSpace(next,session){
   graph.select(null);graph.setData([],[]);collapsedAreas.clear();listSelection.clear();lastListId=null;
   library=next;folderSession=session;
   page='map';currentArea=null;selected=null;chooseTool('select');status('local');render();
-  graph.resize();graph.fit({readable:true});syncIdle();
+  graph.resize();restoreMapView();syncIdle();
   queueSync(80);syncBadge();
 }
 async function activateSpace(next,session=null){
@@ -852,7 +875,7 @@ async function deleteSpace(id,deleteFile){
     if(current){
       showSpace(next,null);
       if(previous && !deleteFile)await native.CloseFolderSpace(previous.folder);
-    }else{library=next;render()}
+    }else{mapCameraMemory.forget(id);library=next;render()}
   });
 }
 function newSpaceForm(link=false){
@@ -1907,7 +1930,11 @@ function bindUI(){
   window.addEventListener('focus',()=>queueSync(150));
   window.addEventListener('online',()=>{if(folderSession)folderSession.nextExchange=0;queueSync(20)});
   window.addEventListener('offline',()=>{if(folderSession?.connection?.address){folderSession.nextExchange=0;queueSync(20)}});
-  document.addEventListener('visibilitychange',()=>{syncMapVisibility();if(!document.hidden)queueSync(100)});
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden)saveMapView();else queueSync(100);
+    syncMapVisibility();
+  });
+  window.addEventListener('pagehide',saveMapView);
   const resumeFolderPoll=()=>{if(folderSession?.pollAfterGesture)queueSync(60)};
   for(const type of ['pointerup','pointercancel','lostpointercapture'])
     document.addEventListener(type,resumeFolderPoll,{capture:true});
@@ -2086,6 +2113,7 @@ async function init(){
     window.runtime.EventsOn('videron:close-requested',async()=>{
       if(closing)return;closing=true;
       try{
+        saveMapView();
         closingApp=true;dismissWorkspaceConflicts();dismissWorkspaceServer();
         if(folderPoll)await folderPoll.catch(()=>{});
         if(spaceOperation){await interruptVaultDialogs();await spaceOperation.catch(()=>{})}
@@ -2151,6 +2179,7 @@ async function init(){
     },
     onNewGridNote:(areaId,slot,point)=>addNote(point,'text',{areaId,slot}),
     recordingRoute:routes.isEditing,onRoutePick:routes.pick,onMapFrame:g=>{
+      rememberMapView();
       reading.sync(g);if(showingMap()){stageControls.sync(g);popover?.followMap?.()}
     },onDrawRoute:routes.draw,
     onDrawAreaMetric:(ctx,group,view)=>{const metric=mapMetrics?.areas.get(group.id);if(metric)drawAreaMetric(ctx,group,metric,view)},
@@ -2198,7 +2227,7 @@ async function init(){
   if(catalogRecords)dirty({catalogOnly:true});
   else if(demoChanged || catalogSnapshot!==serializeLibrary(library))dirty();
   if(startupNotice)notify(startupNotice);
-  if(workspace().notes.length||workspace().areas.length)graph.fit({readable:true});
+  restoreMapView();
   if(resume && byId(resume))await edit(resume);
   if(!native)window.addEventListener('pagehide',()=>{editor?.flush?.();graph.flushPositions();if(saved!==revision)localStorage.setItem(storageKey,serializeLibrary(library))});
 }

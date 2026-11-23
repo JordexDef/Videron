@@ -20,10 +20,10 @@ func main() {
 		log.Fatal(err)
 	}
 	app := &App{}
-	err = wails.Run(&options.App{
+	config := &options.App{
 		Title:            "Videron",
-		Width:            1340,
-		Height:           860,
+		Width:            defaultWindowWidth,
+		Height:           defaultWindowHeight,
 		MinWidth:         720,
 		MinHeight:        520,
 		BackgroundColour: options.NewRGB(23, 23, 23),
@@ -39,8 +39,11 @@ func main() {
 		Windows: &windows.Options{
 			Theme:            windows.Dark,
 			DisablePinchZoom: true,
+			WindowClassName:  desktopWindowClass,
 		},
-	})
+	}
+	rememberDesktopWindow(config)
+	err = wails.Run(config)
 	if err != nil {
 		log.Fatal(err)
 	}
