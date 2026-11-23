@@ -24,6 +24,7 @@ type App struct {
 	projectKey           *vaultKey
 	noteKeys             map[string]*vaultKey
 	folderSpaces         map[string]*folderSpaceSession
+	suspendedFolderKeys  map[string]*vaultKey
 	resumeNote           string
 	disk                 os.FileInfo
 	diskDigest           [sha256.Size]byte
@@ -31,6 +32,7 @@ type App struct {
 	lastCatalogPatch     savePatchReceipt
 	sessionLockPending   atomic.Bool
 	sessionLockListening atomic.Bool
+	revokingFolderKeys   atomic.Bool
 	stopSessionMonitor   func()
 }
 
@@ -43,10 +45,14 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) sessionLocked(ctx context.Context) {
 	a.serverTickets.reset()
+	a.revokingFolderKeys.Store(true)
 	a.sessionLockPending.Store(true)
 	if a.sessionLockListening.Load() {
 		go runtime.EventsEmit(ctx, "videron:session-lock")
 	}
+	// Show the lock screen immediately even if the storage mutex is busy.
+	a.ForgetSuspendedFolderKeys()
+	a.revokingFolderKeys.Store(false)
 }
 
 // The WebView subscribes before consuming. The latch also covers its loading

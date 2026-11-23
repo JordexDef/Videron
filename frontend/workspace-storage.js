@@ -38,23 +38,34 @@ async function session(bridge,folder,encrypted,data,raw,opening){
 export async function readSpaceFolder(bridge,info,prompt,knownLink){
   if(!info.exists)throw new Error('VD_SPACE_MISSING');
   if(knownLink?.encrypted && !info.encrypted)throw new Error('VD_ENCRYPTION_CHANGED');
-  let result;
-  async function read(password){
-    const raw=await bridge.OpenFolderSpace(info.folder,password);
+  async function opened(raw){
     try{
       const data=JSON.parse(raw);
       if(isFolderSpace(data) || !validSpaceName(data?.name))throw new Error('VD_INVALID');
-      result=await session(bridge,info.folder,info.encrypted,data,raw,true);
+      const result=await session(bridge,info.folder,info.encrypted,data,raw,true);
       if(bridge.ServerConnection && knownLink?.name)result.link.name=knownLink.name;
+      return result;
     }catch(error){await bridge.CloseFolderSpace(info.folder);throw error}
   }
-  if(info.encrypted){
-    const ok=await prompt({mode:'unlock',scope:'space',onSubmit:({password})=>read(password)});
-    if(!ok){
-      if(result)await bridge.CloseFolderSpace(info.folder);
-      return null;
+  if(!info.encrypted)return opened(await bridge.OpenFolderSpace(info.folder,''));
+  if(info.canResume && bridge.ResumeFolderSpace){
+    let raw;
+    try{raw=await bridge.ResumeFolderSpace(info.folder)}
+    catch(error){
+      // A lock or a new encryption key can invalidate the previous inspection.
+      const code=String(error?.message||error).split('|')[0];
+      if(code!=='VD_LOCKED' && code!=='VD_PASSWORD')throw error;
     }
-  }else await read('');
+    if(raw!==undefined)return opened(raw);
+  }
+  let result;
+  const ok=await prompt({mode:'unlock',scope:'space',onSubmit:async({password})=>{
+    result=await opened(await bridge.OpenFolderSpace(info.folder,password));
+  }});
+  if(!ok){
+    if(result)await bridge.CloseFolderSpace(info.folder);
+    return null;
+  }
   return result;
 }
 

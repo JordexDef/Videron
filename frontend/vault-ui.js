@@ -255,7 +255,7 @@ function idleSettings(view, initialMinutes, commit) {
   custom.append(field, apply)
   section.append(custom)
   if (/Windows|Win32|Win64/i.test(navigator.userAgentData?.platform || navigator.platform)) {
-    section.append(el('p', 'vault-hint', tr('Блокировка Windows также закрывает зашифрованную библиотеку, открытое пространство в папке и заметку с паролем.', 'Locking Windows also locks the encrypted library, an open encrypted space, and password-protected notes.')))
+    section.append(el('p', 'vault-hint', tr('При блокировке Windows также блокируются зашифрованная библиотека, все разблокированные пространства и открытая заметка с паролем.', 'Locking Windows also locks the encrypted library, all unlocked spaces, and any open password-protected note.')))
   }
   const errorText = el('div', 'vault-error')
   errorText.setAttribute('role', 'alert')

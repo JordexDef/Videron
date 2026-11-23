@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 const spaceFixture = `{"name":"PRIVATE-CLOUD","notes":[` + originalNote + `],"areas":[],"routes":[{"title":"PRIVATE-ROUTE"}]}`
@@ -96,6 +99,190 @@ func TestFolderSpaceVaultIsPortableAndSeparate(t *testing.T) {
 	a.FinishClose()
 	if len(a.folderSpaces) != 0 {
 		t.Fatal("folder key survived close")
+	}
+}
+
+func TestSuspendedFolderResumesCurrentFileOnlyForThatFolder(t *testing.T) {
+	a, _ := testStore(t)
+	dir, other := t.TempDir(), t.TempDir()
+	if err := a.CreateFolderSpace(dir, spaceFixture, testPass); err != nil {
+		t.Fatal(err)
+	}
+	raw := stored(t, filepath.Join(dir, folderSpaceFilename))
+	if err := os.WriteFile(filepath.Join(other, folderSpaceFilename), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !a.SuspendFolderSpace(dir) || len(a.folderSpaces) != 0 {
+		t.Fatal("suspended folder retained an open session")
+	}
+	if err := a.SaveFolderSpace(dir, spaceFixture); !errors.Is(err, errLocked) {
+		t.Fatal("suspended folder retained write access", err)
+	}
+	info, err := a.InspectSpaceFolder(dir)
+	if err != nil || !info.CanResume {
+		t.Fatal(info, err)
+	}
+	if _, err := a.ResumeFolderSpace(other); !errors.Is(err, errLocked) {
+		t.Fatal("same key reused for a different folder", err)
+	}
+	peer := &App{loaded: true}
+	if _, err := peer.OpenFolderSpace(dir, testPass); err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.ReplaceAll(spaceFixture, "PRIVATE-CLOUD", "CHANGED-ON-PEER")
+	if err := peer.SaveFolderSpace(dir, updated); err != nil {
+		t.Fatal(err)
+	}
+	peer.CloseFolderSpace(dir)
+	got, err := a.ResumeFolderSpace(dir)
+	if err != nil || got != updated || len(a.suspendedFolderKeys) != 0 {
+		t.Fatal("resume did not read the latest version", err)
+	}
+	if !a.SuspendFolderSpace(dir) {
+		t.Fatal("could not suspend again")
+	}
+	a.CloseFolderSpace(dir)
+	if _, err := a.ResumeFolderSpace(dir); !errors.Is(err, errLocked) {
+		t.Fatal("explicit close retained key", err)
+	}
+}
+
+func TestSuspendedFolderRejectsReplacedOrDamagedEnvelope(t *testing.T) {
+	a, _ := testStore(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, folderSpaceFilename)
+	if err := a.CreateFolderSpace(dir, spaceFixture, testPass); err != nil {
+		t.Fatal(err)
+	}
+	raw := stored(t, path)
+	mutate := func(change func(*envelope)) []byte {
+		env, err := parseEnvelope(raw, folderSpaceFormat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		change(env)
+		data, err := json.Marshal(env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	plain, err := encodeSpace(spaceFixture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		data []byte
+		want error
+	}{
+		{"different salt", mutate(func(e *envelope) { e.Salt[0] ^= 1 }), errLocked},
+		{"invalid authentication tag", mutate(func(e *envelope) { e.Data[len(e.Data)-1] ^= 1 }), errPassword},
+		{"invalid container", []byte("{"), errCorrupt},
+		{"plaintext downgrade", plain, errChanged},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := a.OpenFolderSpace(dir, testPass); err != nil {
+				t.Fatal(err)
+			}
+			if !a.SuspendFolderSpace(dir) {
+				t.Fatal("expected suspended key")
+			}
+			if err := os.WriteFile(path, tc.data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := a.ResumeFolderSpace(dir)
+			if got != "" || !errors.Is(err, tc.want) {
+				t.Fatal(got, err)
+			}
+			if err := os.WriteFile(path, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := a.ResumeFolderSpace(dir); !errors.Is(err, errLocked) {
+				t.Fatal("stale key retained", err)
+			}
+		})
+	}
+	if _, err := a.OpenFolderSpace(dir, testPass); err != nil {
+		t.Fatal(err)
+	}
+	a.SuspendFolderSpace(dir)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := a.InspectSpaceFolder(dir); err != nil || info.Exists || info.CanResume {
+		t.Fatal(info, err)
+	}
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ResumeFolderSpace(dir); !errors.Is(err, errLocked) {
+		t.Fatal("removed folder retained key", err)
+	}
+}
+
+func TestSessionLockForgetsSuspendedKeysAndAllowsPendingEncryptedSave(t *testing.T) {
+	a, _ := testStore(t)
+	away, active := t.TempDir(), t.TempDir()
+	for _, dir := range []string{away, active} {
+		if err := a.CreateFolderSpace(dir, spaceFixture, testPass); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !a.SuspendFolderSpace(away) {
+		t.Fatal("expected suspended key")
+	}
+	secret := a.suspendedFolderKeys[spaceSessionID(canonicalTestFolder(t, away))].key
+	// A slow disk save holds the storage lock. The UI still needs to
+	// receive the OS lock immediately while the native cleanup waits.
+	a.mu.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.sessionLocked(context.Background())
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for !a.sessionLockPending.Load() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	notified := a.ConsumeSessionLock()
+	a.mu.Unlock()
+	<-done
+	if !notified {
+		t.Fatal("OS lock notification waited for a pending storage operation")
+	}
+	if !bytes.Equal(secret, make([]byte, len(secret))) {
+		t.Fatal("suspended key bytes not cleared")
+	}
+	if _, err := a.ResumeFolderSpace(away); !errors.Is(err, errLocked) {
+		t.Fatal("key survived OS lock", err)
+	}
+	if err := a.SaveFolderSpace(active, spaceFixture); err != nil {
+		t.Fatal("final encrypted save could not complete", err)
+	}
+	if a.SuspendFolderSpace(active) {
+		t.Fatal("late workspace switch recached key after OS lock")
+	}
+	if _, err := a.OpenFolderSpace(active, testPass); err != nil {
+		t.Fatal(err)
+	}
+	if !a.SuspendFolderSpace(active) {
+		t.Fatal("fresh authentication should start another session")
+	}
+	a.LockSession("")
+	if len(a.suspendedFolderKeys) != 0 {
+		t.Fatal("key survived session lock")
+	}
+	if _, err := a.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.OpenFolderSpace(active, testPass); err != nil {
+		t.Fatal(err)
+	}
+	a.SuspendFolderSpace(active)
+	a.FinishClose()
+	if len(a.suspendedFolderKeys) != 0 {
+		t.Fatal("key survived application close")
 	}
 }
 

@@ -342,6 +342,7 @@ func (a *App) MoveFolderSpace(source, destination, catalog string) (result Space
 			return err
 		}
 		committed = true
+		a.forgetSuspendedFolder(newID)
 		delete(a.folderSpaces, oldID)
 		a.folderSpaces[newID] = &next
 		// Retire the old main before its history. If the drive introduced a

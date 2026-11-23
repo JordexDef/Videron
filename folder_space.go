@@ -24,16 +24,18 @@ type SpaceFolderInfo struct {
 	Folder    string `json:"folder"`
 	Exists    bool   `json:"exists"`
 	Encrypted bool   `json:"encrypted"`
+	CanResume bool   `json:"canResume"`
 }
 
 type folderSpaceSession struct {
-	path        string
-	info        os.FileInfo
-	digest      [sha256.Size]byte
-	key         *vaultKey
-	sync        spaceReplica
-	lastPatch   savePatchReceipt
-	serverIndex *serverIndexCache
+	path                string
+	info                os.FileInfo
+	digest              [sha256.Size]byte
+	key                 *vaultKey
+	discardKeyOnSuspend bool
+	sync                spaceReplica
+	lastPatch           savePatchReceipt
+	serverIndex         *serverIndexCache
 }
 
 type folderSpaceDocument struct {
@@ -147,23 +149,33 @@ func (a *App) InspectSpaceFolder(folder string) (SpaceFolderInfo, error) {
 	}
 	dir, err := spaceDir(folder)
 	if err != nil {
+		a.forgetSuspendedFolder(spaceSessionID(folder))
 		return result, err
 	}
 	result.Folder = dir
+	id := spaceSessionID(dir)
 	raw, _, err := readSpaceFile(filepath.Join(dir, folderSpaceFilename))
-	if errors.Is(err, errSpaceMissing) {
-		return result, nil
-	}
 	if err != nil {
+		a.forgetSuspendedFolder(id)
+		if errors.Is(err, errSpaceMissing) {
+			return result, nil
+		}
 		return result, err
 	}
 	defer clear(raw)
 	_, env, err := parseSpaceFile(raw)
 	if err != nil {
+		a.forgetSuspendedFolder(id)
 		return result, err
 	}
 	result.Exists = true
 	result.Encrypted = env != nil
+	if key := a.suspendedFolderKeys[id]; key != nil {
+		result.CanResume = env != nil && bytes.Equal(env.Salt, key.salt)
+		if !result.CanResume {
+			a.forgetSuspendedFolder(id)
+		}
+	}
 	return result, nil
 }
 
@@ -172,6 +184,7 @@ func (a *App) setSpaceSession(dir string, session *folderSpaceSession) {
 		a.folderSpaces = make(map[string]*folderSpaceSession)
 	}
 	id := spaceSessionID(dir)
+	a.forgetSuspendedFolder(id)
 	if old := a.folderSpaces[id]; old != nil {
 		old.key.forget()
 	}
@@ -179,15 +192,38 @@ func (a *App) setSpaceSession(dir string, session *folderSpaceSession) {
 }
 
 func (a *App) OpenFolderSpace(folder, password string) (string, error) {
+	return a.openFolderSpace(folder, password, false)
+}
+
+func (a *App) ResumeFolderSpace(folder string) (string, error) {
+	return a.openFolderSpace(folder, "", true)
+}
+
+func (a *App) openFolderSpace(folder, password string, resume bool) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.loaded || (resume && a.revokingFolderKeys.Load()) {
 		return "", errLocked
 	}
 	dir, err := spaceDir(folder)
 	if err != nil {
+		a.forgetSuspendedFolder(spaceSessionID(folder))
 		return "", err
 	}
+	id := spaceSessionID(dir)
+	var key *vaultKey
+	if resume {
+		key = a.suspendedFolderKeys[id]
+		if key == nil {
+			return "", errLocked
+		}
+		delete(a.suspendedFolderKeys, id)
+	} else {
+		a.forgetSuspendedFolder(id)
+	}
+	// Transfer ownership to the active session only after today's document
+	// and replica have both been authenticated and read successfully.
+	defer func() { key.forget() }()
 	path := filepath.Join(dir, folderSpaceFilename)
 	raw, info, err := readSpaceFile(path)
 	if err != nil {
@@ -198,35 +234,41 @@ func (a *App) OpenFolderSpace(folder, password string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// A password prompt was shown for an encrypted file. A cloud writer may
-	// have replaced that file since inspection; never continue in plaintext.
-	if env == nil && password != "" {
+	// The caller expects an encrypted file. A cloud writer may have
+	// replaced it since inspection; never continue in plaintext.
+	if env == nil && (password != "" || resume) {
 		return "", errChanged
 	}
-	var key *vaultKey
 	if env != nil {
-		if password == "" {
+		switch {
+		case resume:
+			if !bytes.Equal(key.salt, env.Salt) {
+				return "", errLocked
+			}
+		case password == "":
 			return "", errLocked
+		default:
+			key = deriveVaultKey(password, env.Salt)
 		}
-		key = deriveVaultKey(password, env.Salt)
 		plain, err = key.open(env, "")
 		if err != nil {
-			key.forget()
 			return "", err
 		}
 		defer clear(plain)
 		if !validSpacePayload(plain) {
-			key.forget()
 			return "", errCorrupt
 		}
 	}
 	session := &folderSpaceSession{path: path, info: info, digest: sha256.Sum256(raw), key: key}
 	payload, err := session.openReplica(plain)
 	if err != nil {
-		key.forget()
 		return "", err
 	}
+	if resume && a.revokingFolderKeys.Load() {
+		return "", errLocked
+	}
 	a.setSpaceSession(dir, session)
+	key = nil
 	return payload, nil
 }
 
@@ -375,16 +417,67 @@ func (a *App) SaveFolderSpace(folder, payload string) error {
 	return nil
 }
 
-func (a *App) CloseFolderSpace(folder string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+func (a *App) folderKeyID(folder string) string {
 	// The canonical path returned by InspectSpaceFolder also works offline.
 	id := spaceSessionID(folder)
-	if a.folderSpaces[id] == nil {
+	if a.folderSpaces[id] == nil && a.suspendedFolderKeys[id] == nil {
 		if dir, err := spaceDir(folder); err == nil {
 			id = spaceSessionID(dir)
 		}
 	}
+	return id
+}
+
+func (a *App) forgetSuspendedFolder(id string) {
+	a.suspendedFolderKeys[id].forget()
+	delete(a.suspendedFolderKeys, id)
+}
+
+func (a *App) forgetSuspendedFolderKeys() {
+	for id := range a.suspendedFolderKeys {
+		a.forgetSuspendedFolder(id)
+	}
+}
+
+func (a *App) ForgetSuspendedFolderKeys() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.forgetSuspendedFolderKeys()
+	// A pending save still needs its live key. A concurrent workspace
+	// switch may finish after the lock event; never cache that key again.
+	for _, s := range a.folderSpaces {
+		s.discardKeyOnSuspend = true
+	}
+}
+
+// Keep only the derived key. Closed spaces cannot be edited or synced through
+// their old session; returning to one reopens the file from disk.
+func (a *App) SuspendFolderSpace(folder string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	id := a.folderKeyID(folder)
+	session := a.folderSpaces[id]
+	if session == nil {
+		return a.suspendedFolderKeys[id] != nil
+	}
+	delete(a.folderSpaces, id)
+	if session.key == nil || session.discardKeyOnSuspend || a.revokingFolderKeys.Load() {
+		session.key.forget()
+		return false
+	}
+	if a.suspendedFolderKeys == nil {
+		a.suspendedFolderKeys = make(map[string]*vaultKey)
+	}
+	a.suspendedFolderKeys[id] = &vaultKey{salt: session.key.salt, key: bytes.Clone(session.key.key)}
+	session.key.forget()
+	return true
+}
+
+func (a *App) CloseFolderSpace(folder string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	id := a.folderKeyID(folder)
+	a.forgetSuspendedFolder(id)
 	if session := a.folderSpaces[id]; session != nil {
 		session.key.forget()
 		delete(a.folderSpaces, id)
@@ -438,7 +531,9 @@ func (a *App) DeleteFolderSpace(folder string) error {
 		return err
 	}
 	session.key.forget()
-	delete(a.folderSpaces, spaceSessionID(filepath.Dir(session.path)))
+	id := spaceSessionID(filepath.Dir(session.path))
+	a.forgetSuspendedFolder(id)
+	delete(a.folderSpaces, id)
 	if path, e := profilePath(filepath.Dir(session.path)); e == nil {
 		// The document is already deleted. A credentials cleanup failure cannot roll back the file deletion.
 		_ = os.Remove(path)

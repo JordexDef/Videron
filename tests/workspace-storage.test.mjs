@@ -64,3 +64,34 @@ test('a missing or downgraded encrypted folder is not silently reopened',async()
   await assert.rejects(readSpaceFolder({}, {exists:false},null,link),/VD_SPACE_MISSING/)
   await assert.rejects(readSpaceFolder({}, {exists:true,encrypted:false},null,link),/VD_ENCRYPTION_CHANGED/)
 })
+
+test('returning to an unlocked folder reads its latest data without asking for a password',async()=>{
+  const latest={...data,routes:[{id:'new while away',stops:[]}]}
+  const bridge={ResumeFolderSpace:async folder=>{
+    assert.equal(folder,link.folder)
+    return JSON.stringify(latest)
+  }}
+  const session=await readSpaceFolder(bridge,{...link,exists:true,canResume:true},()=>assert.fail('unexpected password prompt'),link)
+  assert.deepEqual(session.data,latest)
+  assert.equal(session.encrypted,true)
+})
+
+test('a key invalidated after inspection prompts again, while a failed read reports the error',async()=>{
+  const info={...link,exists:true,canResume:true}
+  let failure='VD_LOCKED',prompts=0
+  const bridge={
+    ResumeFolderSpace:async()=>{throw Error(failure)},
+    OpenFolderSpace:async(folder,password)=>{
+      assert.equal(folder,link.folder)
+      assert.equal(password,'new passphrase')
+      return JSON.stringify(data)
+    }
+  }
+  const prompt=async options=>{prompts++;await options.onSubmit({password:'new passphrase'});return true}
+  assert.deepEqual((await readSpaceFolder(bridge,info,prompt,link)).data,data)
+  failure='VD_PASSWORD'
+  assert.deepEqual((await readSpaceFolder(bridge,info,prompt,link)).data,data)
+  failure='VD_READ'
+  await assert.rejects(readSpaceFolder(bridge,info,prompt,link),/VD_READ/)
+  assert.equal(prompts,2)
+})

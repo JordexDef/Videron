@@ -304,6 +304,7 @@ func (a *App) dropKeys() {
 		key.forget()
 	}
 	clear(a.noteKeys)
+	a.forgetSuspendedFolderKeys()
 	for _, session := range a.folderSpaces {
 		session.key.forget()
 	}

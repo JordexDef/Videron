@@ -64,6 +64,8 @@ let idle=null, lockScreen=null, locking=null, lockDuringStartup=false;
 const storageKey='videron.library.v1';
 const mapCameraMemory=createMapCameraMemory();
 let folderSession=null,spaceOperation=null,catalogSnapshot=null,startupNotice='';
+// Only IDs for the idle timer and lock button. Folder keys stay in the native process.
+const suspendedSpaceIds=new Set();
 let catalogRecords=null,catalogRevision=null,pendingCatalogPatch=null;
 let folderPoll=null,editorMerge=null,notePrivacyChange=null,reviewing=false,syncTimer,closingApp=false;
 const emptyMap=blankWorkspace();
@@ -271,8 +273,11 @@ async function saveOpenEditor(){
   }catch(error){reportWriteError(error)}
 }
 
+function hasOpenProtectedContent(){
+  return projectProtected || folderSession?.encrypted || noteSession?.protected;
+}
 function syncIdle(){
-  idle?.configure(library.autoLockMinutes,ready && !lockScreen && (projectProtected || folderSession?.encrypted || noteSession?.protected || reviewing));
+  idle?.configure(library.autoLockMinutes,ready && !lockScreen && (hasOpenProtectedContent() || suspendedSpaceIds.size>0 || reviewing));
 }
 async function setIdleMinutes(minutes){
   const previous=normalizeIdleMinutes(library.autoLockMinutes);
@@ -293,7 +298,7 @@ function requestLock(){
     return;
   }
   if(lockScreen)return locking;
-  if(!projectProtected && !folderSession?.encrypted && !noteSession?.protected && !openingNote && !spaceOperation && !policyWrite && !document.querySelector('.vault-dialog'))return;
+  if(!hasOpenProtectedContent() && !suspendedSpaceIds.size && !openingNote && !spaceOperation && !policyWrite && !document.querySelector('.vault-dialog'))return;
   saveMapView();
   spaceActivity.setMessage('');
   cancelNoteTransition();
@@ -307,14 +312,16 @@ function requestLock(){
   }
   async function finish(){
     try{
+      await native.ForgetSuspendedFolderKeys?.();
       await interruptVaultDialogs();
       if(folderPoll)await folderPoll.catch(()=>{});
       if(spaceOperation)await spaceOperation.catch(()=>{});
+      suspendedSpaceIds.clear();
       if(openingNote)await openingNote;
       // Failed password changes leave the previous protection policy in place.
       if(policyWrite)await policyWrite.catch(()=>{});
       if(target===null){
-        if(!projectProtected && !folderSession?.encrypted && !noteSession?.protected){
+        if(!hasOpenProtectedContent()){
           lockScreen.close();lockScreen=null;renderAreas(workspace().areas);syncMapVisibility();syncIdle();return true;
         }
         target=noteSession?.note.id||'';
@@ -359,7 +366,7 @@ function applyProjectProtection(write,enabled){
 function settings(){
   closeMenu();
   openVaultSettings({
-    available:!!native,protected:projectProtected,canLock:!!folderSession?.encrypted,
+    available:!!native,protected:projectProtected,canLock:!!folderSession?.encrypted || suspendedSpaceIds.size>0,
     idleMinutes:normalizeIdleMinutes(library.autoLockMinutes),onIdleMinutesChange:setIdleMinutes,
     onEnable:password=>applyProjectProtection(payload=>native.ProtectProject(payload,password),true),
     onChange:(current,password)=>applyProjectProtection(payload=>native.ChangeProjectPassword(payload,current,password),true),
@@ -789,19 +796,25 @@ function showSpace(next,session){
   $('toast').hidden=true;$('toast').replaceChildren();$('list-stage').replaceChildren();
   graph.select(null);graph.setData([],[]);collapsedAreas.clear();listSelection.clear();lastListId=null;
   library=next;folderSession=session;
+  suspendedSpaceIds.delete(next.active);
   page='map';currentArea=null;selected=null;chooseTool('select');status('local');render();
   graph.resize();restoreMapView();syncIdle();
   queueSync(80);syncBadge();
 }
 async function activateSpace(next,session=null){
-  const previous=folderSession;
+  const previous=folderSession,previousId=library.active;
   try{await writeCatalog(next)}
   catch(error){
     if(session && session!==previous)await native.CloseFolderSpace(session.folder);
     throw error;
   }
   showSpace(next,session);
-  if(previous && previous!==session)await native.CloseFolderSpace(previous.folder);
+  if(previous && previous!==session){
+    if(previous.encrypted && native.SuspendFolderSpace && !lockScreen && !closingApp){
+      if(await native.SuspendFolderSpace(previous.folder))suspendedSpaceIds.add(previousId);
+      syncIdle();
+    }else await native.CloseFolderSpace(previous.folder);
+  }
 }
 function promptForSpace(options){
   if(lockScreen || lockDuringStartup)return Promise.resolve(false);
@@ -858,7 +871,7 @@ async function deleteSpace(id,deleteFile){
     if(!Object.hasOwn(library.spaces,id))throw new Error('VD_CHANGED');
     const current=id===library.active,previous=folderSession;
     if(deleteFile && (!current || !previous))throw new Error('VD_INVALID');
-    const spaces={...library.spaces};delete spaces[id];
+    const removed=library.spaces[id],spaces={...library.spaces};delete spaces[id];
     let next={...library,spaces};
     if(id==='demo')next.demoHidden=true;
     if(current)next=localFallback(next);
@@ -875,7 +888,10 @@ async function deleteSpace(id,deleteFile){
     if(current){
       showSpace(next,null);
       if(previous && !deleteFile)await native.CloseFolderSpace(previous.folder);
-    }else{mapCameraMemory.forget(id);library=next;render()}
+    }else{
+      if(isFolderSpace(removed))await native?.CloseFolderSpace(removed.folder);
+      suspendedSpaceIds.delete(id);mapCameraMemory.forget(id);library=next;render();syncIdle();
+    }
   });
 }
 function newSpaceForm(link=false){
@@ -2046,6 +2062,8 @@ function bindUI(){
   });
 }
 async function loadDesktopLibrary(){
+  // A WebView reload starts with a fresh idle timer and no remembered unlocks.
+  await native.ForgetSuspendedFolderKeys?.();
   let resume='';
   let loaded;
   for(;;){
