@@ -197,4 +197,4 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -s -skipbindings -tr
 
 Проверки формул, графиков и формата рисунков запускаются командой `node --test` в Node.js 22 и новее.
 
-Для macOS и Linux нужны сборка на соответствующей системе и проверка системного WebView, в том числе буфера обмена, рисунков, поиска и расширений. Готовый клиент версии 0.47 запускался в Windows. [Инструкция Wails по настройке среды](https://v2.wails.io/docs/gettingstarted/installation/)
+Для самостоятельной сборки клиента под другую ОС установите компилятор и системный WebView для нужной платформы. [Инструкция Wails по настройке среды](https://v2.wails.io/docs/gettingstarted/installation/)

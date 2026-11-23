@@ -1,0 +1,58 @@
+name: macOS release build
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Test Go packages
+        run: go test ./...
+      - name: Build for Apple silicon and Intel
+        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -platform darwin/universal -s -skipbindings -trimpath
+      - name: Check the bundle and launch it in a fresh profile
+        shell: bash
+        run: |
+          app=build/bin/Videron.app
+          binary="$app/Contents/MacOS/Videron"
+          test "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")" = "${GITHUB_REF_NAME#v}"
+          lipo -verify_arch arm64 x86_64 "$binary"
+          codesign --verify --deep --strict "$app"
+          mkdir -p "$RUNNER_TEMP/videron-home"
+          HOME="$RUNNER_TEMP/videron-home" "$binary" > "$RUNNER_TEMP/videron-launch.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          sleep 5
+          if ! kill -0 "$pid" 2>/dev/null; then
+            cat "$RUNNER_TEMP/videron-launch.log"
+            exit 1
+          fi
+      - name: Create and verify the disk image
+        shell: bash
+        run: |
+          stage="$RUNNER_TEMP/videron-dmg"
+          image="build/bin/Videron-${GITHUB_REF_NAME#v}-macOS.dmg"
+          mkdir "$stage"
+          ditto build/bin/Videron.app "$stage/Videron.app"
+          ln -s /Applications "$stage/Applications"
+          hdiutil create -volname Videron -srcfolder "$stage" -format UDZO "$image"
+          hdiutil verify "$image"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: videron-macos
+          path: build/bin/Videron-*-macOS.dmg
+          if-no-files-found: error
+          compression-level: 0
