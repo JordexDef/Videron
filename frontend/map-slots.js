@@ -160,28 +160,56 @@ function drawStageInsertion(ctx, header, reorder, bottom, view, tint) {
   ctx.fillText(label.text,x+w/2,y+h/2);
 }
 
+function gridMarkLayout(grid, zoom) {
+  const pitchX=gridSpacing(grid)*zoom, pitchY=gridRowSpacing(grid)*zoom;
+  const markerPitch=Math.min(pitchX,pitchY), compact=pitchX<40;
+  // Downsample by powers of two to keep seats as stable landmarks while zooming.
+  return {
+    pitchX,pitchY,markerPitch,compact,
+    radius:Math.max(2,Math.min(5,markerPitch*.045)),
+    strideX:2**Math.max(0,Math.ceil(Math.log2(13/pitchX))),
+    strideY:2**Math.max(0,Math.ceil(Math.log2(13/pitchY))),
+    showStages:grid.stages && (!compact || (zoom>=.65 && pitchX>=24)),
+    headerOffset:-Math.min(pitchY/2,78*zoom)-7
+  };
+}
+
+export function gridMarqueeBounds(group, zoom) {
+  const {grid}=group;
+  const {pitchX,pitchY,markerPitch,radius,strideX,strideY,showStages,headerOffset}=gridMarkLayout(grid,zoom);
+  const mark=markerPitch<38 ? 1 : radius;
+  // A tight marquee around the visible seats should work even when the outer
+  // half-cells extend far beyond the marks. Keep a single occupied seat and
+  // its grid distinguishable: a marquee around just that bubble selects it.
+  const singleOccupied=grid.cols===1 && grid.rows===1 && group.nodes?.some(note=>note.seated);
+  const bounds=singleOccupied ? slotGridBounds(grid) : {
+    left:grid.x-mark/zoom, top:grid.y-mark/zoom,
+    right:grid.x+(Math.floor((grid.cols-1)/strideX)*strideX*pitchX+mark)/zoom,
+    bottom:grid.y+(Math.floor((grid.rows-1)/strideY)*strideY*pitchY+mark)/zoom
+  };
+  if (showStages) {
+    bounds.left=Math.min(bounds.left,grid.x+(-pitchX/2+5)/zoom);
+    bounds.right=Math.max(bounds.right,grid.x+((grid.cols-.5)*pitchX-5)/zoom);
+    bounds.top=Math.min(bounds.top,grid.y+(headerOffset-15)/zoom);
+  }
+  return bounds;
+}
+
 export function drawSlotGrid(ctx, group, view, {selected=false, active=false, slots=[], blocked=false, swapping=false, hoverSlot=null, hoverStage=null, hoverHandle=null, reorder=null} = {}) {
   const {grid,tint,name} = group, {ox,oy,zoom,width,height} = view;
   const firstX = ox + grid.x * zoom, firstY = oy + grid.y * zoom;
-  const pitchX = gridSpacing(grid)*zoom, pitchY = gridRowSpacing(grid)*zoom;
-  const halfX = pitchX/2, halfY = pitchY/2, markerPitch = Math.min(pitchX,pitchY);
+  const {pitchX,pitchY,markerPitch,radius,strideX,strideY,compact,showStages,headerOffset}=gridMarkLayout(grid,zoom);
+  const halfX = pitchX/2, halfY = pitchY/2;
   const lastX = firstX + (grid.cols-1)*pitchX, lastY = firstY + (grid.rows-1)*pitchY;
-  const compact = pitchX < 40;
-  const showStages = grid.stages && (!compact || (zoom >= .65 && pitchX >= 24));
-  const headerY = firstY - Math.min(halfY,78*zoom) - 7;
+  const headerY = firstY + headerOffset;
   const headerTop = headerY - (compact && grid.cols>1 ? 32 : 17);
   const top = showStages ? Math.min(firstY-halfY,headerTop) : firstY-halfY;
   if (lastX+halfX < 0 || firstX-halfX > width || lastY+halfY < 0 || top > height) return null;
 
-  const radius = Math.max(2,Math.min(5,markerPitch*.045));
   const visibleLeft = Math.max(0,Math.ceil((-radius-firstX)/pitchX));
   const visibleTop = Math.max(0,Math.ceil((-radius-firstY)/pitchY));
   const visibleRight = Math.min(grid.cols-1,Math.floor((width+radius-firstX)/pitchX));
   const visibleBottom = Math.min(grid.rows-1,Math.floor((height+radius-firstY)/pitchY));
-  // Keep the same seats as landmarks across overview levels instead of
-  // switching from every third cell to every fourth when the zoom changes.
-  const strideX = 2**Math.max(0,Math.ceil(Math.log2(13/pitchX)));
-  const strideY = 2**Math.max(0,Math.ceil(Math.log2(13/pitchY)));
   const stepX = Math.ceil(visibleLeft/strideX)*strideX, stepY = Math.ceil(visibleTop/strideY)*strideY;
   const muted = 'rgba('+tint+','+(active ? '.76' : '.47')+')';
   ctx.save();
@@ -189,7 +217,7 @@ export function drawSlotGrid(ctx, group, view, {selected=false, active=false, sl
     ctx.beginPath();
     ctx.rect(firstX-halfX,top,grid.cols*pitchX,lastY+halfY-top);
     ctx.fillStyle='rgba('+tint+',.045)';ctx.fill();
-    ctx.strokeStyle='rgba('+tint+',.75)';ctx.lineWidth=1.5;ctx.stroke();
+    ctx.strokeStyle='#ededed';ctx.lineWidth=1.5;ctx.stroke();
   }
   let stageHeader;
   if (showStages) {

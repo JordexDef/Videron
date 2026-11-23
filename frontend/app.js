@@ -715,6 +715,7 @@ function showHelp(){
     [tr('Открыть выбранную заметку','Open the selected note'),tr('Enter или двойной щелчок','Enter or double-click')],
     [tr('Действия и внешний вид','Actions and appearance'),tr('Правый щелчок','Right-click')],
     [tr('Выбрать несколько заметок на карте','Select several notes on the map'),tr('Рамка или Ctrl / Shift + щелчок','Drag a box or Ctrl / Shift + click')],
+    [tr('Выделить сетку или дорожку целиком','Select a whole grid or stage track'),tr('Обвести рамкой','Drag a box around it')],
     [tr('Выбрать все заметки','Select all notes'),'Ctrl A'],
     [tr('Удалить выбранные заметки, сетку или дорожку','Delete selected notes, grid or track'),isMacPlatform()?'⌫ / Delete':'Delete'],
     [tr('Переместить заметки в область','Move notes into an area'),tr('Потянуть в контур или на папку','Drag into its outline or sidebar folder')],

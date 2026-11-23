@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Graph } from '../frontend/graph.js';
 import { drawSlotGrid } from '../frontend/map-slots.js';
+import { deleteAreaWithHistory, undoMapAction } from '../frontend/map-history.js';
 
 function setup({stages=['Idea','Review','Done'],zoom=1}={}){
   const width=800,height=600,calls={moves:[],sizes:[],edits:[],seats:[],opens:[]};
@@ -73,6 +74,78 @@ test('the whole grid context targets the clicked title or vacant seat and surviv
   graph.contextMenu(point(96,-57));
   assert.equal(graph.selectedGridId,null,'a stage menu releases the whole-track selection');
   assert.equal(contexts.length,2);
+});
+
+test('a marquee around a grid or stage track selects the whole object for reversible deletion',()=>{
+  const headings=['Idea','Review','Done'];
+  for(const [stages,zoom,occupied] of [[null,.65,false],[headings,1,false],[headings,1.5,true]]){
+    const {graph,group,point}=setup({stages,zoom});
+    const area={id:'g',name:'Dock',grid:group.grid};
+    const space={areas:[area],notes:occupied?[
+      {id:'first',areaId:'g',slot:0,x:-96,y:0,links:['last']},
+      {id:'last',areaId:'g',slot:5,x:96,y:96,links:[]}
+    ]:[]};
+    const before=structuredClone(space);
+    graph.setData(space.notes,space.areas);
+
+    // Enclose the headers and last row of dots without guessing the invisible bottom gutter.
+    const topLeft=point(-165,-108),bottomRight=point(165,105);
+    const [from,to]=stages?[bottomRight,topLeft]:[topLeft,bottomRight];
+    graph.pointerDown(from);
+    graph.pointerUp(to); // A fast drag can deliver the final position only on release.
+    assert.equal(graph.selectedGridId,'g');
+    assert.equal(graph.selectedIds.size,0);
+
+    assert.equal(deleteAreaWithHistory(space,graph.selectedGridId),area);
+    graph.setData(space.notes,space.areas);
+    assert.equal(graph.selectedGridId,null);
+    assert.equal(graph.selectedIds.size,0);
+    assert.equal(space.areas.length,0);
+    assert.deepEqual(space.notes.map(n=>[n.id,n.links]),before.notes.map(n=>[n.id,n.links]));
+    graph.pointerDown(from);graph.pointerUp(to);
+    assert.deepEqual([...graph.selectedIds],space.notes.map(n=>n.id));
+    assert.equal(undoMapAction(space).kind,'area-delete');
+    assert.deepEqual(space,before);
+  }
+});
+
+test('full enclosure takes precedence over intersecting notes, while partial and additive marquees pick notes',()=>{
+  const {graph,point,group}=setup();
+  const area={id:'g',name:'Dock',grid:group.grid};
+  graph.setData([{id:'n',areaId:'g',slot:0},{id:'loose',x:218,y:90}],[area]);
+  const start=point(-165,-90),end=point(248,156);
+  graph.pointerDown(start);graph.pointerMove(end);
+  assert.equal(graph.drag.previewGridId,'g');
+  assert.equal(graph.drag.preview.size,0);
+  graph.pointerUp(end);
+  assert.equal(graph.selectedGridId,'g');
+  assert.equal(graph.selectedIds.size,0);
+
+  graph.pointerDown(start);graph.pointerUp(point(-65,20));
+  assert.equal(graph.selectedGridId,null);
+  assert.deepEqual([...graph.selectedIds],['n']);
+  graph.select('loose');
+  graph.pointerDown({...start,shiftKey:true});graph.pointerUp(point(155,156,{shiftKey:true}));
+  assert.equal(graph.selectedGridId,null);
+  assert.deepEqual(graph.selectedIds,new Set(['loose','n']));
+
+  const other={id:'second',name:'Other',grid:{x:215,y:55,rows:1,cols:1,spacing:40}};
+  graph.setData([{id:'n',areaId:'g',slot:0},{id:'loose',x:218,y:90}],[area,other]);
+  graph.pointerDown(start);graph.pointerUp(end);
+  assert.equal(graph.selectedGridId,null);
+  assert.equal(graph.selectedIds.size,0,'several enclosed grids must not accidentally target their notes for deletion');
+});
+
+test('a one-seat grid can be selected separately from its only note',()=>{
+  const {graph,point}=setup({stages:null});
+  graph.setData([{id:'n',areaId:'g',slot:0}],[{id:'g',grid:{cols:1,rows:1,x:0,y:0,spacing:96}}]);
+  const start=point(-60,-56);
+  graph.pointerDown(start);graph.pointerUp(point(30,30));
+  assert.equal(graph.selectedGridId,null);
+  assert.deepEqual([...graph.selectedIds],['n']);
+  graph.pointerDown(start);graph.pointerUp(point(56,56));
+  assert.equal(graph.selectedGridId,'g');
+  assert.equal(graph.selectedIds.size,0);
 });
 
 test('Control and Command toggle individual notes including in the margin of an occupied seat',()=>{

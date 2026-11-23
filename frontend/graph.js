@@ -2,7 +2,7 @@ import { tr } from './i18n.js';
 import { defaultMapView } from './data.js';
 import { areaTreeRows } from './areas.js';
 import { gridRowSpacing, gridSpacing, planGridSlots, slotPoint, validSlot } from './area-grid.js';
-import { slotAt, slotGridBounds, gridFocusCamera, drawSlotGrid, drawGridGrip, draggedGridSpacing, stageHandleAt, stageTitleAt } from './map-slots.js';
+import { slotAt, slotGridBounds, gridMarqueeBounds, gridFocusCamera, drawSlotGrid, drawGridGrip, draggedGridSpacing, stageHandleAt, stageTitleAt } from './map-slots.js';
 import { shapeSiblingContours, insideContour, traceContour, emptyContourAnchor } from './map-contours.js';
 import { contourLabelPositions } from './contour-label.js';
 import { drawMapBackgroundDots } from './map-background.js';
@@ -1029,6 +1029,28 @@ export class Graph {
     if (event) this.pointerMove(event);
   }
 
+  previewMarquee(drag, point) {
+    const rect = selectionRect(this.world(drag.start), this.world(point));
+    drag.preview = new Set(drag.extend ? this.selectedIds : []);
+    drag.previewGridId = null;
+    if (!drag.extend) {
+      for (const group of this.groups) {
+        if (!group.grid) continue;
+        const bounds = gridMarqueeBounds(group, this.zoom);
+        if (bounds.left < rect.left || bounds.right > rect.right || bounds.top < rect.top || bounds.bottom > rect.bottom) continue;
+        if (drag.previewGridId !== null) {
+          // Delete acts on one grid. Its contents must not become the fallback
+          // deletion target when more than one grid is inside the marquee.
+          drag.previewGridId = null;
+          return;
+        }
+        drag.previewGridId = group.id;
+      }
+      if (drag.previewGridId !== null) return;
+    }
+    for (const node of this.nodes.values()) if (intersectsNote(rect,node)) drag.preview.add(node.id);
+  }
+
   pointerMove(e) {
     const p = this.local(e);
     if (this.contacts.has(e.pointerId)) this.contacts.set(e.pointerId, p);
@@ -1057,11 +1079,8 @@ export class Graph {
             this.previewGrid(drag.grid,{...origin,...pitch});
         } else this.previewGrid(drag.grid,{...origin,x:origin.x+dx,y:origin.y+dy});
       }
-      else if (drag.marquee) {
-        const rect = selectionRect(this.world(drag.start), this.world(p));
-        drag.preview = new Set(drag.extend ? this.selectedIds : []);
-        for (const node of this.nodes.values()) if (intersectsNote(rect,node)) drag.preview.add(node.id);
-      } else if (drag.noteIds) this.moveNotes(drag, e, p);
+      else if (drag.marquee) this.previewMarquee(drag,p);
+      else if (drag.noteIds) this.moveNotes(drag, e, p);
       drag.prev = p;
       this.updateCursor();
       this.repaint();
@@ -1119,7 +1138,7 @@ export class Graph {
         const group=this.groups.find(g=>g.id===drag.grid.id);
         this.hoverGrid=this.hoverGridArea=group || null;
       }
-    } else if (drag.preview) this.changeSelection(drag.preview);
+    } else if (drag.preview) this.changeSelection(drag.preview,drag.previewGridId);
     else if (!drag.moved && drag.button === 0 && !this.spacePan && this.tool !== 'hand') {
       const id = drag.node?.id ?? drag.cell?.note?.id ?? null;
       if (id && this.callbacks.onRoutePick?.(id)) { this.updateCursor(); this.repaint(); return; }
@@ -1402,7 +1421,7 @@ export class Graph {
           : hover ? {hoverSlot:this.hoverSeat.index}
           : !this.drag && this.hoverGridArea===g && this.tool==='select' && !this.linking && !this.spacePan && !this.callbacks.recordingRoute?.()
             ? {hoverStage:this.hoverStage,hoverHandle:this.hoverHandle} : undefined;
-        const selected = this.selectedGridId === g.id;
+        const selected = (this.drag?.preview ? this.drag.previewGridId : this.selectedGridId) === g.id;
         const label = drawSlotGrid(c,g,{ox,oy,zoom:z,width:w,height:h},{...style,selected});
         if (label) {
           if(label.stageHeader)this.stageHeaders.push(label.stageHeader);
