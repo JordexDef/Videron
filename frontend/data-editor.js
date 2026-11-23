@@ -407,7 +407,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     }
   }
   function focus() {if (!title.value) title.focus(); else focusContent()}
-  function close() {
+  function close(reason) {
     if (finished) return Promise.resolve(true)
     if (closePending) return closePending
     closePending = (async () => {
@@ -415,13 +415,13 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
       if (!await finishNoteSession(root,beforeClose)) {showText(); return false}
       finished = true; clearTimeout(flashTimer)
       titleReveal.clear(); tagNav.destroy(); view?.destroy(); tableState = null; root.remove()
-      previousFocus?.focus?.({preventScroll:true}); onClose?.()
+      previousFocus?.focus?.({preventScroll:true}); onClose?.(reason)
       return true
     })().finally(() => {closePending = null})
     return closePending
   }
   async function navigateTo(id) { if (await close()) onOpenNote?.(id) }
-  async function goBack() { if (await close()) onReturn?.() }
+  async function goBack() { if (await close('back')) onReturn?.() }
   root.addEventListener('keydown',event => {
     if (event.defaultPrevented || event.isComposing) return
     if (grid && (event.ctrlKey || event.metaKey) && !event.altKey &&
@@ -449,5 +449,5 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     clearTimeout(flashTimer); flashTimer = setTimeout(() => view.dispatch({effects:flash.of(Decoration.none)}),2200)
   }
   focus()
-  return {focus,close,prepareClose:close,flush,revealSearchMatch}
+  return {element:root,focus,close,prepareClose:close,flush,revealSearchMatch}
 }

@@ -83,6 +83,11 @@ h1{font-size:clamp(23px,2vw,29px);font-weight:540;line-height:1.25;letter-spacin
 .map-area-action .ico{width:15px;height:15px}
 .map-selection-count{border-left:1px solid #565656;padding-left:7px;color:#bdbdbd;font-variant-numeric:tabular-nums}
 #graph{display:block;width:100%;height:100%;touch-action:none}
+.map-return-cue{position:absolute;transform:translate(-50%,-50%);border:1px solid #efefefa6;border-radius:50%;box-shadow:0 0 8px #ededed24;pointer-events:none}
+@media(prefers-reduced-motion:no-preference){
+  .map-return-cue{animation:map-return-fade 650ms ease-out both}
+  @keyframes map-return-fade{0%,25%{opacity:1}100%{opacity:0}}
+}
 .empty{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:min(430px,94%);display:flex;flex-direction:column;align-items:center;text-align:center;pointer-events:none}
 #atlas{width:min(405px,100%);height:auto;margin-bottom:6px;filter:drop-shadow(0 0 25px #141414)}
 .empty h2{font-size:clamp(22px,2.3vw,31px);font-weight:510;letter-spacing:-1.4px;line-height:1.28}

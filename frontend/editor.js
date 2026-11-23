@@ -398,7 +398,7 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
     if(!title.value)title.focus()
     else board.focus()
   }
-  function close(){
+  function close(reason){
     if(finished)return Promise.resolve(true)
     if(closePending)return closePending
     closePending=(async()=>{
@@ -407,12 +407,12 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
       if(!await finishNoteSession(root,beforeClose))return false
       searchReveal.clear();tagNav.destroy();board.destroy();root.remove();finished=true
       previousFocus?.focus?.({preventScroll:true})
-      onClose?.()
+      onClose?.(reason)
       return true
     })().finally(()=>{closePending=null})
     return closePending
   }
-  async function goBack(){if(await close())onReturn?.()}
+  async function goBack(){if(await close('back'))onReturn?.()}
   title.onkeydown=e=>{
     if(e.key==='Enter'&&!e.isComposing)board.focus()
   }
@@ -424,12 +424,12 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
       board.undo(e.code==='KeyY'||e.shiftKey)
       return
     }
-    if(e.key==='Escape'&&!host.contains(e.target)){e.preventDefault();e.stopPropagation();goBack()}
+    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();goBack()}
     if((e.ctrlKey||e.metaKey)&&e.code==='KeyS')e.preventDefault()
     keepTabInEditor(e,root)
   })
   details.sync();details.setTags(noteTags(title.value,summary.tagText));focus()
-  return {focus,close,prepareClose:close,revealSearchMatch(target){
+  return {element:root,focus,close,prepareClose:close,revealSearchMatch(target){
     if(target?.kind==='canvasText')board.revealTextBlock(target.id,target.match)
     else if(target?.kind==='canvasLabel')board.revealTextBlock(target.id,target)
     else searchReveal.reveal(target)
@@ -635,20 +635,20 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     document.removeEventListener('selectionchange',syncTools)
     root.remove()
   }
-  function close(){
+  function close(reason){
     if(finished)return Promise.resolve(true)
     if(closePending)return closePending
     closePending=(async()=>{
       if(!await flush())return false
       if(!await finishNoteSession(root,beforeClose))return false
       destroy();previousFocus?.focus?.({preventScroll:true})
-      onClose?.()
+      onClose?.(reason)
       return true
     })().finally(()=>{closePending=null})
     return closePending
   }
   const prepareClose=close
-  async function goBack(){if(await close())onReturn?.()}
+  async function goBack(){if(await close('back'))onReturn?.()}
   function applyBody(next, focus, offset, end=offset) {
     body=next.length?next:[paragraph()]
     active=Math.min(Math.max(0,focus),body.length-1)
@@ -1330,5 +1330,5 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(target?.kind==='body')details.uncoverNote()
     searchReveal.reveal(target)
   }
-  return {close,focus,prepareClose,revealSearchMatch}
+  return {element:root,close,focus,prepareClose,revealSearchMatch}
 }

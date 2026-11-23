@@ -263,6 +263,74 @@ export class Graph {
 
   worldCenter() { return { x: this.camera.x, y: this.camera.y }; }
 
+  captureCamera() { return {...this.camera}; }
+
+  restoreCamera(camera) {
+    if (!camera || !Number.isFinite(camera.x) || !Number.isFinite(camera.y) ||
+        !Number.isFinite(camera.zoom) || camera.zoom <= 0) return false;
+    this.target = null;
+    Object.assign(this.camera,camera);
+    this.callbacks.onZoom?.(this.zoom);
+    this.repaint();
+    return true;
+  }
+
+  noteBounds(id, width, height) {
+    const node = this.nodes.get(id);
+    if (!node || width <= 0 || height <= 0) return null;
+    const x = width / 2 + (node.x - this.camera.x) * this.zoom;
+    const y = height / 2 + (node.y - this.camera.y) * this.zoom;
+    const r = node.r * this.zoom;
+    let left=x-r, right=x+r, top=y-r, bottom=y+r;
+    if (node.geometry) {
+      left=top=Infinity; right=bottom=-Infinity;
+      for (const [dx,dy] of node.geometry.points) {
+        left=Math.min(left,x+r*dx); right=Math.max(right,x+r*dx);
+        top=Math.min(top,y+r*dy); bottom=Math.max(bottom,y+r*dy);
+      }
+    }
+    left=Math.max(0,left); top=Math.max(0,top);
+    right=Math.min(width,right); bottom=Math.min(height,bottom);
+    return right>left && bottom>top ? {left,top,width:right-left,height:bottom-top} : null;
+  }
+
+  noteViewportRect(id) {
+    // Read the current layout even when a resize observer is still pending.
+    const rect = this.canvas.getBoundingClientRect();
+    const bounds = this.noteBounds(id,rect.width,rect.height);
+    return bounds && {...bounds,left:rect.left+bounds.left,top:rect.top+bounds.top};
+  }
+
+  showReturnCue(id) {
+    this.clearReturnCue();
+    if (this.visible === false) return;
+    const {width,height} = this.canvas.getBoundingClientRect();
+    const bounds = this.noteBounds(id,width,height);
+    if (!bounds) return;
+    const element = document.createElement('span');
+    element.className = 'map-return-cue';
+    element.setAttribute('aria-hidden','true');
+    this.canvas.after(element);
+    this.returnCue = {id,element,timer:setTimeout(()=>this.clearReturnCue(),650)};
+    this.placeReturnCue(bounds);
+  }
+
+  placeReturnCue(bounds = this.noteBounds(this.returnCue.id,this.width,this.height)) {
+    const {element} = this.returnCue;
+    if (!bounds) { this.clearReturnCue(); return; }
+    element.style.left = (bounds.left + bounds.width / 2) + 'px';
+    element.style.top = (bounds.top + bounds.height / 2) + 'px';
+    element.style.width = Math.max(24,bounds.width+16) + 'px';
+    element.style.height = Math.max(24,bounds.height+16) + 'px';
+  }
+
+  clearReturnCue() {
+    if (!this.returnCue) return;
+    clearTimeout(this.returnCue.timer);
+    this.returnCue.element.remove();
+    this.returnCue = null;
+  }
+
   resize() {
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) return;
@@ -1224,6 +1292,7 @@ export class Graph {
     this.visible = visible;
     if (visible) this.repaint();
     else {
+      this.clearReturnCue();
       this.zoomPreview?.reset();
       this.cancelDrag();
       if (this.frame) cancelAnimationFrame(this.frame);
@@ -1300,6 +1369,7 @@ export class Graph {
       if (plainOverview) preview.base = {...this.camera,width:this.width,height:this.height};
       this.draw();
     }
+    if (this.returnCue) this.placeReturnCue();
     if (scrolling || this.target || (this.remaining && !layoutPreview) || this.heating.size) this.repaint();
     if (!this.frame) this.lastTime = null;
   }
@@ -1507,6 +1577,7 @@ export class Graph {
   }
 
   destroy() {
+    this.clearReturnCue();
     this.zoomPreview?.reset();
     this.cancelDrag();
     this.flushPositions();

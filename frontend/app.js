@@ -1,4 +1,5 @@
 import { Graph } from './graph.js';
+import { playNoteTransition, cancelNoteTransition } from './note-transition.js';
 import { mountMapReading, readingFragments } from './map-reading.js';
 import { mountMapRoutes } from './map-routes.js';
 import { mountStageControls } from './stage-controls.js';
@@ -257,6 +258,7 @@ function requestLock(){
   }
   if(lockScreen)return locking;
   if(!projectProtected && !folderSession?.encrypted && !noteSession?.protected && !openingNote && !spaceOperation && !policyWrite && !document.querySelector('.vault-dialog'))return;
+  cancelNoteTransition();
   searchLifetime?.abort();
   dismissExtensions();cancelTransfers();closeMenu();routes?.reset();reading?.hide();mapMetrics=null;lockScreen=showLockScreen();sidebarTree?.clear();syncMapVisibility();syncIdle();
   let target=null, retryTimer;
@@ -732,6 +734,7 @@ function changeSpace(work){
   return spaceOperation;
 }
 function showSpace(next,session){
+  cancelNoteTransition();
   searchLifetime?.abort();
   dismissExtensions();
   dismissWorkspaceConflicts();
@@ -1231,21 +1234,46 @@ function spaceMenu(anchor){
   menu(anchor,items,{scrollChoices:true});
 }
 function navigate(target,area=null){
+  cancelNoteTransition();
   routes?.reset();reading?.hide();
   cancelTransfers();closeMenu();page=target;currentArea=area;selected=null;listSelection.clear();lastListId=null;
   if(area)expandTo(areaById(area)?.parentId);
   graph.select(null);chooseTool('select');render();
   $('shell').classList.remove('mobile-open');updateSidebarToggle();
 }
-function edit(id,returnToResults=null,searchTarget=null){
-  if(editorMerge)return editorMerge.then(()=>edit(id,returnToResults,searchTarget),()=>{});
+function editFromMap(id,searchTarget=null){
+  return edit(id,null,searchTarget,{fromMap:true});
+}
+function returnToMapNote(id,camera){
+  graph.restoreCamera(camera);
+  if(document.hidden)return;
+  let destination=graph.noteViewportRect(id);
+  // A linked note, a resized window or a synced move can put the note outside the old frame.
+  if(!destination){
+    const node=graph.nodes.get(id);
+    if(!node)return;
+    graph.restoreCamera({x:node.x,y:node.y,zoom:camera.zoom});
+    destination=graph.noteViewportRect(id);
+  }
+  if(destination){
+    graph.showReturnCue(id);
+    playNoteTransition('close',destination);
+  }
+}
+function edit(id,returnToResults=null,searchTarget=null,navigation={}){
+  if(editorMerge)return editorMerge.then(()=>edit(id,returnToResults,searchTarget,navigation),()=>{});
   const record=byId(id);if(!record||editor||openingNote||lockScreen||!ready)return;
+  cancelNoteTransition();
+  const fromMap=navigation.fromMap && showingMap();
+  const mapVisit=fromMap?{space:library.active,camera:graph.captureCamera()}:navigation.mapVisit;
   routes?.reset();reading?.hide();
+  // A route can start flying back to its first view as it closes.
+  if(fromMap)graph.restoreCamera(mapVisit.camera);
   cancelTransfers();closeMenu();
-  openingNote=openRecord(record,returnToResults,searchTarget).finally(()=>{openingNote=null});
+  openingNote=openRecord(record,returnToResults,searchTarget,mapVisit,fromMap).finally(()=>{openingNote=null});
   return openingNote;
 }
-async function openRecord(record,returnToResults,searchTarget){
+async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
   const id=record.id;
   const fromTree=$('areas').contains(document.activeElement);
   const hiddenRouteFragments=new Map();
@@ -1281,6 +1309,8 @@ async function openRecord(record,returnToResults,searchTarget){
   chooseTool('select');selected=id;graph.select(id);record.opens=(record.opens||0)+1;dirty({notes:[record]});
   const backLabels={map:tr('К карте','Back to map'),list:tr('К списку','Back to list'),pinned:tr('К закреплённым','Back to pinned'),area:tr('К области','Back to area')};
   const saveStatus=createEditorSaveStatus();
+  const sameMap=()=>mapVisit && mapVisit.space===library.active && showingMap();
+  const source=fromMap && sameMap() && !lockScreen?graph.noteViewportRect(id):null;
   editor=openEditor({note:session.note,notes:workspace().notes,areas:workspace().areas,saveIndicator:saveStatus.element,
     textAreaDefaults:{style:library.view?.textAreaStyle,save(style){
       library.view={...library.view,textAreaStyle:style};dirty({settings:['view']})
@@ -1299,11 +1329,15 @@ async function openRecord(record,returnToResults,searchTarget){
       })().finally(()=>{notePrivacyChange=null});
       return notePrivacyChange;
     }:null,isProtected:()=>session.protected,
-    onClose:()=>{
+    onClose:reason=>{
+      cancelNoteTransition();
       saveStatus.close();editor=null;noteSession=null;$('shell').inert=!!editorMerge;syncIdle();
       if(lockScreen)return;
       render();
-      if(showingMap())graph.focus(id);
+      if(reason==='back' && showingMap() && !returnToResults && !closingApp){
+        if(sameMap())returnToMapNote(id,mapVisit.camera);
+        else if(!mapVisit)graph.focus(id);
+      }
       if(document.activeElement===document.body && !(fromTree && sidebarTree?.focusNote(id))){
         const row=listNoteRow(id);
         (showingMap()?$('graph'):row||$('new-note')).focus({preventScroll:true});
@@ -1311,14 +1345,16 @@ async function openRecord(record,returnToResults,searchTarget){
       flush().catch(reportWriteError);
       queueSync(100);
     },
-    onOpenNote:target=>edit(target,returnToResults)
+    onOpenNote:target=>edit(target,returnToResults,null,{mapVisit})
   });
   editor.saveStatus=saveStatus;
   if(storageState==='failed')saveStatus.failed();
   editor.returnToResults=returnToResults;
+  editor.mapVisit=mapVisit;
   syncMapVisibility();
   $('shell').inert=true;
   if(searchTarget)editor.revealSearchMatch(searchTarget);
+  if(source && !lockScreen)playNoteTransition('open',source,editor.element);
 }
 function addNote(pos=graph.worldCenter(),type='text',seat=null){
   if(!library.active)return;
@@ -1491,7 +1527,7 @@ function stageContext(id,index,anchor){
     }}
   ]);
 }
-function context(id,x,y,gridId=null){
+function context(id,x,y,gridId=null,openNote=edit){
   const n=byId(id);
   const gridArea=areaById(gridId);
   const sizeAction=gridArea?.grid?.stages?{icon:'sliders',name:tr('Настроить дорожку…','Stage track settings…'),run:()=>areaDialog(gridArea,{anchor:{x,y}})}:
@@ -1512,15 +1548,15 @@ function context(id,x,y,gridId=null){
       {icon:'trash',name:tr('Удалить выбранные заметки','Delete selected notes'),run:()=>removeNotes(ids)}]);return;
   }
   selected=id;graph.select(id);renderSelection();
-  menu({x,y},[{icon:isProtectedNote(n)?'lock':'edit',name:tr('Открыть заметку','Open note'),run:()=>edit(id)},
+  menu({x,y},[{icon:isProtectedNote(n)?'lock':'edit',name:tr('Открыть заметку','Open note'),run:()=>openNote(id)},
     ...(isProtectedNote(n)?[]:[{icon:'appearance',name:tr('Внешний вид','Appearance'),run:()=>appearance(n)},metricAction(n,'note',{x,y})]),{icon:inSlot(n)?'slots':'pin',name:pinLabel(n),run:()=>pin(n)},
     {icon:'link',name:tr('Связать с заметкой','Link to another note'),run:()=>chooseTool('link')},...(sizeAction?[sizeAction]:[]),null,{icon:'trash',name:tr('Удалить заметку','Delete note'),run:()=>removeNotes([id])}]);
 }
 function renderSelection(){
   const s=$('selection'),n=byId(selected);s.hidden=!n||tool==='link';
-  if(n)s.replaceChildren(element('strong','',noteTitle(n)),iconButton(isProtectedNote(n)?'lock':'edit',tr('Открыть заметку','Open note'),()=>edit(n.id)),
+  if(n)s.replaceChildren(element('strong','',noteTitle(n)),iconButton(isProtectedNote(n)?'lock':'edit',tr('Открыть заметку','Open note'),()=>editFromMap(n.id)),
     ...(isProtectedNote(n)?[]:[iconButton('appearance',tr('Внешний вид','Appearance'),()=>appearance(n))]),iconButton(inSlot(n)?'slots':'pin',pinLabel(n),()=>pin(n)),iconButton('more',tr('Действия','More actions'),e=>{
-      const r=e.currentTarget.getBoundingClientRect();context(n.id,r.left,r.top-175);
+      const r=e.currentTarget.getBoundingClientRect();context(n.id,r.left,r.top-175,null,editFromMap);
     }));
 }
 function listNoteRow(id){
@@ -1764,7 +1800,7 @@ async function search(initialState={},onDismiss){
   const lifetime=new AbortController();
   searchLifetime=lifetime;
   const origin=editor,originId=selected;
-  const returnToOrigin=origin?edit.bind(null,originId,origin.returnToResults):onDismiss;
+  const returnToOrigin=origin?edit.bind(null,originId,origin.returnToResults,null,{mapVisit:origin.mapVisit}):onDismiss;
   closeMenu();
   try{
     const {openSearch}=await import('./search.js');
@@ -1882,7 +1918,7 @@ function bindUI(){
     if(!showingMap())return;
     if(e.code==='KeyF')graph.fit();
     if(['KeyV','KeyH','KeyL'].includes(e.code)){chooseTool({KeyV:'select',KeyH:'hand',KeyL:'link'}[e.code]);renderSelection()}
-    if(e.key==='Enter'&&e.target===$('graph')&&selected)edit(selected);
+    if(e.key==='Enter'&&e.target===$('graph')&&selected)editFromMap(selected);
   });
 }
 async function loadDesktopLibrary(){
@@ -1985,7 +2021,7 @@ async function init(){
   });
   const stage=$('map-stage');
   reading=mountMapReading({stage,getNote:byId,getMetric:id=>mapMetrics?.notes.get(id),isActive:()=>ready && showingMap() && !lockScreen && !editor && !openingNote && !routes?.isEditing(),
-    onChange:note=>dirty({notes:[note]}),onOpen:(id,target)=>edit(id,null,target)});
+    onChange:note=>dirty({notes:[note]}),onOpen:editFromMap});
   routes=mountMapRoutes({stage,getSpace:workspace,getFragments:readingFragments,onChange:()=>dirty({meta:true}),
     onVisit:(id,fragment)=>{
       const node=graph.nodes.get(id);if(!node)return;
@@ -2003,7 +2039,8 @@ async function init(){
     areaDialog(area,{anchor,stageIndex});
   };
   stageControls=mountStageControls({canvas:$('graph'),onEdit:editMapGrid,onInsert:insertMapStage});
-  graph=new Graph($('graph'),{onSelect:id=>{selected=id;renderSelection()},onAreaAction:pickForNotes,onOpen:edit,onLink:linkClick,onContext:context,
+  graph=new Graph($('graph'),{onSelect:id=>{selected=id;renderSelection()},onAreaAction:pickForNotes,onOpen:editFromMap,onLink:linkClick,
+    onContext:(id,x,y,gridId)=>context(id,x,y,gridId,editFromMap),
     onEditStage:(id,col,anchor)=>editMapGrid(id,anchor,col),
     onStageContext:stageContext,
     onStageReorder:(id,from,to)=>{
