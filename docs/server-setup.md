@@ -8,7 +8,7 @@ To keep note contents private from the server, enable folder encryption when cre
 
 ## Install on Linux
 
-Use a Linux VPS or a home virtual machine running systemd, such as Debian or Ubuntu Server. Run `uname -m` to check its architecture. Download the **amd64** archive for `x86_64` or **arm64** for `aarch64`. Extract the archive on the server and change to the directory containing `install.sh` and `videron-sync`.
+Use a Linux VPS or a home virtual machine running systemd, such as Debian or Ubuntu Server. Run `uname -m` to check its architecture. Download the matching archive and extract it on the server, then change to the directory containing `install.sh` and `videron-sync`. [Linux x86_64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-linux-amd64.tar.gz) · [Linux aarch64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-linux-arm64.tar.gz)
 
 Pass the address your computers will use to reach the server. Replace the example domain with your own domain or public IP address.
 
@@ -19,6 +19,24 @@ sudo ./install.sh sync.example.net
 On the first installation, enter and confirm a server password in the terminal. The `videron-sync` service starts at boot under a dedicated user account and listens on **TCP port 8743**. Give the address and password to the people who need access. After verification, Videron remembers the server identity and stores the credentials for subsequent syncs.
 
 **On a VPS**, use its public IP address or a domain that resolves to that address. Allow incoming traffic on **TCP port 8743** in both the provider's firewall and the active Linux firewall. For UFW, run `sudo ufw allow 8743/tcp`.
+
+## Run on Windows or macOS
+
+**Windows.** Download the server EXE for your processor. Rename it to `videron-sync.exe` and open PowerShell in that folder. [Windows x64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-windows-amd64.exe) · [Windows ARM64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-windows-arm64.exe)
+
+```powershell
+.\videron-sync.exe -set-password
+.\videron-sync.exe -public sync.example.net
+```
+
+**macOS.** Extract the server archive and open Terminal in the folder containing `videron-sync`. The same download works on Apple silicon and Intel. [Download for macOS](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-macOS-universal.tar.gz)
+
+```sh
+./videron-sync -set-password
+./videron-sync -public sync.example.net
+```
+
+Run the first command once to set the server password. For each start, run the second command with your own domain or IP address. The server listens on TCP port 8743 while the terminal is open. Press Ctrl+C to stop it. Its default data folder is `%AppData%\VideronSync` on Windows and `~/Library/Application Support/VideronSync` on macOS.
 
 ## Choose what a browser displays
 

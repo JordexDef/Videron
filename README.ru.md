@@ -6,7 +6,19 @@
 
 ![Демонстрационная карта Videron с заметками, связями и областями](docs/media/videron-map.ru.png)
 
-[Скачать для Windows](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1.exe) · [Скачать для macOS](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-macOS.dmg) · [Все сборки](https://github.com/JordexDef/Videron/releases)
+## Скачать Videron 0.48.1
+
+Для работы с заметками скачайте приложение. Videron Sync понадобится, если вы хотите разместить собственный сервер.
+
+| Система | Приложение | Сервер Videron Sync |
+| --- | --- | --- |
+| Windows | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-windows-arm64.exe) | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-windows-amd64.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-windows-arm64.exe) |
+| macOS | [DMG для Apple silicon и Intel](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-macOS.dmg) | [Архив для Apple silicon и Intel](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-macOS-universal.tar.gz) |
+| Linux | [x64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-linux-arm64.tar.gz) | [x64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-linux-arm64.tar.gz) |
+
+В Windows запустите EXE приложения. На Mac откройте DMG и перетащите Videron в «Программы». На Linux распакуйте архив приложения и запустите `./Videron` из распакованной папки. Сборки для Linux рассчитаны на Ubuntu 24.04 с GTK 3 и WebKitGTK 4.1. Если WebKitGTK отсутствует, установите его командой `sudo apt install libwebkit2gtk-4.1-0`.
+
+[Установка сервера](docs/server-setup.ru.md) · [Примечания к выпуску и контрольные суммы](https://github.com/JordexDef/Videron/releases/tag/v0.48.1)
 
 ## Что можно делать
 
@@ -36,7 +48,7 @@ Videron шифрует данные алгоритмом AES-256-GCM, а клю�
 
 ## Сборка приложения
 
-Понадобится Go 1.26.11 или новее. В Windows для запуска нужен Microsoft Edge WebView2 Runtime. На Mac установите Xcode Command Line Tools командой `xcode-select --install`, если их ещё нет.
+Для сборки из исходников понадобится Go 1.26.11 или новее. В Windows для запуска нужен Microsoft Edge WebView2 Runtime. На Mac установите Xcode Command Line Tools командой `xcode-select --install`, если их ещё нет.
 
 В каталоге с `go.mod` выполните команду сборки для своей ОС. Go загрузит Wails и зависимости при первом запуске. Интерфейс, шрифты и иконки уже входят в исходники.
 
@@ -44,22 +56,22 @@ Videron шифрует данные алгоритмом AES-256-GCM, а клю�
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -s -skipbindings -trimpath
 ```
 
+В Ubuntu 24.04 для сборки с WebKitGTK 4.1 выполните команды ниже.
+
+```sh
+sudo apt install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+go run -tags webkit2_41 github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -tags webkit2_41 -s -skipbindings -trimpath
+```
+
 | Система | Запуск после сборки |
 | --- | --- |
 | Windows · PowerShell | `.\build\bin\Videron.exe` |
 | macOS · Terminal | `open build/bin/Videron.app` |
+| Linux · Терминал | `./build/bin/Videron` |
 
 ## Свой сервер
 
-Videron Sync — отдельное приложение, которое может обслуживать несколько проектов на домашней машине или VPS.
-
-Команда собирает сервер на Linux и кладёт его рядом с установщиком.
-
-```sh
-go build -trimpath -o deploy/linux/videron-sync ./cmd/videron-sync
-```
-
-При первой установке Videron Sync предложит задать пароль для подключения клиентов. [Установка, подключение и резервные копии](docs/server-setup.ru.md)
+Скачайте Videron Sync для компьютера, на котором хотите хранить проекты. На Linux с systemd распакуйте архив сервера и выполните `sudo ./install.sh sync.example.net`, заменив пример домена своим адресом. Установщик попросит задать пароль и запустит службу. На Windows и macOS сервер можно запустить из терминала. [Установка, подключение и резервные копии](docs/server-setup.ru.md)
 
 ## Руководство
 

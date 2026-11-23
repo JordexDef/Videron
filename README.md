@@ -6,7 +6,19 @@ Videron is a local-first desktop app for keeping notes on a map. The size of eac
 
 ![Videron's demo map with linked notes grouped into three areas and a note tree in the sidebar](docs/media/videron-map.png)
 
-[Download for Windows](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1.exe) · [Download for macOS](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-macOS.dmg) · [All releases](https://github.com/JordexDef/Videron/releases)
+## Download Videron 0.48.1
+
+Download the desktop app to work with your notes. Choose Videron Sync if you want to host your own server.
+
+| System | Desktop app | Videron Sync server |
+| --- | --- | --- |
+| Windows | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-windows-arm64.exe) | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-windows-amd64.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-windows-arm64.exe) |
+| macOS | [DMG for Apple silicon and Intel](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-macOS.dmg) | [Archive for Apple silicon and Intel](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-macOS-universal.tar.gz) |
+| Linux | [x64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-linux-arm64.tar.gz) | [x64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-linux-arm64.tar.gz) |
+
+On Windows, run the desktop EXE. On macOS, open the DMG and drag Videron into Applications. On Linux, extract the desktop archive and run `./Videron` from that folder. The Linux builds target Ubuntu 24.04 with GTK 3 and WebKitGTK 4.1. If WebKitGTK is missing, install the runtime with `sudo apt install libwebkit2gtk-4.1-0`.
+
+[Server setup](docs/server-setup.md) · [Release notes and checksums](https://github.com/JordexDef/Videron/releases/tag/v0.48.1)
 
 ## Working with notes
 
@@ -36,7 +48,7 @@ The server password grants access to the projects on that server. In an unencryp
 
 ## Build the desktop app
 
-Install Go 1.26.11 or later. Windows needs the Microsoft Edge WebView2 Runtime. On macOS, install the Xcode Command Line Tools with `xcode-select --install` if you don't already have them.
+To build from source, install Go 1.26.11 or later. Windows needs the Microsoft Edge WebView2 Runtime. On macOS, install the Xcode Command Line Tools with `xcode-select --install` if you don't already have them.
 
 Run the following command from the directory containing `go.mod`. Go downloads Wails and its dependencies on the first build. The frontend, fonts, and icons are included in the repository.
 
@@ -44,22 +56,22 @@ Run the following command from the directory containing `go.mod`. Go downloads W
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -s -skipbindings -trimpath
 ```
 
+On Ubuntu 24.04, build against WebKitGTK 4.1 with these commands.
+
+```sh
+sudo apt install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+go run -tags webkit2_41 github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -tags webkit2_41 -s -skipbindings -trimpath
+```
+
 | System | Launch the app |
 | --- | --- |
 | Windows · PowerShell | `.\build\bin\Videron.exe` |
 | macOS · Terminal | `open build/bin/Videron.app` |
+| Linux · Terminal | `./build/bin/Videron` |
 
 ## Run your own sync server
 
-Videron Sync is a separate program that can host multiple projects on a home server or a VPS.
-
-To build the server on Linux, run this command from the repository root. It places the binary next to the installer.
-
-```sh
-go build -trimpath -o deploy/linux/videron-sync ./cmd/videron-sync
-```
-
-The installer asks you to set a server password the first time you run it. [Server setup, backups, and updates](docs/server-setup.md)
+Download Videron Sync for the computer that will host your projects. On Linux with systemd, unpack the server archive and run `sudo ./install.sh sync.example.net`, replacing the example domain with your address. The installer asks for a server password and starts the service. On Windows and macOS, you can run the server from a terminal. [Server setup, backups, and updates](docs/server-setup.md)
 
 ## User guide
 
