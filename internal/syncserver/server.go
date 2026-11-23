@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -137,6 +138,18 @@ func RunWithInput(args []string, stdin io.Reader, stdout, stderr io.Writer) erro
 		return err
 	}
 	defer root.Close()
+	opened, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(info, opened) {
+		return errors.New("data directory changed while opening")
+	}
+	// Windows reports synthetic permission bits. On Unix, write access to
+	// the directory allows replacement of even a mode-0600 identity file.
+	if runtime.GOOS != "windows" && opened.Mode().Perm()&0022 != 0 {
+		return errors.New("data directory is writable by other users. Set its permissions to 0700 before using it")
+	}
 	if !*pair && !*status {
 		lock, err := lockServer(root)
 		if err != nil {

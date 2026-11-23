@@ -111,6 +111,33 @@ func TestPasswordSetupAndRotation(t *testing.T) {
 	}
 }
 
+func TestBearerRequiresOneNonemptyCredential(t *testing.T) {
+	h := &service{store: openTestStore(t, testRoot(t)), token: newBearer(), enrollment: &enrollment{token: newBearer()}}
+	for _, headers := range [][]string{
+		{"Bearer " + h.token, "Bearer " + h.enrollment.token},
+		{"Bearer " + h.enrollment.token, ""},
+		{"Bearer " + h.token + ", Bearer " + h.enrollment.token},
+	} {
+		r := httptest.NewRequest("GET", "https://host/v1/index", nil)
+		for _, header := range headers {
+			r.Header.Add("Authorization", header)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatal("ambiguous credentials accepted", w.Code)
+		}
+	}
+	h.token, h.enrollment.token = "", ""
+	r := httptest.NewRequest("GET", "https://host/v1/index", nil)
+	r.Header.Set("Authorization", "Bearer ")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatal("empty configured credentials accepted", w.Code)
+	}
+}
+
 func TestEnrollmentChecksPasswordPinAndSingleUseProof(t *testing.T) {
 	dir := t.TempDir()
 	const password = " a single server password "
@@ -141,6 +168,9 @@ func TestEnrollmentChecksPasswordPinAndSingleUseProof(t *testing.T) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
 		return w
+	}
+	if w := post("finish", authMessage{}); w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), enroll.token) {
+		t.Fatal("password enrollment issued a credential without a pending challenge")
 	}
 	start := func(pw, pin string) (authMessage, error) {
 		t.Helper()

@@ -94,7 +94,7 @@ sudo journalctl -u videron-sync -n 30
 To change the server password, run `sudo ./install.sh --change-password` from the extracted archive. This revokes access for previously connected devices, including devices paired by code. Reconnect them with the new credentials. When you first enable a password on an older server, its existing connections retain access. For a legacy client, you can display the current pairing code in a private terminal.
 
 ```sh
-sudo /usr/local/bin/videron-sync -pair -public sync.example.net -data /var/lib/videron-sync
+sudo -u videron-sync /usr/local/bin/videron-sync -pair -public sync.example.net -data /var/lib/videron-sync
 ```
 
 To make a backup, stop the service with `sudo systemctl stop videron-sync`, copy the entire `/var/lib/videron-sync` directory with its permissions intact, and restart it with `sudo systemctl start videron-sync`. The backup contains `identity.json`, which holds the private key and pairing secret.

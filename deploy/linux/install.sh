@@ -69,13 +69,13 @@ cleanup() {
 }
 trap cleanup EXIT
 install -m 0755 "$src/videron-sync" "$temp_bin"
-"$temp_bin" -help >/dev/null 2>&1 || die "Cannot run the server. Check the archive architecture."
 
 getent group "$service" >/dev/null || groupadd --system "$service"
 if ! id "$service" >/dev/null 2>&1; then
     useradd --system --gid "$service" --home-dir "$state" --no-create-home --shell /usr/sbin/nologin "$service"
 fi
 [ "$(id -u "$service")" -ne 0 ] || die "The service account must be unprivileged."
+runuser -u "$service" -- "$temp_bin" -help >/dev/null 2>&1 || die "Cannot run the server. Check the archive architecture."
 install -d -m 0700 -o "$service" -g "$service" "$state"
 configured=$(runuser -u "$service" -- "$temp_bin" -password-status -data "$state")
 if [ "$configured" = unset ] || [ "$change_password" -eq 1 ]; then

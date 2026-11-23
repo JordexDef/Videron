@@ -88,12 +88,7 @@ func (h *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	authorization := []byte(r.Header.Get("Authorization"))
-	authorized := subtle.ConstantTimeCompare(authorization, []byte("Bearer "+h.token))
-	if h.enrollment != nil {
-		authorized |= subtle.ConstantTimeCompare(authorization, []byte("Bearer "+h.enrollment.token))
-	}
-	if authorized != 1 {
+	if !h.authorized(r.Header.Values("Authorization")) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="Videron"`)
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
@@ -232,6 +227,22 @@ func (h *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.get(w, r, t)
 		}
 	}
+}
+
+func (h *service) authorized(headers []string) bool {
+	if len(headers) != 1 {
+		return false
+	}
+	bearer, ok := strings.CutPrefix(headers[0], "Bearer ")
+	if !ok || bearer == "" {
+		return false
+	}
+	token := []byte(bearer)
+	match := subtle.ConstantTimeCompare(token, []byte(h.token))
+	if h.enrollment != nil {
+		match |= subtle.ConstantTimeCompare(token, []byte(h.enrollment.token))
+	}
+	return match == 1
 }
 
 // A named URL also scopes requests sent during a downgrade: a legacy server

@@ -14,6 +14,72 @@ import (
 	"time"
 )
 
+func TestProtectedRoutesRequireCredentials(t *testing.T) {
+	catalog, err := openProjectCatalog(testRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer catalog.close()
+	named := projectInfo{strings.Repeat("a", 64), "Personal"}
+	if status, err := catalog.create(named); err != nil || status != http.StatusCreated {
+		t.Fatal("create named project", status, err)
+	}
+	retired := projectInfo{strings.Repeat("b", 64), "Retired"}
+	if status, err := catalog.create(retired); err != nil || status != http.StatusCreated {
+		t.Fatal("create project to retire", status, err)
+	}
+	if status, err := catalog.remove(retired.ID, retired.Name); err != nil || status != http.StatusNoContent {
+		t.Fatal("retire project", status, err)
+	}
+	h := &service{projects: catalog, token: newBearer(), enrollment: &enrollment{token: newBearer()}}
+	check := func(method, path, scope, body string) {
+		t.Helper()
+		r := httptest.NewRequest(method, "https://host"+path, strings.NewReader(body))
+		if scope != "" {
+			r.Header.Set("X-Videron-Project", scope)
+		}
+		if method == http.MethodPut {
+			r.Header.Set("X-Videron-Lineage", named.ID)
+			r.Header.Set("If-None-Match", "*")
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusUnauthorized || w.Body.String() != "authentication required\n" ||
+			w.Header().Get("WWW-Authenticate") == "" || w.Header().Get("X-Videron-Project") != "" ||
+			w.Header().Get("X-Videron-Project-Deleted") != "" || w.Header().Get("ETag") != "" {
+			t.Errorf("%s %s exposed protected response: %d", method, path, w.Code)
+		}
+	}
+	check("GET", "/v1/projects?version=2", "", "")
+	creation, err := json.Marshal(projectInfo{strings.Repeat("c", 64), "New"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("POST", "/v1/projects", "", string(creation))
+	check("PATCH", "/v1/projects/default", "", `{"expectedName":"","name":"Changed"}`)
+	check("DELETE", "/v1/projects/default", "", `{"expectedName":""}`)
+	check("PATCH", "/v1/projects/"+named.ID, "", `{"expectedName":"Personal","name":"Changed"}`)
+	check("DELETE", "/v1/projects/"+named.ID, "", `{"expectedName":"Personal"}`)
+	check("GET", "/v1/projects/"+retired.ID+"/index", "", "")
+	check("GET", "/v1/projects/"+strings.Repeat("d", 64)+"/index", "", "")
+	file := "/file?path=.videron-sync/" + named.ID + "/objects/" + named.ID + ".json"
+	for _, target := range []struct{ prefix, scope string }{{"/v1", ""}, {"/v1", named.ID}, {"/v1/projects/" + named.ID, ""}} {
+		for _, route := range []string{"/index", "/events", "/main", file} {
+			check("GET", target.prefix+route, target.scope, "")
+		}
+		for _, route := range []string{"/main", file} {
+			check("PUT", target.prefix+route, target.scope, "record")
+		}
+	}
+	items, err := catalog.list(false)
+	if err != nil || len(items) != 2 || items[0] != (projectInfo{}) || items[1] != named || len(catalog.retired) != 1 {
+		t.Fatalf("unauthenticated request changed catalog: %v, %v", items, err)
+	}
+	if catalog.entries[""].data != nil || catalog.entries[named.ID].data != nil {
+		t.Fatal("unauthenticated request opened a project store")
+	}
+}
+
 func TestProjectCatalogAndReplication(t *testing.T) {
 	root := testRoot(t)
 	newService := func() *service {

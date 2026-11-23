@@ -94,7 +94,7 @@ sudo journalctl -u videron-sync -n 30
 Для смены пароля запустите `sudo ./install.sh --change-password` из распакованного архива. Смена пароля отзывает доступ у ранее подключённых устройств, включая подключённые по коду. Подключите их повторно. При первом включении пароля на сервере старой версии его действующие подключения сохраняются. Для старого клиента можно вывести действующий код в приватном терминале.
 
 ```sh
-sudo /usr/local/bin/videron-sync -pair -public sync.example.net -data /var/lib/videron-sync
+sudo -u videron-sync /usr/local/bin/videron-sync -pair -public sync.example.net -data /var/lib/videron-sync
 ```
 
 Для резервной копии остановите службу через `sudo systemctl stop videron-sync`, скопируйте весь каталог `/var/lib/videron-sync` с сохранением прав и верните службу командой `sudo systemctl start videron-sync`. В копию входит `identity.json` с закрытым ключом и секретом подключения.
