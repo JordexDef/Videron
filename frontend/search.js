@@ -55,12 +55,14 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
   if(area.selectedIndex<0)area.selectedIndex=0
   options.append(toggle('regex','.*  Regex',tr('Регулярное выражение','Regular expression')),toggle('exactCase','Aa',tr('Учитывать регистр','Match case')),toggle('pinned',tr('Закреплённые','Pinned'),tr('Только закреплённые','Pinned only')),area)
   const status=el('div','vs-status'), results=el('div','results vs-results')
-  status.setAttribute('role','status')
+  const announcement=el('div','vs-announcement')
+  announcement.setAttribute('role','status')
+  status.setAttribute('aria-hidden','true')
   results.id='vs-search-results';results.setAttribute('role','listbox')
   results.setAttribute('aria-label',tr('Результаты поиска','Search results'))
   const more=el('button','option vs-more',tr('Показать ещё','Show more'))
   more.hidden=true;more.type='button'
-  panel.append(heading,queryRow,options,status,results,more);shade.append(panel);document.body.append(shade)
+  panel.append(heading,queryRow,options,status,results,more,announcement);shade.append(panel);document.body.append(shade)
   const background=document.querySelector('.vd-editor')||document.getElementById('shell')
   if(background)background.inert=true
   const byId=new Map(notes.map(n=>[n.id,n]))
@@ -75,6 +77,7 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
     else if(titleAreas.get(title)!==id)ambiguousTitles.add(title)
   }
   let worker, blobURL, timer, limitTimer, busy=false, closed=false, serial=0, list=[], shown=0, active=-1
+  let pendingTimer, announcementTimer
   let useModule=false, unavailable=false, openWhenReady=false
   function stopWorker(){
     worker?.terminate();worker=null;busy=false
@@ -84,7 +87,7 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
   function interrupt(){close(false)}
   function close(restoreFocus=true){
     if(closed)return
-    closed=true;clearTimeout(timer);stopWorker();shade.remove()
+    closed=true;clearTimeout(timer);clearTimeout(pendingTimer);clearTimeout(announcementTimer);stopWorker();shade.remove()
     signal?.removeEventListener('abort',interrupt)
     source.length=0;byId.clear();list=[];query.value='';results.replaceChildren()
     if(background)background.inert=false
@@ -133,14 +136,24 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
       query.setAttribute('aria-activedescendant',current.id)
     }else query.removeAttribute('aria-activedescendant')
   }
+  function showStatus(message,state){
+    status.dataset.state=state
+    if(status.textContent!==message)status.textContent=message
+    clearTimeout(announcementTimer)
+    // Wait for typing to pause before announcing the current status.
+    announcementTimer=setTimeout(()=>{
+      if(announcement.textContent!==message)announcement.textContent=message
+    },400)
+  }
   function display(response){
+    clearTimeout(pendingTimer)
     const openFirst=openWhenReady && document.activeElement===query
     openWhenReady=false
     list=response.matches||[];shown=0;mark(-1);results.replaceChildren();more.hidden=true
     results.inert=false;results.removeAttribute('aria-busy')
-    if(response.error){status.textContent=response.error;status.classList.add('vs-error');return}
-    status.classList.remove('vs-error')
-    status.textContent=list.length?tr('Найдено заметок · ','Notes found · ')+list.length.toLocaleString(getLanguage()):(source.length?tr('Совпадений нет','No matches'):tr('В этом пространстве пока нет заметок','This workspace has no notes yet'))
+    if(response.error){showStatus(response.error,'error');return}
+    const summary=list.length?tr('Найдено заметок · ','Notes found · ')+list.length.toLocaleString(getLanguage()):(source.length?tr('Совпадений нет','No matches'):tr('В этом пространстве пока нет заметок','This workspace has no notes yet'))
+    showStatus(summary,'ready')
     appendPage()
     if(list.length){
       const index=restoreId?list.findIndex(match=>match.id===restoreId):-1
@@ -212,7 +225,13 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
     if(limitTimer!=null)stopWorker()
     list=[];shown=0;mark(-1);more.hidden=true
     results.inert=true;results.setAttribute('aria-busy','true')
-    status.classList.remove('vs-error');status.textContent=tr('Поиск…','Searching…')
+    clearTimeout(pendingTimer);clearTimeout(announcementTimer)
+    pendingTimer=setTimeout(()=>{
+      const message=results.childElementCount
+        ? tr('Идёт поиск · показаны предыдущие результаты','Searching · showing previous results')
+        : tr('Поиск…','Searching…')
+      showStatus(message,'pending')
+    },250)
     timer=setTimeout(()=>{timer=null;lookup()},delay)
   }
   area.onchange=()=>schedule(0);query.oninput=()=>schedule(50);query.onblur=()=>{openWhenReady=false}
@@ -244,6 +263,8 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
     }
   }
   signal?.addEventListener('abort',interrupt,{once:true})
-  query.focus();query.select();lookup()
+  query.focus();query.select()
+  if(query.value)schedule(0)
+  else lookup()
   return dismiss
 }

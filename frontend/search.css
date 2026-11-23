@@ -10,7 +10,18 @@
 .vs-escape { padding: 3px 6px; border: 1px solid #434343; border-radius: 4px; color: var(--muted); font: 11px var(--mono); }
 .vs-area { justify-self: end; color-scheme: dark; min-width: 0; max-width: 100%; }
 .vs-status { min-height: 29px; padding-top: 7px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
-.vs-error { color: #e0b19f; overflow-wrap: anywhere; }
+.vs-announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.vs-status[data-state="error"] { color: #e0b19f; overflow-wrap: anywhere; }
+.vs-status[data-state="pending"]::before {
+  content: ""; display: inline-block; width: 10px; height: 10px; margin-inline-end: 6px;
+  border: 1.5px solid var(--border); border-top-color: currentColor; border-right-color: currentColor;
+  border-radius: 50%; vertical-align: -1px;
+}
+.vs-status[data-state="pending"] + .vs-results { opacity: .55; }
+@media (prefers-reduced-motion: no-preference) {
+  .vs-status[data-state="pending"]::before { animation: vs-search-spin .9s linear infinite; }
+  @keyframes vs-search-spin { to { transform: rotate(360deg); } }
+}
 .vs-results .vs-active { background: #2e2e2e; }
 .vs-result-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
 .vs-result-heading strong { min-width: 0; }

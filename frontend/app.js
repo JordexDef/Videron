@@ -22,7 +22,7 @@ import { compareIncoming, commitIncoming, commitPreparedMerge, preservesOpenNote
 import { openWorkspaceConflicts, dismissWorkspaceConflicts } from './workspace-conflicts.js';
 import { openWorkspaceServer, dismissWorkspaceServer } from './workspace-server-ui.js';
 import { rememberServerAddress } from './server-address.js';
-import { mountWorkspaceStatus } from './workspace-status.js';
+import { createEditorSaveStatus, mountWorkspaceStatus } from './workspace-status.js';
 import { bindStaticTranslations, getLanguage, setLanguage, tr } from './i18n.js';
 import { deleteNotes } from './note-deletion.js';
 import { isProtectedNote, protectedNoteTitle, openNoteSession } from './note-vault.js';
@@ -52,7 +52,7 @@ function button(text,action,style='secondary'){
   const b=element('button','button '+style,text);b.onclick=action;return b;
 }
 const noteTitle=n=>isProtectedNote(n)?protectedNoteTitle():n.title.trim()||tr('Без названия','Untitled');
-let library=newLibrary(), page='map', currentArea=null, selected=null, editor=null, tool='select', linkSource=null;
+let library=newLibrary(), page='map', currentArea=null, selected=null, editor=null, tool='select';
 let graph, areaDrag, native, ready=false, revision=0, saved=0, pending=null, timer, dirtySince=0, toastTimer, popover=null;
 let reading,routes,mapMetrics,routeCamera,stageControls;
 let noteSession=null, openingNote=null, projectProtected=false, policyWrite=null;
@@ -103,6 +103,7 @@ const storageIndicator=mountWorkspaceStatus({
 });
 function status(state=storageState){
   storageState=state;
+  if(state==='failed')editor?.saveStatus.failed();
   const session=folderSession, connection=session?.connection;
   const error=session?.serverError;
   let connectionState='local';
@@ -175,7 +176,7 @@ function dirty(scope){
   timer=setTimeout(()=>flush().catch(reportWriteError),Math.min(320,Math.max(0,1400-(now-dirtySince))));
 }
 function reportWriteError(error){
-  status('failed');
+  if(storageState!=='failed')status('failed');
   notify(tr('Не удалось сохранить изменения. ','Could not save your changes. ')+storageErrorMessage(error));
 }
 function acknowledgeCatalog(snapshot,catalog){
@@ -222,13 +223,14 @@ function flush(){
   pending=(async()=>{
     while(saved<revision){
       const latest=revision;
+      editor?.saveStatus.writing();
       await noteSession?.flush();
       if(await saveSpaceFolder(native,folderSession))branchSaved(folderSession);
       await writeCatalog(library);
       saved=latest;
     }
-    status('local');
-  })().finally(()=>{pending=null});
+    editor?.saveStatus.saved();status('local');
+  })().catch(error=>{status('failed');throw error}).finally(()=>{pending=null});
   return pending;
 }
 
@@ -1278,13 +1280,14 @@ async function openRecord(record,returnToResults,searchTarget){
   syncIdle();
   chooseTool('select');selected=id;graph.select(id);record.opens=(record.opens||0)+1;dirty({notes:[record]});
   const backLabels={map:tr('К карте','Back to map'),list:tr('К списку','Back to list'),pinned:tr('К закреплённым','Back to pinned'),area:tr('К области','Back to area')};
-  editor=openEditor({note:session.note,notes:workspace().notes,areas:workspace().areas,
+  const saveStatus=createEditorSaveStatus();
+  editor=openEditor({note:session.note,notes:workspace().notes,areas:workspace().areas,saveIndicator:saveStatus.element,
     textAreaDefaults:{style:library.view?.textAreaStyle,save(style){
       library.view={...library.view,textAreaStyle:style};dirty({settings:['view']})
     }},
     backLabel:returnToResults?tr('К результатам','Back to results'):backLabels[page],
     onReturn:returnToResults,onSearch:()=>search(),
-    onChange:session.changed,beforeClose:session.beforeClose,
+    onChange:patch=>{session.changed(patch);saveStatus.edited()},beforeClose:session.beforeClose,
     manageProtection:native?()=>{
       if(notePrivacyChange)return notePrivacyChange;
       // A concurrent merge may introduce new route stops. Finish applying
@@ -1297,7 +1300,7 @@ async function openRecord(record,returnToResults,searchTarget){
       return notePrivacyChange;
     }:null,isProtected:()=>session.protected,
     onClose:()=>{
-      editor=null;noteSession=null;$('shell').inert=!!editorMerge;syncIdle();
+      saveStatus.close();editor=null;noteSession=null;$('shell').inert=!!editorMerge;syncIdle();
       if(lockScreen)return;
       render();
       if(showingMap())graph.focus(id);
@@ -1310,6 +1313,8 @@ async function openRecord(record,returnToResults,searchTarget){
     },
     onOpenNote:target=>edit(target,returnToResults)
   });
+  editor.saveStatus=saveStatus;
+  if(storageState==='failed')saveStatus.failed();
   editor.returnToResults=returnToResults;
   syncMapVisibility();
   $('shell').inert=true;
@@ -1344,17 +1349,25 @@ function chooseTool(next){
     graph.select(source);
     graph.fit();
   }
-  tool=next;linkSource=next==='link'?selected:null;graph?.setTool(next==='hand'?'hand':'select');graph?.setLinkMode(next==='link');
+  tool=next;graph?.setTool(next==='hand'?'hand':'select');graph?.setLinkMode(next==='link',selected);
   $('map-stage').querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active',b.dataset.tool===next));
   renderLinkHint();
   renderSelection();
 }
 function renderLinkHint(){
-  const bar=$('link-message');bar.hidden=tool!=='link';
-  if(!bar.hidden)bar.replaceChildren(element('span','',linkSource?tr('Выберите вторую заметку','Select the second note'):tr('Выберите первую заметку','Select the first note')),iconButton('x',tr('Отменить связь','Cancel linking'),()=>chooseTool('select')));
+  const bar=$('link-message'),hint=$('link-hint');
+  bar.hidden=tool!=='link';
+  let message='';
+  if(!bar.hidden){
+    const source=byId(graph.linkSource);
+    message=source ? tr('Выберите заметку для связи с «','Select a note to link with “')+noteTitle(source)+tr('»','”')
+      : tr('Выберите первую заметку','Select the first note');
+  }
+  if(hint.textContent!==message)hint.textContent=hint.title=message;
 }
 function linkClick(id){
-  if(!linkSource){selected=id;graph.select(id);chooseTool('link');renderSelection();return}
+  const linkSource=graph.linkSource;
+  if(!linkSource){selected=id;graph.select(id);chooseTool('link');return}
   if(linkSource===id)return;
   const a=byId(linkSource),b=byId(id);if(!a||!b)return;
   if(a.links.includes(id)||b.links.includes(a.id))notify(tr('Заметки уже связаны вручную.','These notes already have a manual link.'));
@@ -1734,6 +1747,7 @@ function render(){
   $('routes').hidden=!map;
   mapMetrics=map && !lockScreen?resolveMapMetrics(workspace()):null;
   graph.setView(library.view);graph.setData(notes.map(mapNote),areas);
+  if(tool==='link')renderLinkHint();
   reading?.invalidate();routes?.refresh();
   if(selected || (!graph.selectedGridId && graph.selectedIds.size<2))graph.select(selected);
   $('empty').hidden=!map||notes.length>0||areas.length>0;$('try-demo').hidden=library.active==='demo'||!!library.demoHidden;
@@ -1799,7 +1813,7 @@ function bindUI(){
     const persisted=setLanguage(e.target.value);
     translateStatic();closeMenu();$('toast').hidden=true;
     if(translateDemoSamples(library.spaces.demo))dirty({spaceId:'demo',all:true});
-    status();updateSidebarToggle();renderLinkHint();render();
+    status();updateSidebarToggle();render();
     if(!persisted)notify(tr('Выбор языка действует до закрытия окна.','Your language choice will last until this window closes.'));
   };
   $('workspace-switch').onclick=e=>spaceMenu(e.currentTarget);
@@ -1812,6 +1826,7 @@ function bindUI(){
   $('new-canvas').onclick=()=>addNote(graph.worldCenter(),'canvas');
   $('new-data').onclick=()=>addNote(graph.worldCenter(),'data');
   $('routes').onclick=e=>{closeMenu();if(tool!=='select')chooseTool('select');routes.open(e.currentTarget)};
+  $('cancel-link').onclick=()=>chooseTool('select');
   $('plus').onclick=()=>graph.zoomBy(1.2);$('minus').onclick=()=>graph.zoomBy(1/1.2);
   $('actual-size').onclick=()=>graph.zoomBy(1/graph.zoom);$('fit').onclick=()=>graph.fit();
   $('map-stage').querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{chooseTool(tool==='link'&&b.dataset.tool==='link'?'select':b.dataset.tool);renderSelection()});

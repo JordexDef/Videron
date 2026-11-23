@@ -350,7 +350,7 @@ async function finishNoteSession(root, beforeClose) {
   }
 }
 
-function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults}){
+function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator}){
   const previousFocus=document.activeElement
   const root=el('section','vd-editor ve-canvas-editor'), head=el('header','ve-head')
   root.setAttribute('role','dialog');root.setAttribute('aria-modal','true')
@@ -382,7 +382,7 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   }
   title.oninput=emit
   const back=button(backLabel,'back',goBack,true)
-  head.append(back,el('span','ve-head-divider'),crumb,title,el('span','ve-spacer'))
+  head.append(back,el('span','ve-head-divider'),crumb,title,saveIndicator ?? el('span','ve-spacer'))
   if(onSearch)head.append(noteSearchButton(onSearch))
   if(manageProtection)head.append(notePrivacyButton(manageProtection,isProtected))
   head.append(details.toggle)
@@ -436,8 +436,8 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   }}
 }
 
-export function openEditor({note, notes = [], areas = [], onChange, onClose, onOpenNote, onSearch, onReturn, beforeClose, manageProtection, isProtected, textAreaDefaults, embed, backLabel=tr('К карте','Back to map')}) {
-  if(note.type==='canvas')return canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults})
+export function openEditor({note, notes = [], areas = [], onChange, onClose, onOpenNote, onSearch, onReturn, beforeClose, manageProtection, isProtected, textAreaDefaults, saveIndicator, embed, backLabel=tr('К карте','Back to map')}) {
+  if(note.type==='canvas')return canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator})
   let body = Array.isArray(note.body) && note.body.length ? note.body :
     (note.plain || '').split('\n').map(s => ({type:'paragraph',runs:s ? [{text:s}] : []}))
   if (!body.length) body = [paragraph()]
@@ -1313,7 +1313,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       }}
   }
   crumb.append(icon('file'),el('span','',tr('Заметка','Note')))
-  head.append(button(backLabel,'back',goBack,true),el('span','ve-head-divider'),crumb,el('span','ve-spacer'),message,count)
+  head.append(button(backLabel,'back',goBack,true),el('span','ve-head-divider'),crumb,saveIndicator ?? el('span','ve-spacer'),message,count)
   if(onSearch)head.append(noteSearchButton(onSearch))
   if(manageProtection)head.append(notePrivacyButton(manageProtection,isProtected))
   head.append(details.toggle)

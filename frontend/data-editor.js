@@ -121,7 +121,7 @@ function readTextFile(file,signal) {
 }
 
 export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNote,onSearch,onReturn,
-  beforeClose,manageProtection,isProtected,backLabel=tr('К карте','Back to map')}) {
+  beforeClose,manageProtection,isProtected,saveIndicator,backLabel=tr('К карте','Back to map')}) {
   const previousFocus = document.activeElement
   const root = element('section','vd-editor ve-data-editor')
   root.setAttribute('role','dialog'); root.setAttribute('aria-modal','true')
@@ -150,7 +150,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     relations = {...relations,...patch}; onChange?.({...patch,...point}); details.sync()
   },openNote:onOpenNote && navigateTo,openTag:onOpenNote && tagNav.open})
   header.append(editorButton(backLabel,'back',goBack,true),element('span','ve-head-divider'),
-    element('span','ve-crumb',tr('Данные','Data')),title,element('span','ve-spacer'))
+    element('span','ve-crumb',tr('Данные','Data')),title,saveIndicator ?? element('span','ve-spacer'))
   if (onSearch) header.append(noteSearchButton(() => {flush(); onSearch()}))
   if (manageProtection) header.append(notePrivacyButton(() => {flush(); return manageProtection()},isProtected))
   header.append(details.toggle)

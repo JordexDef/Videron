@@ -86,3 +86,38 @@ test('free layout suppresses both manual and shared-tag lines while preserving t
   strokes.length=0;graph.draw();
   assert.deepEqual(strokes,['rgba(237,237,237,.66)','rgba(237,237,237,.66)','route','route']);
 });
+
+test('manual linking previews only a new link between the chosen source and hovered note',()=>{
+  const {ctx}=canvasProbe();
+  let dashed=false,preview,start;
+  Object.assign(ctx,{
+    save(){},setLineDash(){dashed=true},restore(){dashed=false},
+    moveTo(x,y){start=[x,y]},lineTo(x,y){if(dashed)preview=[start,[x,y]]}
+  });
+  const graph=Object.assign(Object.create(Graph.prototype),{
+    ctx,canvas:{style:{}},width:200,height:200,dpr:1,camera:{x:0,y:0,zoom:1},contacts:new Map(),
+    nodes:new Map(),selectedIds:new Set(),heating:new Set(),callbacks:{},view:{links:true},repaint(){},
+    drawLabels(){}
+  });
+  const notes=[{id:'a',x:-50,y:0,tags:['project']},{id:'b',x:50,y:0,tags:['project']}];
+  graph.setData(notes,[]);
+  const draw=()=>{preview=null;graph.draw();return preview};
+  graph.hover='b';
+  graph.setLinkMode(true);
+  assert.equal(draw(),null);
+  graph.setLinkMode(true,'a');
+  assert.deepEqual(draw(),[[50,100],[150,100]],'a shared tag still permits a manual link');
+  for(const hover of [null,'a']){
+    graph.hover=hover;assert.equal(draw(),null);
+  }
+  graph.hover='b';
+  graph.nodes.get('b').links.push('a');
+  assert.equal(draw(),null,'a manual link stored on either endpoint already exists');
+  graph.nodes.get('b').links=[];
+  graph.view.links=false;assert.equal(draw(),null);
+  graph.view.links=true;graph.view.manualLayout=true;assert.equal(draw(),null);
+  graph.view.manualLayout=false;graph.setLinkMode(false);assert.equal(draw(),null);
+  graph.setLinkMode(true,'a');graph.setData(notes.slice(1),[]);
+  assert.equal(graph.linkSource,null,'a removed first note can be picked again');
+  assert.equal(draw(),null);
+});

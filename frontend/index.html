@@ -106,7 +106,10 @@
             <button class="text-button" id="try-demo"><span data-en="Explore the demo">Посмотреть пример</span><i data-i="arrowUpRight"></i></button>
           </div>
           <div id="selection" class="selection" hidden></div>
-          <div id="link-message" class="link-message" hidden></div>
+          <div id="link-message" class="link-message" hidden>
+            <span id="link-hint" role="status"></span>
+            <button id="cancel-link" class="icon-button" type="button" title="Отменить связь" data-en-title="Cancel linking" aria-label="Отменить связь" data-en-aria="Cancel linking"><i data-i="x"></i></button>
+          </div>
           <div class="dock tools" aria-label="Инструменты карты" data-en-aria="Map tools">
             <button data-tool="select" class="icon-button active" title="Выбор (V) · обведите рамкой или добавьте заметки с Shift" aria-label="Выбор" data-en-title="Select (V) · drag a box or Shift-click to add notes" data-en-aria="Select"><i data-i="pointer"></i></button>
             <button data-tool="hand" class="icon-button" title="Перемещение (H) · также пробел или средняя кнопка мыши" aria-label="Перемещение" data-en-title="Pan (H) · also Space-drag or middle-drag" data-en-aria="Pan"><i data-i="hand"></i></button>

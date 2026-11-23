@@ -34,6 +34,50 @@ function shortAddress(address) {
   }
 }
 
+// Keep the last acknowledgement visible during ordinary typing. Only a slow
+// write or failure changes the glyph or triggers another live announcement.
+export function createEditorSaveStatus() {
+  const element = document.createElement('span'), badge = document.createElement('span')
+  const glyph = document.createElement('i'), caption = document.createElement('span')
+  element.className = 've-spacer ve-save-status'
+  badge.setAttribute('role', 'status')
+  glyph.setAttribute('aria-hidden', 'true')
+  badge.append(glyph, caption)
+  element.append(badge)
+  const clock = new Intl.DateTimeFormat(getLanguage(), {hour: 'numeric', minute: '2-digit'})
+  let edited = false, slowTimer
+
+  function show(state, mark, label) {
+    if (badge.dataset.state === state) return
+    badge.dataset.state = state
+    badge.title = label
+    glyph.innerHTML = icon(mark)
+    caption.textContent = label
+  }
+
+  return {
+    element,
+    edited() { edited = true },
+    writing() {
+      if (!edited || slowTimer || badge.dataset.state === 'failed') return
+      slowTimer = setTimeout(() => show('writing', 'more', tr('Сохранение…', 'Saving…')), 650)
+    },
+    saved() {
+      clearTimeout(slowTimer); slowTimer = null
+      if (!edited && badge.dataset.state !== 'failed') return
+      edited = false
+      show('saved', 'check', tr('Сохранено на устройстве', 'Saved on this device'))
+      const lastSave = tr('Последнее сохранение на устройстве в ', 'Last saved on this device at ') + clock.format(new Date())
+      if (badge.title !== lastSave) badge.title = lastSave
+    },
+    failed() {
+      clearTimeout(slowTimer); slowTimer = null
+      show('failed', 'x', tr('Не сохранено', 'Save failed'))
+    },
+    close() { clearTimeout(slowTimer) }
+  }
+}
+
 export function mountWorkspaceStatus({onManage, onRetry, onRetrySave}) {
   const get = id => document.getElementById(id)
   const toggle = get('workspace-status-toggle'), panel = get('workspace-status-details')

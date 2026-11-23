@@ -373,6 +373,7 @@ export class Graph {
       this.changeSelection(new Set([...this.selectedIds].filter(id => next.has(id))));
     }
     if (this.hover && !next.has(this.hover)) this.hover = null;
+    if (this.linkSource && !next.has(this.linkSource)) this.linkSource = null;
     if (this.drag?.node && !next.has(this.drag.node.id)) this.cancelDrag();
     if (changed) {
       if (!placementOnly) this.buildEdges();
@@ -573,10 +574,11 @@ export class Graph {
     this.callbacks.onSelect?.(ids.size === 1 ? ids.values().next().value : null, [...ids]);
     this.repaint();
   }
-  setLinkMode(on) {
+  setLinkMode(on, sourceId = null) {
     if (this.linking !== !!on) this.cancelDrag();
     if (on && this.selectedGridId) this.changeSelection(new Set());
     this.linking = !!on;
+    this.linkSource = on && this.nodes.has(sourceId) ? sourceId : null;
     this.updateCursor(); this.repaint();
   }
   setTool(tool) {
@@ -1371,8 +1373,9 @@ export class Graph {
       node.screenX = x; node.screenY = y;
       node.clip = (x<0?1:x>w?2:0) | (y<0?4:y>h?8:0);
     }
+    const showLinks = this.view.links && !this.view.manualLayout;
     let lastStroke, lastWidth;
-    for (const { a, b, manual } of (this.view.links && !this.view.manualLayout ? this.edges : [])) {
+    for (const { a, b, manual } of (showLinks ? this.edges : [])) {
       if (a.clip & b.clip) continue;
       const ax=a.screenX, ay=a.screenY, vx=b.screenX-ax, vy=b.screenY-ay;
       // Bounding boxes of long diagonal links can cover the viewport even
@@ -1391,6 +1394,16 @@ export class Graph {
       if (stroke!==lastStroke) c.strokeStyle = lastStroke = stroke;
       if (width!==lastWidth) c.lineWidth = lastWidth = width;
       c.beginPath(); c.moveTo(x,y); c.lineTo(endX,endY); c.stroke();
+    }
+    if (showLinks && this.linkSource && this.hover && this.hover !== this.linkSource && !this.drag?.moved && !this.pinch) {
+      const from = this.nodes.get(this.linkSource), to = this.nodes.get(this.hover);
+      if (from && to && !from.links.includes(to.id) && !to.links.includes(from.id)) {
+        // Note bodies cover the endpoints, including custom silhouettes.
+        c.save();
+        c.setLineDash([4,4]); c.lineWidth = 1.5; c.strokeStyle = 'rgba(237,237,237,.85)';
+        c.beginPath(); c.moveTo(from.screenX,from.screenY); c.lineTo(to.screenX,to.screenY); c.stroke();
+        c.restore();
+      }
     }
     this.callbacks.onDrawRoute?.(c,this,ox,oy,z);
     const overview = this.nodes.size >= 1000;
