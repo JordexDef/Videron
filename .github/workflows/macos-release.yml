@@ -29,7 +29,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Test Go packages
-        run: go test ./...
+        run: TMPDIR="$(cd "$RUNNER_TEMP" && pwd -P)" go test ./...
       - name: Build for Apple silicon and Intel
         run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -platform darwin/universal -s -skipbindings -trimpath
       - name: Check the bundle and launch it in a fresh profile
