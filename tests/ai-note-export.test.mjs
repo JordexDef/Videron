@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {copyNoteForAI, formatNoteForAI} from '../frontend/ai-note-export.js';
 
+test('copying an unlocked note for AI omits every field of credential entries',()=>{
+  const note={title:'Travel',body:[{type:'paragraph',runs:[{text:'Itinerary'}]},
+    {type:'credentials',entries:[{resource:'private site',login:'private login',password:'private password'}]}]}
+  assert.equal(formatNoteForAI(note),'# Travel\n\nItinerary\n\n[Credentials omitted]')
+})
+
 const paragraph = (text, extra = {}) => ({type:'paragraph', runs:[{text}], ...extra});
 const drawing = (...elements) => ({type:'drawing', board:{version:2, elements}});
 const scenes = text => [...text.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match => JSON.parse(match[1]));

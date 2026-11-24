@@ -1,20 +1,5 @@
-// Search and DOM Range both use UTF-16 offsets. A match can cross formatted
-// runs in a paragraph or several syntax tokens in the code mirror.
-export function rangeInText(root, start, end = start) {
-  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  const range = document.createRange()
-  let node = walk.nextNode(), position = 0
-  function point(offset) {
-    while (node && offset > position + node.length) {
-      position += node.length
-      node = walk.nextNode()
-    }
-    return node ? [node, Math.max(0, offset - position)] : [root, root.childNodes.length]
-  }
-  range.setStart(...point(start))
-  range.setEnd(...point(end))
-  return range
-}
+import {rangeInText} from './note-text-dom.js'
+export {rangeInText}
 
 function viewport(node) {
   const box = node.getBoundingClientRect()

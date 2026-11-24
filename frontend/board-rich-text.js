@@ -56,7 +56,7 @@ export function richDisplayText(block) {
 }
 
 export function blockTagText(block, fallback = '') {
-  if (block.type === 'code') return '';
+  if (block.type === 'code' || block.type === 'credentials') return '';
   if (Array.isArray(block.runs))
     return block.runs.map(run => run.href || run.folderPath ? ' ' : run.text).join('');
   return block.alt || fallback;

@@ -174,6 +174,13 @@
 .ve-task-control:focus-visible { outline: 2px solid currentColor; outline-offset: -1px; }
 .ve-toolbar .ve-kind:has(option[value="task-choice"]:checked) { width: 148px; }
 .ve-text::selection, .ve-text *::selection, .ve-title::selection { background: var(--ve-selection,#5b5b5b); color: var(--ve-selection-ink,#f6f6f6); }
+::highlight(videron-note-selection) { background-color: var(--ve-selection,#5b5b5b); color: var(--ve-selection-ink,#f6f6f6); }
+.ve-cross-selection .ve-text { caret-color:transparent }
+.ve-selection-paint { position:fixed;inset:0;z-index:40;pointer-events:none }
+.ve-selection-paint i { position:absolute;background:Highlight;opacity:.35 }
+.ve-moving-text, .ve-moving-text .ve-text { cursor: grabbing; }
+.ve-text-drop-caret { position:fixed; z-index:1000; width:2px; margin-left:-1px; border-radius:1px; background:currentColor; pointer-events:none; }
+.ve-text-drop-caret::before { content:''; position:absolute; top:-3px; left:-1.5px; width:5px; height:5px; border-radius:50%; background:currentColor; }
 .ve-content .ve-heading { margin: .9em 0 .4em; font-size: 28px; font-weight: 620; line-height: 1.3; letter-spacing: -.035em; }
 .ve-content .ve-subheading { margin: .75em 0 .32em; font-size: 21px; font-weight: 600; line-height: 1.45; letter-spacing: -.02em; }
 .ve-content .ve-quote { font-size: 17px; color: var(--ve-secondary,#c2c2c2); border-left: 2px solid var(--ve-quote-line,#969696); padding-left: 17px; margin: .7em 0; }

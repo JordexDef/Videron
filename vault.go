@@ -203,6 +203,47 @@ type jsonPresence struct{}
 
 func (*jsonPresence) UnmarshalJSON([]byte) error { return nil }
 
+// Skip ordinary notes without decoding their attachment data or large text
+// documents. Unicode escapes can also spell the reserved type in JSON.
+func mayContainCredentialType(raw []byte) bool {
+	return bytes.Contains(raw, []byte("\"credentials\"")) || bytes.Contains(raw, []byte("\\u"))
+}
+
+type publicNoteBlock struct{}
+
+func (*publicNoteBlock) UnmarshalJSON(raw []byte) error {
+	if raw[0] != '{' || !mayContainCredentialType(raw) {
+		return nil
+	}
+	return readVaultObject(raw, func(field string, d *json.Decoder) error {
+		if field == "type" {
+			var value json.RawMessage
+			if err := d.Decode(&value); err != nil {
+				return err
+			}
+			// Even if every letter is escaped as \uXXXX, the name is short.
+			if len(value) <= 2+6*len("credentials") && value[0] == '"' {
+				var name string
+				if json.Unmarshal(value, &name) == nil && name == "credentials" {
+					return errInvalid
+				}
+			}
+			return nil
+		}
+		return d.Decode(&jsonPresence{})
+	})
+}
+
+type publicNoteBody struct{}
+
+func (*publicNoteBody) UnmarshalJSON(raw []byte) error {
+	if raw[0] != '[' || !mayContainCredentialType(raw) {
+		return nil
+	}
+	var blocks []publicNoteBlock
+	return json.Unmarshal(raw, &blocks)
+}
+
 func validSealedMapLabel(label string) bool {
 	if label == "" || utf8.RuneCountInString(label) > 120 {
 		return false
@@ -238,6 +279,17 @@ func (*storedNote) UnmarshalJSON(data []byte) error {
 		return errInvalid
 	}
 	if _, sealed := fields["sealed"]; !sealed {
+		if _, body := fields["body"]; body && mayContainCredentialType(data) {
+			err := readVaultObject(data, func(field string, d *json.Decoder) error {
+				if field == "body" {
+					return d.Decode(&publicNoteBody{})
+				}
+				return d.Decode(&jsonPresence{})
+			})
+			if err != nil {
+				return errInvalid
+			}
+		}
 		return nil
 	}
 	digest := sha256.Sum256(data)

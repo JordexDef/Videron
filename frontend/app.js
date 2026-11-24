@@ -294,6 +294,7 @@ function storageErrorMessage(error){
     VD_UNAVAILABLE:tr('Для разблокировки откройте заметку в настольном приложении.','Open the note in the desktop app to unlock it.'),
     VD_VERSION:tr('Для открытия файла требуется более новая версия Videron.','This file requires a newer version of Videron.'),
     VD_LOCKED:tr('Проект или заметка заблокированы.','The project or note is locked.'),
+    VD_CREDENTIALS_REQUIRE_LOCK:tr('Для блока с паролями нужно шифрование заметки.','A password block requires note encryption.'),
     VD_CHANGED:tr('Файл проекта изменился на диске. Изменения не записаны.','The project file changed on disk. Your changes have not been written.')
   };
   return Object.hasOwn(messages,code)?[messages[code],...parts].join(' '):message;

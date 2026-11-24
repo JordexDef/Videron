@@ -462,6 +462,67 @@ func TestVaultEnvelopeHasUnambiguousFieldNames(t *testing.T) {
 	}
 }
 
+func TestCredentialBlocksRequireIndividualNoteEncryption(t *testing.T) {
+	a, path := testStore(t)
+	const block = `{"type":"credentials","resource":"test service","login":"fixture","password":"value-for-test-only"}`
+	const row = `{"id":"note-a","title":"Fixture","body":[` + block + `],"tags":[],"links":[]}`
+	snapshot := libraryPrefix + row + librarySuffix
+	safe := libraryPrefix + originalNote + librarySuffix
+	if err := a.Save(safe); err != nil {
+		t.Fatal(err)
+	}
+	for _, protectLibrary := range []bool{false, true} {
+		if protectLibrary {
+			if err := a.ProtectProject(safe, testPass); err != nil {
+				t.Fatal(err)
+			}
+		}
+		before := stored(t, path)
+		if err := a.Save(snapshot); !errors.Is(err, errInvalid) || !bytes.Equal(before, stored(t, path)) {
+			t.Fatal("accepted an individually unsealed credential block", err)
+		}
+	}
+	if validSpacePayload([]byte(`{"name":"Shared","notes":[` + row + `],"areas":[]}`)) {
+		t.Fatal("folder accepted an individually unsealed credential block")
+	}
+	edit := rowEdit{ID: "note-a", objectEdits: objectEdits{Set: map[string]json.RawMessage{"body": json.RawMessage("[" + block + "]")}}}
+	if _, err := edit.apply(json.RawMessage(originalNote), true); !errors.Is(err, errInvalid) {
+		t.Fatal("accepted a credential block in a note patch", err)
+	}
+	sealed, err := a.ProtectNote("note-a", row, nextPass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapper, err := json.Marshal(map[string]any{"id": "note-a", "sealed": sealed, "title": "", "body": []any{}, "tags": []any{}, "plain": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = a.Save(libraryPrefix + string(wrapper) + librarySuffix); err != nil {
+		t.Fatal(err)
+	}
+	a.LockNote("note-a")
+	if plain, err := a.UnlockNote("note-a", sealed, nextPass); err != nil || plain != row {
+		t.Fatal("individually encrypted credential note did not round-trip", err)
+	}
+}
+
+func TestCredentialBlockDiscriminatorIsScopedToNoteBody(t *testing.T) {
+	for _, row := range []string{
+		`{"body":[{"type":"paragraph","text":"credentials","custom":{"type":"credentials"}}]}`,
+		`{"Body":[{"type":"credentials"}],"body":[{"Type":"credentials"},{"type":"Credentials"}]}`,
+		`{"body":[null,["credentials"],{"type":"extension"}],"future":[{"type":"credentials"}]}`,
+		`{"type":"data","dataText":"example \"credentials\"","body":[]}`,
+	} {
+		if err := new(storedNote).UnmarshalJSON([]byte(row)); err != nil {
+			t.Fatalf("ordinary extension or note content rejected: %v", err)
+		}
+	}
+	const encoded = `{"bo\u0064y":[{"t\u0079pe":"\u0063redentials"}]}`
+	if err := new(storedNote).UnmarshalJSON([]byte(encoded)); !errors.Is(err, errInvalid) {
+		t.Fatal("accepted escaped credential field", err)
+	}
+}
+
 func TestSealedMapAppearanceAcceptsOnlyPublicStyles(t *testing.T) {
 	for _, raw := range []string{
 		`{"shape":"circle","color":null,"icon":null}`,

@@ -29,7 +29,8 @@ export const spaceNames = {
 };
 export const colors=['#b9bdc2','#a7b9cf','#c5aa86','#b5a4c8','#cb9890','#8197b2','#b8b09b'];
 const validBoard=board=>[1,2].includes(board?.version)&&Array.isArray(board.elements);
-export function checkNote(note){
+export const hasCredentialBlock=body=>Array.isArray(body) && body.some(block=>block?.type==='credentials');
+export function checkNote(note,{insideEnvelope=false}={}){
   if(typeof note?.id!=='string'||typeof note.title!=='string'||!Array.isArray(note.body)||!Array.isArray(note.links)||!Array.isArray(note.tags))
     throw new Error(tr('Некорректная запись заметки.', 'The workspace contains an invalid note.'));
   if(Object.hasOwn(note,'sealed') && (typeof note.sealed!=='string'||!note.sealed||note.title||note.plain||
@@ -37,6 +38,12 @@ export function checkNote(note){
     (Object.hasOwn(note,'appearance') && !validMapAppearance(note.appearance)) ||
     (Object.hasOwn(note,'mapLabel') && !validMapLabel(note.mapLabel))))
     throw new Error(tr('Повреждена запись зашифрованной заметки.','The encrypted note record is damaged.'));
+  if(hasCredentialBlock(note.body)){
+    if(!insideEnvelope)throw new Error('VD_CREDENTIALS_REQUIRE_LOCK');
+    for(const block of note.body)if(block?.type==='credentials' && (!Array.isArray(block.entries) ||
+        block.entries.some(entry=>!entry || ['resource','login','password'].some(key=>typeof entry[key]!=='string'))))
+      throw new Error('VD_INVALID');
+  }
   if(note.type==='data' && (typeof note.dataText!=='string' || (note.dataLanguage!==undefined && typeof note.dataLanguage!=='string') || (note.dataHasHeader!==undefined && typeof note.dataHasHeader!=='boolean')))
     throw new Error(tr('Повреждено содержимое заметки с данными.','This data note contains invalid content.'));
   if((note.type==='canvas'&&!validBoard(note.board))||note.body.some(block=>block?.type==='drawing'&&block.board&&!validBoard(block.board)))

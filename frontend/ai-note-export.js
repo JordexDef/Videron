@@ -89,6 +89,7 @@ function noteContext(note) {
     return blocks.map((block, index) => {
       let text;
       switch (block.type) {
+        case 'credentials': text = '[Credentials omitted]'; break;
         case 'drawing': text = sceneText(block); break;
         case 'image': text = imageLabel(block); break;
         case 'code': text = fenced(String(block.text ?? ''), block.language); break;

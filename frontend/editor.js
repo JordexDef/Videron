@@ -15,9 +15,15 @@ import { blockText, textTypes } from './search-location.js'
 import { historyDirection, primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
 import { blockTagText } from './board-rich-text.js'
 import { readClipboardRuns } from './clipboard-runs.js'
+import { sliceRuns, selectedBlocks, replaceTextRange, moveTextRange } from './editor-text-range.js'
+import { installTextMove } from './editor-text-move.js'
+import { createCredentialBlock } from './credential-block.js'
+import { hasCredentialBlock } from './data.js'
+import { offsetAt } from './note-text-dom.js'
 import { isListStyle, listStyleOf, indentOf, listMarkers, atParentLevel, isTaskStyle, taskStateOf, taskCounts,
   withListStyle, toggleTask, listItemForPrefix, continuedListItem } from './note-lists.js'
 import { createSearchReveal, rangeInText } from './search-reveal.js'
+import { createTextSelection } from './editor-text-selection.js'
 import { isProtectedNote, protectedNoteTitle } from './note-vault.js'
 import { createTagNavigator, noteTags } from './note-tags.js'
 import { canPickFolder, pickFolder, openFolder, isFolderPath, folderLabel, folderError } from './folder-links.js'
@@ -28,6 +34,7 @@ const darkPaperInk = ['#d4d4d4', '#e8dfc8', '#9dc9e2', '#e6aaa0', '#bba6db', '#d
 let taskTextId = 0
 const icons = {
   padlock:'M5 10h14v11H5z M8 10V7a4 4 0 0 1 8 0v3',
+  key:'M15 3a6 6 0 1 1-1.8 11.7L7 21H3v-4l6.3-6.2A6 6 0 0 1 15 3z M17 7h.01',
   openPadlock:'M5 10h14v11H5z M8 10V7a4 4 0 0 1 7.6-1.8',
   search: 'M16 10a6 6 0 1 1-12 0 6 6 0 1 1 12 0m-1.5 4.5L21 21',
   back: 'M19 12H5m7 7-7-7 7-7', file: 'M6 3h8l4 4v14H6z M14 3v5h4',
@@ -158,19 +165,6 @@ function readRuns(root) {
   }
   walk(root, {})
   return runs
-}
-function sliceRuns(runs, start, end = Infinity) {
-  let pos = 0
-  return runs.flatMap(r => {
-    const str = r.text.slice(Math.max(0, start-pos), Math.max(0, end-pos))
-    pos += r.text.length
-    return str ? [{...r, text: str}] : []
-  })
-}
-function offsetAt(root, node, offset) {
-  const range = document.createRange()
-  range.selectNodeContents(root); range.setEnd(node, offset)
-  return range.toString().length
 }
 function setCaret(root, offset, end = offset) {
   root.focus({preventScroll: true})
@@ -346,6 +340,7 @@ function notePrivacyButton(manageProtection, isProtected) {
     control.replaceChildren(icon(protectedNow ? 'padlock' : 'openPadlock'))
   }
   refresh()
+  control.refresh=refresh
   return control
 }
 
@@ -476,10 +471,36 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   const titleBox = el('textarea','ve-title')
   titleBox.rows=1; titleBox.placeholder=tr('Без названия','Untitled');titleBox.setAttribute('aria-label',tr('Название заметки','Note title'));titleBox.value=title
   const toolbar=el('div','ve-toolbar'), content=el('div','ve-content'), count=el('span','ve-count'), message=el('span','ve-message')
+  let privacyControl, addingCredentials=false
   toolbar.setAttribute('role','group')
   toolbar.setAttribute('aria-label',tr('Форматирование текста','Text formatting'))
   message.setAttribute('role','status')
   let blockRefs = [], codeViews = new Map()
+  const textSelection=createTextSelection({
+    content,rowAt:i=>textTypes.has(body[i]?.type)?blockRefs[i]:null,
+    lengthAt:i=>blockText(body[i]).length,scroll:embed?null:scroll,
+    visibleTop:()=>embed?0:toolbar.getBoundingClientRect().bottom,
+    moveVertically,reveal:revealTextCaret,
+  })
+  function selectedTextRange(){return textSelection.selected()}
+  function selectTextRange(anchor,focus){textSelection.select(anchor,focus)}
+  function copyTextRange(event,{start,end}){
+    const html=el('div'), plain=[]
+    for(let i=start.index;i<=end.index;i++){
+      const runs=sliceRuns(body[i].runs,i===start.index?start.offset:0,i===end.index?end.offset:Infinity)
+      const row=el('div')
+      row.style.whiteSpace='pre-wrap'
+      appendRuns(row,runs);html.append(row)
+      plain.push(runs.map(run=>run.text).join(''))
+    }
+    event.clipboardData.setData('text/html',html.innerHTML)
+    event.clipboardData.setData('text/plain',plain.join('\n'))
+    event.preventDefault()
+  }
+  content.addEventListener('copy',event=>{
+    const range=selectedTextRange()
+    if(event.target.closest('.ve-content')===content && event.clipboardData && range && range.start.index!==range.end.index)copyTextRange(event,range)
+  })
   async function navigateTo(id){
     if(navigating||!onOpenNote)return
     navigating=true
@@ -514,6 +535,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     }
   })
   function currentSelection() {
+    if(textSelection.across)return null
     if (body[active]?.type === 'code') {
       const input = blockRefs[active]?.querySelector('.ve-code-source')
       if (input) return {index:active,start:input.selectionStart,end:input.selectionEnd}
@@ -526,7 +548,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   }
   const mapRecord=notes.find(n=>n.id===note.id)||note
   function capture() {
-    return {title, body, relations, point:{x:mapRecord.x,y:mapRecord.y}, mark:currentSelection() || {index:active,start:0}, inTitle:document.activeElement === titleBox, titleOffset:titleBox.selectionStart}
+    return {title, body, relations, point:{x:mapRecord.x,y:mapRecord.y}, mark:currentSelection() || {index:active,start:0}, range:textSelection.across, inTitle:document.activeElement === titleBox, titleOffset:titleBox.selectionStart}
   }
   let checkpoint=false
   function remember(key) {
@@ -598,10 +620,12 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(activeInline && content.contains(activeInline.row) && activeInline.row.contains(document.activeElement)) {
       active=blockRefs.indexOf(activeInline.row)
     } else if(snap.inTitle){titleBox.focus();titleBox.setSelectionRange(snap.titleOffset,snap.titleOffset)}
+    else if(snap.range)selectTextRange(snap.range.anchor,snap.range.focus)
     else focusBlock(snap.mark.index,snap.mark.start,snap.mark.end)
   }
   function focusBlock(i,offset=0,end=offset,showCaret=true){
     if (!body.length) return
+    textSelection.clear()
     active=Math.max(0,Math.min(i,body.length-1))
     if(textTypes.has(body[active].type)){
       setCaret(blockRefs[active],offset,end)
@@ -656,10 +680,11 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   }
   let removeFloatingTools, stopColorPicker
   function destroy(){
+    stopTextMove()
     if(finished)return
     removeFloatingTools?.()
     stopColorPicker?.()
-    finished=true;searchReveal.clear();tagNav.destroy();sizeObserver.disconnect()
+    finished=true;textSelection.destroy();searchReveal.clear();tagNav.destroy();sizeObserver.disconnect()
     for(const v of inlineViews.values())v.destroy()
     inlineViews.clear()
     document.removeEventListener('selectionchange',syncTools)
@@ -685,6 +710,41 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     render();focusBlock(active,offset,end)
     emit()
   }
+  function multiTextRange(){
+    const range=selectedTextRange()
+    return range && range.start.index!==range.end.index ? range : null
+  }
+  function applyTextEdit(result,select=false){
+    applyBody(result.body,result.end.index,result.end.offset)
+    if(select)selectTextRange(result.start,result.end)
+  }
+  function replaceSelectedRuns(range,runs,split=false){
+    const first=body[range.start.index]
+    remember()
+    const fragment=split ? [{...first,runs:[]},continuedListItem(first,[])] : [{...first,runs}]
+    applyTextEdit(replaceTextRange(body,range,fragment))
+  }
+  function formatRange(range,command,value){
+    const key=command==='foreColor'?'color':command
+    const fragment=selectedBlocks(body,range)
+    const enabled=value ?? !fragment.every(block=>block.runs.every(run=>run[key]))
+    if(!fragment.length)return
+    remember()
+    const next=[...body]
+    for(const [i,part] of fragment.entries()){
+      const index=range.start.index+i, block=body[index]
+      const from=i===0?range.start.offset:0, to=index===range.end.index?range.end.offset:Infinity
+      const marked=part.runs.map(run=>{
+        const updated={...run}
+        if(key==='href')delete updated.folderPath
+        if(key==='folderPath')delete updated.href
+        if(enabled)updated[key]=enabled;else delete updated[key]
+        return updated
+      })
+      next[index]={...block,runs:[...sliceRuns(block.runs,0,from),...marked,...sliceRuns(block.runs,to)]}
+    }
+    applyTextEdit({body:next,...range},true)
+  }
   function ensureText(){
     if(textTypes.has(body[active]?.type)) {
       if(!currentSelection())focusBlock(active,blockText(body[active]).length)
@@ -694,6 +754,8 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     }
   }
   function format(command,value){
+    const range=multiTextRange()
+    if(range){formatRange(range,command,value);return}
     ensureText()
     // Native rich editing preserves selection and IME behavior in WebView2 and WebKit.
     document.execCommand(command,false,value)
@@ -721,6 +783,33 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       next.splice(index+1,0,...blocks,...trailing)
       applyBody(next,index+blocks.length+Number(appendText),0)
     }
+  }
+  async function changeNoteProtection(){
+    const wasProtected=isProtected()
+    if(wasProtected && hasCredentialBlock(body)){
+      message.textContent=tr('Чтобы снять шифрование, сначала удалите блоки с логинами и паролями.',
+        'Remove the credential blocks before turning off note encryption.')
+      return false
+    }
+    const changed=await manageProtection()
+    if(changed && wasProtected && !isProtected()){
+      // Older undo entries may still contain a removed password block.
+      past.length=0;future.length=0;lastKey='';indicators(meta())
+    }
+    privacyControl?.refresh()
+    return changed
+  }
+  async function insertCredentials(mark=position()){
+    if(embed || !manageProtection || addingCredentials)return
+    addingCredentials=true
+    try{
+      if(!isProtected() && !await changeNoteProtection())return
+      if(!isProtected() || closePending || finished || document.querySelector('.vault-lock-screen'))return
+      const block={type:'credentials',entries:[{resource:'',login:'',password:''}]}
+      replaceAtMark([block],mark,true)
+      blockRefs[body.indexOf(block)]?.querySelector('[data-credential-field="resource"]')?.focus()
+      message.textContent=''
+    }finally{addingCredentials=false;syncTools()}
   }
   function position(){
     return currentSelection() || {index:active,start:blockText(body[active]).length,end:blockText(body[active]).length}
@@ -751,16 +840,17 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   function paste(e) {
     e.preventDefault()
     if(e.clipboardData.files.length){insertImages(e.clipboardData.files,position());return}
-    const mark=position()
+    const range=multiTextRange(), mark=position()
     const plain=e.clipboardData.getData('text/plain')
     const snippet=pastedCode(plain,blockText(body[mark.index]).trim()==='')
-    if(snippet){insertCode(snippet,mark);return}
+    if(snippet && !range){insertCode(snippet,mark);return}
     const html=e.clipboardData.getData('text/html')
     const template=html ? el('template') : null
     // Template contents are inert. Only validated text marks are rebuilt in the editor.
     if(template)template.innerHTML=html
     const runs=readClipboardRuns(template?.content,plain || null,marksForElement)
     if(!runs.length)return
+    if(range){replaceSelectedRuns(range,runs);return}
     const clean=el('div')
     appendRuns(clean,runs)
     document.execCommand('insertHTML',false,clean.innerHTML)
@@ -807,6 +897,19 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   }
   function textKeys(e,i){
     if(e.isComposing || e.keyCode===229)return
+    const range=multiTextRange()
+    if(range){
+      if(primaryCommand(e) && !e.shiftKey && ['KeyB','KeyI','KeyK'].includes(e.code)){
+        e.preventDefault();e.stopPropagation()
+        if(!e.repeat){if(e.code==='KeyK')linkDialog();else format(e.code==='KeyB'?'bold':'italic')}
+      }else if(['Backspace','Delete','Enter'].includes(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey){
+        e.preventDefault()
+        replaceSelectedRuns(range,e.shiftKey && e.key==='Enter'?[{text:'\n'}]:[],e.key==='Enter' && !e.shiftKey)
+      }else if(e.key==='Tab' && !e.altKey && !e.ctrlKey && !e.metaKey){
+        e.preventDefault();e.stopPropagation();indent(e.shiftKey?-1:1)
+      }
+      return
+    }
     const mark=currentSelection()
     if(!mark)return
     if(primaryCommand(e) && !e.shiftKey && ['KeyB','KeyI','KeyK'].includes(e.code)){
@@ -1127,6 +1230,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     return wrapper
   }
   function render() {
+    textSelection.clear()
     tagNav.clearPaint()
     blockRefs=[]
     const previousCodeViews=codeViews
@@ -1135,7 +1239,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     const markers=listMarkers(body)
     const rows=body.map((b,i)=>{
       if(textTypes.has(b.type)){
-        const row=el('div','ve-text ve-'+b.type);row.contentEditable='true'
+        const row=el('div','ve-text ve-'+b.type);row.contentEditable='true';row.dataset.index=i
         const task=isTaskStyle(listStyleOf(b))
         if(!task)row.style.marginInlineStart=indentOf(b)*20+'px'
         row.spellcheck=true;row.setAttribute('role','textbox');row.setAttribute('aria-multiline','true')
@@ -1175,6 +1279,16 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
         })
         codeViews.set(b,view)
         blockRefs.push(view.row);return view.row
+      }
+      if(b.type==='credentials' && !embed && isProtected?.()){
+        const row=createCredentialBlock({block:b,onChange(next,key){
+          if(finished || !isProtected())return
+          remember(key?'credentials-'+i+'-'+key:undefined)
+          body=[...body];body[i]=next;emit()
+        },onRemove:()=>removeBlock(i)})
+        row.addEventListener('focusin',()=>{active=i;syncTools()})
+        blockRefs.push(row)
+        return row
       }
       if(b.type==='divider'){
         const row=el('hr','ve-rule')
@@ -1245,11 +1359,12 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   }
   async function insertFolder(){
     if(!canPickFolder()){linkDialog(true);return}
-    const mark=position(), block=body[mark.index]
+    const range=multiTextRange(), mark=position(), block=body[mark.index], original=body
     message.textContent=''
     try{
       const path=await pickFolder()
       if(!path||finished||closePending||document.querySelector('.vault-lock-screen'))return
+      if(range){if(original===body)formatRange(range,'folderPath',path);return}
       const index=body.indexOf(block)
       if(index<0)return
       const label=blockText(block).slice(mark.start,mark.end)
@@ -1257,11 +1372,13 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     }catch(error){message.textContent=folderError(error)}
   }
   function linkDialog(folderOnly=false){
-    ensureText()
-    const mark=currentSelection()
-    const existing=mark.start===mark.end ? linkAtCursor(mark) : null
+    const range=multiTextRange()
+    if(!range)ensureText()
+    const mark=range?null:currentSelection()
+    if(!mark && !range)return
+    const existing=mark && mark.start===mark.end ? linkAtCursor(mark) : null
     if(existing){mark.start=existing.start;mark.end=existing.end}
-    const selected=blockText(body[mark.index]).slice(mark.start,mark.end)
+    const selected=mark?blockText(body[mark.index]).slice(mark.start,mark.end):''
     const dlg=modal(root,folderOnly?tr('Ссылка на папку','Folder link'):tr('Вставить ссылку','Insert link')),form=el('form','ve-link-form')
     const label=el('label','',folderOnly?tr('Путь к папке','Folder path'):tr('Адрес ссылки или путь к папке','Link address or folder path')),input=el('input','ve-input')
     input.placeholder=folderOnly?'C:\\…':'https://';input.type='text';input.required=true
@@ -1270,7 +1387,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     linkText.value=selected;linkText.placeholder=tr('Текст или адрес','Text or URL');textLabel.append(linkText)
     const actions=el('div','ve-actions'),cancel=button(tr('Отмена','Cancel'),null,()=>dlg.close(),true)
     const save=el('button','ve-btn ve-primary',tr('Вставить','Insert'));save.type='submit'
-    actions.append(cancel,save);form.append(label,textLabel,actions);dlg.append(form);input.focus()
+    actions.append(cancel,save);form.append(label,...(range?[]:[textLabel]),actions);dlg.append(form);input.focus()
     input.oninput=()=>input.setCustomValidity('')
     input.oninvalid=()=>{if(!input.value.trim())input.setCustomValidity(tr('Введите адрес ссылки.','Enter a link address.'))}
     form.onsubmit=e=>{
@@ -1281,7 +1398,9 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
         input.reportValidity();return
       }
       const link=folder?{text:linkText.value||folderLabel(address),folderPath:address}:{text:linkText.value||href,href}
-      dlg.close();insertLinkAt(mark,link)
+      dlg.close()
+      if(range)formatRange(range,folder?'folderPath':'href',folder?address:href)
+      else insertLinkAt(mark,link)
     }
   }
   function linkAtCursor(mark){
@@ -1297,10 +1416,14 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     return null
   }
   function colors(){
-    ensureText();const range=getSelection().getRangeAt(0).cloneRange()
+    const multi=multiTextRange()
+    if(!multi)ensureText()
+    const range=multi?null:getSelection().getRangeAt(0).cloneRange()
     const dlg=modal(root,tr('Цвет текста','Text color')), choices=el('div','ve-color-choices')
     const apply=color=>{
-      dlg.close();blockRefs[active].focus()
+      dlg.close()
+      if(multi){formatRange(multi,'foreColor',color);return}
+      blockRefs[active].focus()
       const selection=getSelection();selection.removeAllRanges();selection.addRange(range)
       format('foreColor',color)
     }
@@ -1339,22 +1462,31 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   kind.add(option('task',tr('☐ Задача','☐ Task')))
   kind.add(option('task-choice',tr('☐ Задача с отменой','☐ Cancellable task')))
   const insertGroup=el('optgroup');insertGroup.label=tr('Вставить','Insert')
-  insertGroup.append(option('divider',tr('Горизонтальная линия','Horizontal rule')));kind.append(insertGroup)
+  insertGroup.append(option('divider',tr('Горизонтальная линия','Horizontal rule')))
+  if(!embed && manageProtection)insertGroup.append(option('credentials',tr('Логины и пароли','Logins and passwords')))
+  kind.append(insertGroup)
   let typeMark
-  kind.onpointerdown=()=>{typeMark=position()}
+  kind.onpointerdown=()=>{typeMark={...position(),range:multiTextRange()}}
   kind.onblur=()=>{typeMark=null}
   kind.onkeydown=e=>{
     if(e.key!=='Escape'||e.isComposing)return
     e.stopPropagation()
     const mark=typeMark||position()
-    focusBlock(mark.index,mark.start,mark.end)
+    if(mark.range)selectTextRange(mark.range.start,mark.range.end)
+    else focusBlock(mark.index,mark.start,mark.end)
   }
   function setParagraphStyle(type,mark){
+    const range=mark.range || multiTextRange()
+    const styledBlock=block=>isListStyle(type)?withListStyle(block,type):{...withListStyle(block,null),type}
+    if(range){
+      changeParagraphs(range,styledBlock)
+      return
+    }
     const block=body[mark.index]
     if(!block || block.type==='code')return
     const isText=textTypes.has(block.type)
     const base=isText?block:paragraph()
-    const styled=isListStyle(type)?withListStyle(base,type):{...withListStyle(base,null),type}
+    const styled=styledBlock(base)
     const index=isText?mark.index:mark.index+1
     remember()
     const next=[...body]
@@ -1363,7 +1495,8 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   }
   kind.onchange=()=>{
     const type=kind.value, mark=typeMark||position();typeMark=null
-    if(type==='divider')insertDivider(mark)
+    if(type==='credentials'){syncTools();void insertCredentials(mark)}
+    else if(type==='divider')insertDivider(mark)
     else setParagraphStyle(type,mark)
   }
   const taskFormats=el('div','ve-task-formats')
@@ -1381,7 +1514,20 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   const taskChoiceBtn=taskFormatButton('task-choice',tr('Задача с отменой','Cancellable task'),'taskChoice')
   taskFormats.append(taskBtn,taskChoiceBtn)
   const boldBtn=button(shortcutLabel(tr('Полужирный (Ctrl+B)','Bold (Ctrl+B)')),'bold',()=>format('bold')),italicBtn=button(shortcutLabel(tr('Курсив (Ctrl+I)','Italic (Ctrl+I)')),'italic',()=>format('italic'))
+  function changeParagraphs(range,transform){
+    remember()
+    const next=[...body]
+    const last=range.end.offset===0?range.end.index-1:range.end.index
+    for(let i=range.start.index;i<=last;i++)next[i]=transform(body[i],i)
+    applyTextEdit({body:next,...range},true)
+  }
   function indent(delta){
+    const range=multiTextRange()
+    if(range){
+      changeParagraphs(range,(block,index)=>listStyleOf(block) && delta<0?atParentLevel(body,index):
+        {...block,indent:Math.max(0,Math.min(8,indentOf(block)+delta))})
+      return
+    }
     ensureText()
     const index=active, mark=position(), block=body[index], depth=indentOf(block)
     const level=Math.max(0,Math.min(8,depth+delta))
@@ -1395,12 +1541,13 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   const sketchBtn=button(tr('Вставить рисунок','Insert drawing'),'pen',()=>insertInline(false))
   const tableBtn=button(tr('Вставить таблицу','Insert table'),'table',()=>insertInline(true))
   const codeBtn=button(tr('Вставить блок кода','Insert code block'),'code',()=>insertCode())
+  const credentialsBtn=!embed && manageProtection?button(tr('Вставить логины и пароли','Insert logins and passwords'),'key',()=>insertCredentials()):null
   const colorBtn=button(tr('Цвет текста','Text color'),'color',colors),linkBtn=button(tr('Вставить ссылку','Insert link'),'link',()=>linkDialog())
   linkBtn.title+=' ('+shortcutLabel('Ctrl+K')+')'
   for(const [control,key] of [[boldBtn,'Ctrl+B'],[italicBtn,'Ctrl+I'],[linkBtn,'Ctrl+K']])control.setAttribute('aria-keyshortcuts',shortcutAria(key))
   const folderBtn=button(tr('Ссылка на папку','Link to folder'),'folder',insertFolder)
   const outdentBtn=button(tr('Уменьшить отступ','Decrease indent'),'outdent',()=>indent(-1)),indentBtn=button(tr('Увеличить отступ','Increase indent'),'indent',()=>indent(1))
-  toolbar.append(kind,el('span','ve-divider'),taskFormats,el('span','ve-divider'),boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,el('span','ve-divider'),outdentBtn,indentBtn,el('span','ve-divider'),imageBtn,...(embed?[]:[sketchBtn,tableBtn]),codeBtn,el('span','ve-spacer'),undoBtn,redoBtn)
+  toolbar.append(kind,el('span','ve-divider'),taskFormats,el('span','ve-divider'),boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,el('span','ve-divider'),outdentBtn,indentBtn,el('span','ve-divider'),imageBtn,...(embed?[]:[sketchBtn,tableBtn]),codeBtn,...(credentialsBtn?[credentialsBtn]:[]),el('span','ve-spacer'),undoBtn,redoBtn)
   toolbar.addEventListener('mousedown',e=>{if(e.target.closest('button'))e.preventDefault()})
   function syncTools(){
     const b=body[active]
@@ -1420,6 +1567,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   const details=embed?null:noteDetails({root,note,notes,areas,current:()=>relations,update:(patch,point)=>{
     remember();relations={...relations,...patch};emit(point);details.sync()
   },openNote:onOpenNote && navigateTo,openTag:onOpenNote && tagNav.open})
+  titleBox.onfocus=()=>textSelection.clear()
   titleBox.oninput=()=>{remember('title');title=titleBox.value;resizeTitle();emit()}
   titleBox.onkeydown=e=>{
     if(!e.isComposing&&e.key==='Enter'){e.preventDefault();focusBlock(0,0)}
@@ -1452,6 +1600,34 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(!embed)keepTabInEditor(e,root)
   }
   root.addEventListener('keydown',editorKeydown)
+  const stopTextMove=installTextMove({content,scroll:embed?null:scroll,getSelectionRange:selectedTextRange,
+    placeCaret:point=>focusBlock(point.index,point.offset),
+    move(source,target){
+      const result=moveTextRange(body,source,target)
+      if(!result)return false
+      remember();applyTextEdit(result,true);return true
+    }
+  })
+  content.addEventListener('beforeinput',event=>{
+    if(event.target.closest('.ve-content')!==content || !event.cancelable)return
+    const range=multiTextRange()
+    if(!range)return
+    if(event.inputType==='insertText' || event.inputType==='insertReplacementText'){
+      event.preventDefault();replaceSelectedRuns(range,[{text:event.data||''}])
+    }else if(event.inputType.startsWith('delete')){
+      event.preventDefault();replaceSelectedRuns(range,[])
+    }else if(event.inputType==='insertParagraph' || event.inputType==='insertLineBreak'){
+      event.preventDefault();replaceSelectedRuns(range,event.inputType==='insertLineBreak'?[{text:'\n'}]:[],event.inputType==='insertParagraph')
+    }
+  },true)
+  content.addEventListener('compositionstart',event=>{
+    const range=event.target.closest('.ve-content')===content && multiTextRange()
+    if(range)replaceSelectedRuns(range,[])
+  },true)
+  content.addEventListener('cut',event=>{
+    const range=event.target.closest('.ve-content')===content && multiTextRange()
+    if(range && event.clipboardData){copyTextRange(event,range);replaceSelectedRuns(range,[])}
+  })
   content.ondragover=e=>{if(!e.target.closest('.ve-inline-board') && !(e.target.matches('.ve-code-source') && !e.dataTransfer.types.includes('Files'))){e.preventDefault();e.dataTransfer.dropEffect=e.dataTransfer.types.includes('Files')?'copy':'none'}}
   content.ondrop=e=>{
     if(e.target.closest('.ve-inline-board') || (e.target.matches('.ve-code-source') && !e.dataTransfer.files.length))return
@@ -1491,7 +1667,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       }
     })
     content.addEventListener('pointerdown',event=>{
-      if(event.target===content){
+      if(event.target===content && !event.defaultPrevented){
         event.preventDefault()
         focusBlock(body.length-1,blockText(body[body.length-1]).length)
       }
@@ -1513,7 +1689,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   head.append(button(backLabel,'back',goBack,true),el('span','ve-head-divider'),crumb,saveIndicator ?? el('span','ve-spacer'),message,count)
   if(onSearch)head.append(noteSearchButton(onSearch))
   if(agentButton)head.append(agentButton)
-  if(manageProtection)head.append(notePrivacyButton(manageProtection,isProtected))
+  if(manageProtection){privacyControl=notePrivacyButton(changeNoteProtection,isProtected);head.append(privacyControl)}
   head.append(details.toggle)
   const tasks=mountAgentTaskList(note.id,notes,{...agentTaskActions,openNote:navigateTo})
   main.append(titleBox,toolbar,content,tasks.element)

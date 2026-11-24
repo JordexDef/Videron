@@ -138,6 +138,28 @@ test('data note language and full document stay inside the envelope across edits
   assert.ok(await session.beforeClose())
 })
 
+test('credential entries can only be edited and reopened inside a sealed note', async () => {
+  const f=fixture(), block={type:'credentials',entries:[{resource:'service-example',login:'user-example',password:'secret-example'}]}
+  let session=await f.open()
+  assert.throws(()=>session.changed({body:[block]}), /VD_CREDENTIALS_REQUIRE_LOCK/)
+  const lib=newLibrary()
+  lib.spaces.personal.notes.push({...f.record,body:[block]})
+  assert.throws(()=>readLibrary(serializeLibrary(lib)), /VD_CREDENTIALS_REQUIRE_LOCK/)
+  await session.manageProtection()
+  session.changed({body:[block],plain:''})
+  assert.ok(await session.beforeClose())
+  assert.doesNotMatch(JSON.stringify(f.snapshots),/user-example|service-example|secret-example/)
+  session=await f.open()
+  assert.deepEqual(session.note.body,[block])
+  await assert.rejects(session.manageProtection(), /VD_CREDENTIALS_REQUIRE_LOCK/)
+  assert.ok(isProtectedNote(f.record))
+  session.changed({body:[],plain:''})
+  await session.manageProtection()
+  assert.ok(!isProtectedNote(f.record))
+  assert.doesNotMatch(JSON.stringify(f.record),/user-example|service-example|secret-example/)
+  assert.ok(await session.beforeClose())
+})
+
 test('sealing an open task keeps progress reported since the editor opened', async () => {
   const f = fixture()
   f.record.agentTask = {rootId:'idea',key:'draft',weight:2,status:'working',result:''}

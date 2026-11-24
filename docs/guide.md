@@ -73,6 +73,8 @@ In an open note, **Ctrl+S** (**⌘S** on Mac) writes your current edits to local
 
 ## Lists, tags and folder links
 
+Drag across consecutive paragraphs or list items to select text. To move it, press inside the selection and drag to the insertion caret, including between letters in a word. The move keeps text formatting. **Ctrl+Z** (or **⌘Z** on a Mac) undoes it in one step. You can also select several paragraphs and turn them into a list using the paragraph style menu.
+
 To separate two sections of a text note, type `---` in its own paragraph and press **Enter**. A horizontal line appears and you can keep typing below it. To insert one in existing text, place the cursor where you want to split the paragraph and choose **Paragraph → Horizontal rule**. Click the line and press **Delete** to remove it.
 
 Tags such as `#projects` are highlighted as you type. Click a tag to open another note with the same tag. If several notes match, choose one from the list beside the tag.
@@ -171,6 +173,8 @@ Videron writes a snapshot to a temporary file, then replaces the previous versio
 ## Encryption
 
 **Protect one note.** Open the note, click the lock in the upper right and enter the new password twice. Edits save in encrypted form while the editor is open. To remove individual encryption, click the lock again and enter the current password.
+
+**Store logins and passwords.** In a text note, click the key in the toolbar or choose **Logins and passwords** from the paragraph menu. Videron asks you to protect the note before showing the first entry if it doesn't already have a note password. Enter a resource, login and password, then choose **Add entry** for another account. Inside the unlocked block you can search by resource or login, reveal a password or copy the login, password or `login:password` to the system clipboard. Workspace search and **Copy for AI** exclude the entries. Remove the credential blocks first if you want to turn off note encryption. Update all clients sharing the note before using credential blocks.
 
 When you enter the password, **Keep this note unlocked** lets you choose how long you can reopen it on this computer. The default is **Until I close the note**. Choose **5**, **15** or **60 min** to start a timer when you unlock it. If the note is open when the timer expires, Videron saves your edits and locks it. **Until the session ends** lets you reopen the note throughout your current session in this space. Switching spaces, locking Videron or quitting it ends temporary access immediately. The file stays encrypted with every option.
 

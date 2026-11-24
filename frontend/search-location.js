@@ -3,6 +3,7 @@ import { boardElementText } from './board-summary.js'
 export const textTypes = new Set(['paragraph', 'heading', 'subheading', 'quote'])
 
 export function blockText(block) {
+  if (block.type === 'credentials') return ''
   if (block.type === 'code') return block.text || ''
   if (textTypes.has(block.type)) return (block.runs || []).map(run => run.text).join('')
   return block.alt || ''

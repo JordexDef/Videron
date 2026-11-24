@@ -1,5 +1,5 @@
 import { tr } from './i18n.js'
-import { checkNote } from './data.js'
+import { checkNote, hasCredentialBlock } from './data.js'
 import { appearanceOf } from './icons/node-art.js'
 import { openVaultPassword } from './vault-ui.js'
 
@@ -42,7 +42,7 @@ function replaceRecord(record, next) {
 function decodeNote(raw, record) {
   let note
   try { note = JSON.parse(raw) } catch { throw new Error('VD_INVALID') }
-  checkNote(note)
+  checkNote(note,{insideEnvelope:true})
   if (note.id !== record.id || isProtectedNote(note)) throw new Error('VD_INVALID')
   return noteWithMapFields(note, record)
 }
@@ -96,6 +96,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
 
   function changed(patch) {
     if (closed) return
+    if (!isProtectedNote(record) && hasCredentialBlock(patch.body)) throw new Error('VD_CREDENTIALS_REQUIRE_LOCK')
     const next = {...patch, modified:Date.now()}
     Object.assign(note, next)
     Object.assign(record, isProtectedNote(record) ? mapFields(next) : next)
@@ -145,6 +146,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
   }
 
   async function removeProtection({currentPassword}) {
+    if (hasCredentialBlock(note.body)) throw new Error('VD_CREDENTIALS_REQUIRE_LOCK')
     await persist()
     await bridge.UnlockNote(id, record.sealed, currentPassword)
     const previous = record.sealed

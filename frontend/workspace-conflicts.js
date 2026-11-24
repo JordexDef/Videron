@@ -139,6 +139,10 @@ function noteContent(node, note, other) {
     for (const [i, block] of blocks.entries()) {
       if (!block) continue
       const counterpart = openOther?.body?.[i]
+      if (block.type === 'credentials') {
+        node.append(el('p','',tr('Учётные данные · {count}','Credentials · {count}',{count:block.entries.length})))
+        continue
+      }
       if (block.type === 'divider') {
         node.append(el('hr',openOther && counterpart?.type !== 'divider' ? 'conflict-divider-change' : ''))
         continue
@@ -264,7 +268,7 @@ export function openWorkspaceConflicts({conflicts, spaceName, previewSealed}) {
               let note
               const ok=await openVaultPassword({mode:'unlock',scope:'note',signal:lifetime.signal,onSubmit:async({password})=>{
                 note=JSON.parse(await previewSealed(value.id,value.sealed,password))
-                checkNote(note)
+                checkNote(note,{insideEnvelope:true})
                 if(note.id!==value.id || sealed(note))throw new Error('VD_INVALID')
               }})
               if(ok && note && body.isConnected) { body.replaceChildren();noteContent(body,note,other);body.focus() }
