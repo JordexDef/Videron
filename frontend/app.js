@@ -1,4 +1,5 @@
 import { Graph } from './graph.js';
+import { syncWindowTheme } from './theme.js';
 import { createMapCameraMemory } from './map-camera-memory.js';
 import { playNoteTransition, cancelNoteTransition } from './note-transition.js';
 import { mountMapReading, readingFragments } from './map-reading.js';
@@ -2111,8 +2112,12 @@ async function loadDesktopLibrary(){
   }
 }
 async function init(){
+  syncWindowTheme();
   translateStatic();$('language-select').value=getLanguage();status();
   paintIcons();drawAtlas($('atlas'));
+  window.addEventListener('videron:themechange',()=>{
+    drawAtlas($('atlas'));graph?.repaint();reading?.invalidate();
+  });
   native=window.go?.main?.App;
   if(!native&&(!/^https?:$/.test(location.protocol)||!['localhost','127.0.0.1','[::1]'].includes(location.hostname)))
     throw new Error(tr('Не удалось подключить локальное хранилище.','Could not connect to local storage.'));

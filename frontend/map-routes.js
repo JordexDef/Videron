@@ -1,5 +1,6 @@
 import { icon } from './art.js';
 import { tr } from './i18n.js';
+import { mapPalette } from './map-palette.js';
 import { isProtectedNote, protectedNoteTitle } from './note-vault.js';
 
 const untitled = () => tr('Без названия', 'Untitled');
@@ -56,6 +57,7 @@ function button(label, glyph, action, className = '') {
 
 function drawRoute(ctx, graph, stops, current, ox, oy, zoom, playing, badgesOnly) {
   if (!stops.length) return;
+  const palette = mapPalette();
   const points = stops.map(({index, stop}, position) => {
     const node = graph.nodes.get(stop.noteId);
     return node && {x:ox + node.x * zoom, y:oy + node.y * zoom, radius:node.r * zoom,
@@ -65,7 +67,7 @@ function drawRoute(ctx, graph, stops, current, ox, oy, zoom, playing, badgesOnly
   ctx.save();
   if (!badgesOnly) {
     ctx.setLineDash([4, 5]);
-    ctx.strokeStyle = '#c1b7d6';
+    ctx.strokeStyle = palette.route;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
@@ -87,12 +89,12 @@ function drawRoute(ctx, graph, stops, current, ox, oy, zoom, playing, badgesOnly
     if (x < -15 || x > graph.width + 15 || y < -11 || y > graph.height + 11) continue;
     ctx.beginPath();
     ctx.arc(x, y, 9.5, 0, Math.PI * 2);
-    ctx.fillStyle = point.index === current ? '#dfd9eb' : '#302d36';
+    ctx.fillStyle = point.index === current ? palette.routeActive : palette.routeBadge;
     ctx.fill();
-    ctx.strokeStyle = '#938c9c';
+    ctx.strokeStyle = palette.routeEdge;
     ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.fillStyle = point.index === current ? '#29262d' : '#e6e1eb';
+    ctx.fillStyle = point.index === current ? palette.routeActiveInk : palette.routeInk;
     ctx.fillText(String(point.ordinal), x, y, 17);
   }
   ctx.restore();

@@ -1,17 +1,17 @@
 .workspace-conflicts {
   margin:auto; padding:0; width:min(850px,calc(100vw - 24px)); max-height:calc(100dvh - 24px);
-  color:var(--text); background:var(--panel); border:1px solid #444; border-radius:11px;
-  box-shadow:0 16px 65px #0006;
+  color:var(--text); background:var(--panel); border:1px solid var(--control-line,#444); border-radius:11px;
+  box-shadow:0 16px 65px var(--shadow-floating,#0006);
 }
-.workspace-conflicts::backdrop {background:#101010ab}
+.workspace-conflicts::backdrop {background:var(--scrim,#101010ab)}
 .workspace-conflicts header {padding:20px 20px 14px}
 .workspace-conflicts h2 {margin:0;font-size:20px;font-weight:560;letter-spacing:-.45px}
 .conflict-context {margin:6px 0 0;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
 .conflict-versions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:0 20px}
 .conflict-version {min-width:0;border:1px solid var(--border);border-radius:7px;background:var(--canvas);overflow:hidden}
-.conflict-version:has(input:checked) {border-color:#aaa}
+.conflict-version:has(input:checked) {border-color:var(--focus-border,#aaa)}
 .conflict-source {display:flex;align-items:center;gap:8px;min-height:42px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;font-weight:560}
-.conflict-source:hover {background:#292929}
+.conflict-source:hover {background:var(--control-bg,#292929)}
 .conflict-source input {width:15px;height:15px;margin:0;flex:none}
 .conflict-source time {margin-left:auto;font-size:11px;color:var(--muted);font-weight:400}
 .conflict-body {position:relative;height:clamp(160px,36vh,330px);overflow:auto;overscroll-behavior:contain;padding:13px;cursor:auto;overflow-wrap:anywhere}
@@ -23,7 +23,7 @@
 .conflict-body blockquote {border-left:2px solid #777;padding-left:9px}
 .conflict-body hr {margin:12px 0;border:0;border-top:1px solid var(--border)}
 .conflict-body .conflict-divider-change {border-color:#ac976d}
-.conflict-body pre {background:#202020;padding:7px;font:12px/1.55 var(--mono);border-radius:3px}
+.conflict-body pre {background:var(--control-tint,#202020);padding:7px;font:12px/1.55 var(--mono);border-radius:3px}
 .conflict-body details {margin:7px 0;font-size:12px}
 .conflict-data-pages {display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--muted);font-size:12px}
 .conflict-body summary {cursor:pointer}

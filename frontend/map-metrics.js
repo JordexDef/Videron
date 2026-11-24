@@ -1,4 +1,5 @@
 import { tr, getLanguage } from './i18n.js';
+import { mapInk, mapPalette } from './map-palette.js';
 import { addressOf, formatValue, parseAddress } from './table-engine.js';
 import { isProtectedNote } from './note-vault.js';
 import { metricCatalogue, metricRange, metricSource, readMetric } from './map-metric-source.js';
@@ -40,7 +41,8 @@ export function drawAreaMetric(ctx, group, metric, view) {
   } else if (hull) {
     ctx.arc(ox + hull.x * zoom, oy + hull.y * zoom, hull.r * zoom, -Math.PI / 2, -Math.PI / 2 + tau * metric.ratio);
   }
-  ctx.strokeStyle = 'rgba(' + (group.tint || '205,205,205') + ',.95)';
+  const palette=mapPalette();
+  ctx.strokeStyle = 'rgba(' + mapInk(group,palette) + ',.95)';
   ctx.lineWidth = 2.25;
   ctx.lineCap = ctx.lineJoin = 'round';
   ctx.stroke();
@@ -69,7 +71,7 @@ function sparkline(ctx, values, x, y, width, height) {
   });
   ctx.lineWidth = 1.65;
   ctx.lineCap = ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#d8dce7';
+  ctx.strokeStyle = mapPalette().spark;
   ctx.stroke();
 }
 
@@ -89,8 +91,9 @@ export function drawNoteMetric(ctx, metric, {x, y, r, tint, alpha = 1}) {
   ctx.globalAlpha *= alpha;
   ctx.beginPath();
   ctx.roundRect(left, top, width, height, 6);
-  ctx.fillStyle = '#232323'; ctx.fill();
-  ctx.lineWidth = 1; ctx.strokeStyle = tint ? 'rgba(' + tint + ',.44)' : '#505156'; ctx.stroke();
+  const palette=mapPalette();
+  ctx.fillStyle = palette.metric; ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = tint ? 'rgba(' + tint + ',.44)' : palette.metricEdge; ctx.stroke();
   sparkline(ctx, metric.values, left + 7, top + 5, width - 14, height - 10);
   ctx.restore();
 }
@@ -368,6 +371,7 @@ export function openMetricPicker({target, kind, space, anchor, onChange, onClose
   document.body.append(box);
   size.observe(box);
   window.addEventListener('resize', place, {signal:events.signal});
+  window.addEventListener('videron:themechange', () => update(), {signal:events.signal});
   showNote(!!saved); place();
   (sources.length ? noteSelect : closeButton).focus({preventScroll:true});
   return box;

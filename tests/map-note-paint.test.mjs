@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { paintNoteBody } from '../frontend/map-note-paint.js';
+import { darkMap, lightMap } from '../frontend/map-palette.js';
 import { Graph } from '../frontend/graph.js';
 
 function canvasProbe() {
@@ -30,6 +31,18 @@ test('overview keeps heat in small shapes and gradually reveals their reusable h
   n.tint='200,150,120';n.heat=.3;draw(9,true);
   assert.notEqual(bodies.at(-1),old);
   assert.equal(glows.length,2);
+});
+
+test('cached nodes retain their custom colour and a visible outline when themes change', () => {
+  const {ctx,bodies,strokes}=canvasProbe();
+  const node={tint:'255,248,235',heat:.5,customColor:true};
+  const paint=palette=>paintNoteBody(ctx,node,40,40,10,false,false,1,false,palette);
+  paint(darkMap);paint(lightMap);paint(darkMap);
+  assert.deepEqual([bodies[2],strokes[2]],[bodies[0],strokes[0]]);
+  assert.notEqual(bodies[1],bodies[0]);
+  const [red,green,blue]=strokes[1].match(/\d+/g).map(Number);
+  assert.ok(red < 130 && red >= green && green > blue, 'the pastel rim keeps its hue on white');
+  assert.equal(node.tint,'255,248,235');
 });
 
 test('diagonal link culling keeps a crossing even when both endpoint notes are off screen', () => {

@@ -6,6 +6,7 @@ import { slotAt, slotGridBounds, gridMarqueeBounds, gridFocusCamera, drawSlotGri
 import { shapeSiblingContours, insideContour, traceContour, emptyContourAnchor } from './map-contours.js';
 import { contourLabelPositions } from './contour-label.js';
 import { drawMapBackgroundDots } from './map-background.js';
+import { lightMap, mapInk, mapPalette } from './map-palette.js';
 import { paintMapNote } from './map-note-paint.js';
 import { dragPaintLayer, releaseDragPaint } from './map-drag-paint.js';
 import { MapZoomPreview } from './map-zoom-preview.js';
@@ -13,7 +14,6 @@ import { areaContactFamilies, measureAreaHulls, separateAreaSiblings } from './a
 import { intersectsNote, mapAreaButton, selectionRect } from './map-selection.js';
 import { appearanceOf, contact, containsPoint, edgeRadius, geometryFor } from './icons/node-art.js';
 
-const ACCENT = '#ededed';
 const NEUTRAL = '#b3b3b3';
 const TAU = Math.PI * 2;
 const STEP_MS = 1000 / 60;
@@ -1400,11 +1400,12 @@ export class Graph {
   draw() {
     const c = this.ctx, w = this.width, h = this.height, z = this.zoom;
     if (!this.dpr) return;
+    const palette = mapPalette();
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    c.fillStyle = '#171717';
+    c.fillStyle = palette.canvas;
     c.fillRect(0, 0, w, h);
     const ox = w / 2 - this.camera.x * z, oy = h / 2 - this.camera.y * z;
-    if (this.view.grid) drawMapBackgroundDots(c, ox, oy, z, w, h, this.dpr);
+    if (this.view.grid) drawMapBackgroundDots(c, ox, oy, z, w, h, this.dpr, palette);
 
     const labels = [], labelObstacles = new Map();
     if (this.measuredGroups !== this.groups) this.measureGroups();
@@ -1436,20 +1437,20 @@ export class Graph {
       const x = ox + hull.x * z, y = oy + hull.y * z, r = hull.r * z;
       if (x + r < 0 || x - r > w || y + r < -25 || y - r > h) continue;
       traceContour(c,hull,ox,oy,z);
-      c.fillStyle = rgba(g.tint,0.032); c.fill();
-      c.lineWidth = 1; c.strokeStyle = rgba(g.tint,0.35); c.stroke();
+      c.fillStyle = rgba(g.tint,palette === lightMap ? .09 : .032); c.fill();
+      c.lineWidth = 1; c.strokeStyle = rgba(mapInk(g,palette),0.35); c.stroke();
       this.callbacks.onDrawAreaMetric?.(c,g,{ox,oy,zoom:z});
       if (!active && this.view.labels && z >= 0.22) labels.push({
-        text:g.name, area:g, x,y, tint:rgba(g.tint,0.88), group:true, rank:2
+        text:g.name, area:g, x,y, tint:rgba(mapInk(g,palette),0.88), group:true, rank:2
       });
     }
     if (target?.hull) {
       traceContour(c,target.hull,ox,oy,z);
       c.fillStyle=rgba(target.group.tint,0.11); c.fill();
-      c.lineWidth=2.5; c.strokeStyle=ACCENT; c.stroke();
+      c.lineWidth=2.5; c.strokeStyle=palette.ink; c.stroke();
       const count=this.drag.noteIds?.length || 1;
       labels.push({text:count>1 ? target.group.name+' · '+count : target.group.name,x:this.drag.prev.x,y:Math.max(14,this.drag.prev.y-30),
-        tint:ACCENT,group:true,rank:6});
+        tint:palette.ink,group:true,rank:6});
     }
     const selected = this.drag?.preview || this.selectedIds;
     // On a wide view hundreds of bright links and captions can cover the
@@ -1475,7 +1476,7 @@ export class Graph {
       const aEdge = edgeRadius(a,dx,dy)*z, bEdge = edgeRadius(b,-dx,-dy)*z;
       if (length <= aEdge + bEdge) continue;
       const active = lead ? a===lead || b===lead : selected.has(a.id) || selected.has(b.id);
-      const stroke = active ? 'rgba(237,237,237,.66)' : rgba(a.tint,manual ? .33 : .17);
+      const stroke = active ? 'rgba('+palette.inkRGB+',.66)' : rgba(mapInk(a,palette),manual ? .33 : .17);
       const width = active ? 1.35 : 1;
       const x=ax+aEdge*dx, y=ay+aEdge*dy, endX=b.screenX-bEdge*dx, endY=b.screenY-bEdge*dy;
       if (stroke!==lastStroke) c.strokeStyle = lastStroke = stroke;
@@ -1487,14 +1488,14 @@ export class Graph {
       if (from && to && !from.links.includes(to.id) && !to.links.includes(from.id)) {
         // Note bodies cover the endpoints, including custom silhouettes.
         c.save();
-        c.setLineDash([4,4]); c.lineWidth = 1.5; c.strokeStyle = 'rgba(237,237,237,.85)';
+        c.setLineDash([4,4]); c.lineWidth = 1.5; c.strokeStyle = 'rgba('+palette.inkRGB+',.85)';
         c.beginPath(); c.moveTo(from.screenX,from.screenY); c.lineTo(to.screenX,to.screenY); c.stroke();
         c.restore();
       }
     }
     this.callbacks.onDrawRoute?.(c,this,ox,oy,z);
     const overview = this.nodes.size >= 1000;
-    const layer = dragPaintLayer(this,selected);
+    const layer = dragPaintLayer(this,selected,palette);
     let bounds = null;
     for (const n of this.nodes.values()) {
       const x = n.screenX, y = n.screenY, r = n.r * z;
@@ -1516,7 +1517,7 @@ export class Graph {
       const cached = layer && n.index>=layer.first && n.index<=layer.last;
       if (!cached || !layer.ready) {
         const seated = this.drag?.noteIds && this.drag.held?.has(n.id) ? !!target?.seats?.has(n.id) : n.seated;
-        paintMapNote(cached ? layer.ink : c,n,x,y,r,z,select,hover,seated,this.dpr,overview);
+        paintMapNote(cached ? layer.ink : c,n,x,y,r,z,select,hover,seated,this.dpr,overview,palette);
       }
       if (cached && n.index===layer.last) {
         layer.ready = true;
@@ -1524,7 +1525,7 @@ export class Graph {
       }
       if (this.view.labels && ((lead ? n===lead : select) || hover || z >= 0.58)) labels.push({
         text: n.title, note:n, x, y: y + r + (select ? 16 : 13),
-        tint: select ? '#ededed' : hover ? '#dedede' : '#b2b2b2',
+        tint: select ? palette.ink : hover ? palette.hover : palette.caption,
         rank: select ? 4 : hover ? 3 : 1
       });
     }
@@ -1534,18 +1535,18 @@ export class Graph {
     if (resizing) {
       const grid=this.drag.grid.grid, pointer=this.drag.prev;
       labels.push({text:gridSpacing(grid)+' × '+gridRowSpacing(grid), x:clamp(pointer.x,45,w-45),y:clamp(pointer.y-25,12,h-12),
-        group:true, rank:7,tint:ACCENT});
+        group:true, rank:7,tint:palette.ink});
     }
-    this.drawLabels(labels, labelObstacles, view);
+    this.drawLabels(labels, labelObstacles, view, palette);
     this.callbacks.onDrawRoute?.(c,this,ox,oy,z,true);
     const hovered = this.nodes.get(this.hover);
     if(hovered && !this.drag)this.callbacks.onDrawNoteMetric?.(c,hovered.id,{x:ox+hovered.x*z,y:oy+hovered.y*z,r:hovered.r*z});
     if (gripArea) drawGridGrip(c,gripArea.grid,view,resizing || !!this.hoverGrip);
     if (this.drag?.preview) {
       const {left,right,top,bottom} = selectionRect(this.drag.start,this.drag.prev);
-      c.fillStyle = 'rgba(235,235,235,.08)';
+      c.fillStyle = 'rgba('+palette.marquee+',.08)';
       c.fillRect(left,top,right-left,bottom-top);
-      c.strokeStyle = 'rgba(235,235,235,.7)'; c.lineWidth = 1;
+      c.strokeStyle = 'rgba('+palette.marquee+',.7)'; c.lineWidth = 1;
       c.strokeRect(left,top,right-left,bottom-top);
     }
     const showAction = this.tool === 'select' && !this.linking && !this.drag?.moved && !this.pinch && !this.callbacks.recordingRoute?.();
@@ -1553,7 +1554,7 @@ export class Graph {
     this.callbacks.onMapFrame?.(this);
   }
 
-  drawLabels(labels, obstacles, view) {
+  drawLabels(labels, obstacles, view, palette=mapPalette()) {
     const c = this.ctx, cells = new Map();
     const siblings = new Map();
     for (const family of this.areaFamilies || []) for (const area of family) siblings.set(area,family);
@@ -1585,7 +1586,7 @@ export class Graph {
         // Even with map labels hidden, hovering or tapping the title can reach this grid.
         if (item.concealed) break;
         for (const cell of buckets) cell.push(box);
-        c.lineWidth=3.2; c.lineJoin='round'; c.strokeStyle='#171717';
+        c.lineWidth=3.2; c.lineJoin='round'; c.strokeStyle=palette.canvas;
         c.strokeText(label,x,y);
         c.fillStyle=item.tint; c.fillText(label,x,y);
         break;

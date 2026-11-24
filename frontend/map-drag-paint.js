@@ -10,7 +10,7 @@ export function releaseDragPaint(drag) {
   drag.bodyLayer = null;
 }
 
-export function dragPaintLayer(graph, selected) {
+export function dragPaintLayer(graph, selected, palette) {
   const {drag,canvas,nodes,width,height,dpr,zoom,hover,camera} = graph;
   if (!drag?.moved || !(drag.held?.size > 1) || !(drag.noteIds?.length >= 32) ||
       nodes.size < 1000 || graph.heating?.size || !canvas?.width || !canvas.height ||
@@ -20,10 +20,10 @@ export function dragPaintLayer(graph, selected) {
   }
   const old = drag.bodyLayer;
   if (old && old.x===camera.x && old.y===camera.y && old.zoom===zoom && old.dpr===dpr &&
-      old.width===width && old.height===height && old.selected===selected && old.hover===hover)
+      old.width===width && old.height===height && old.selected===selected && old.hover===hover && old.palette===palette)
     return old.canvas ? old : null;
   releaseDragPaint(drag);
-  const state = drag.bodyLayer = {x:camera.x,y:camera.y,zoom,dpr,width,height,selected,hover};
+  const state = drag.bodyLayer = {x:camera.x,y:camera.y,zoom,dpr,width,height,selected,hover,palette};
   let first, visible = 0, best = minimumVisible - 1;
   for (const n of nodes.values()) {
     if (drag.allMoving.has(n.id) || selected.has(n.id)) { visible=0; continue; }

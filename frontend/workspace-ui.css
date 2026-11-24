@@ -13,7 +13,7 @@
   font-size:12px;
   line-height:1.4;
 }
-.space-dialog > .workspace-activity {margin-top:16px;background:#282828}
+.space-dialog > .workspace-activity {margin-top:16px;background:var(--control-hover,#282828)}
 .space-dialog > .workspace-activity:focus {outline:none}
 .space-dialog[data-working] :is(.dialog-actions,.server-change-buttons) {display:none}
 .space-dialog[data-working] .dialog-title .icon-button {opacity:.35}
@@ -42,11 +42,11 @@
   z-index:64;
   max-width:calc(100vw - 32px);
   width:max-content;
-  box-shadow:0 4px 16px #0003;
+  box-shadow:0 4px 16px var(--shadow-subtle,#0003);
   pointer-events:none;
 }
 body:has(dialog[open]) .workspace-transition {display:none}
-.space-label,.space-choice {font-size:12px;color:#bfbfc2}
+.space-label,.space-choice {font-size:12px;color:var(--fg-soft,#bfbfc2)}
 .space-location-controls,.space-choice,.space-heading,.space-row {display:flex;align-items:center;gap:7px}
 .space-location-controls {margin:7px 0}
 .space-choose {min-width:0;justify-content:flex-start}
@@ -75,7 +75,7 @@ body:has(dialog[open]) .workspace-transition {display:none}
 .workspace-menu-list {min-height:0;overflow:auto;overscroll-behavior:contain}
 .workspace-menu > button,.workspace-menu > hr {flex:none}
 .workspace-menu button i {flex-shrink:0}
-#sync-review:not([hidden]) {position:fixed;bottom:18px;right:18px;z-index:65;max-width:calc(100vw - 36px);border:1px solid #62606a;border-radius:7px;background:var(--panel);color:var(--text);padding:8px 13px;font-size:12px;box-shadow:0 3px 16px #0004}
+#sync-review:not([hidden]) {position:fixed;bottom:18px;right:18px;z-index:65;max-width:calc(100vw - 36px);border:1px solid var(--focus-border,#62606a);border-radius:7px;background:var(--panel);color:var(--text);padding:8px 13px;font-size:12px;box-shadow:0 3px 16px var(--shadow-subtle,#0004)}
 #shell:not([inert])~#sync-review {bottom:65px}
 #space-welcome:not([hidden]) {display:flex;flex:1;align-items:center;justify-content:center;flex-direction:column;gap:18px;padding:24px;text-align:center}
 #space-welcome>i .ico {width:28px;height:28px;color:var(--muted)}

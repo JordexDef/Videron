@@ -1,4 +1,5 @@
 import { getLanguage, tr } from './i18n.js';
+import { boardInk, boardPaper } from './board-theme.js';
 import {
   handFont,
   sansFont,
@@ -261,7 +262,7 @@ function sheetImage(item, workbook, doc) {
   canvas.height = Math.max(1, Math.ceil(item.h * scale));
   const ctx = canvas.getContext('2d');
   ctx.scale(scale, scale);
-  const background = doc.background || '#171717';
+  const background = boardPaper(doc.background);
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, item.w, item.h);
   if (item.type === 'table') paintTablePreview(ctx, item, workbook, background);
@@ -289,7 +290,9 @@ export function exportScene(doc, workbook) {
     };
   }
   const usedIds = new Set(doc.elements.map(item => item.id));
-  const elements = doc.elements.flatMap((item) => {
+  const paper = boardPaper(doc.background);
+  const elements = doc.elements.flatMap((saved) => {
+    const item = boardInk(saved, doc.background, paper);
     const sheet = isSheetObject(item);
     const type = sheet
       ? typeof document === 'undefined'
@@ -438,7 +441,7 @@ export function exportScene(doc, workbook) {
     version: 2,
     source: 'Videron',
     elements,
-    appState: { viewBackgroundColor: doc.background || '#171717' },
+    appState: { viewBackgroundColor: paper },
     files
   };
 }

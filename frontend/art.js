@@ -1,3 +1,5 @@
+import { isLightTheme } from './theme.js';
+
 const paths = {
   newData:'<path d="M8 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V7l-4-4H8Zm7 0v5h5M9 11l-3 3 3 3m5-6 3 3-3 3"/>',
   zoomIn:'<circle cx="10" cy="10" r="6.5"/><path d="M15 15l5 5M7 10h6m-3-3v6"/>',
@@ -48,6 +50,7 @@ export function paintIcons(root=document){
 
 // A miniature atlas illustrates note size, affinity and glow before the first node exists.
 export function drawAtlas(canvas){
+  const light=isLightTheme();
   const ctx=canvas.getContext('2d');
   ctx.setTransform(2,0,0,2,0,0);
   ctx.clearRect(0,0,430,195);
@@ -88,15 +91,15 @@ export function drawAtlas(canvas){
       ring(x+n.x,y+n.y,n.r,'rgba('+rgb+','+intensity+')','rgba('+rgb+','+(i%8===0?.12:.028)+')');
     }
   }
-  let halo=ctx.createRadialGradient(177,100,0,177,100,87);halo.addColorStop(0,'#c0c0c030');halo.addColorStop(1,'#c0c0c000');
+  let halo=ctx.createRadialGradient(177,100,0,177,100,87);halo.addColorStop(0,light?'#6f72801c':'#c0c0c030');halo.addColorStop(1,light?'#6f728000':'#c0c0c000');
   ctx.fillStyle=halo;ctx.fillRect(85,12,185,180);
-  cluster(176,99,55,12,59,'220,220,220');
-  cluster(291,65,28,6.1,14,'174,174,174');
-  cluster(282,137,22,4.8,12,'166,166,166');
-  cluster(82,62,13,3.1,4,'160,160,160');
+  cluster(176,99,55,12,59,light?'75,77,82':'220,220,220');
+  cluster(291,65,28,6.1,14,light?'87,89,95':'174,174,174');
+  cluster(282,137,22,4.8,12,light?'93,95,100':'166,166,166');
+  cluster(82,62,13,3.1,4,light?'99,101,106':'160,160,160');
   const loose=[[48,138,5],[59,132,3],[70,141,6],[88,122,3],[103,119,5],[251,79,3],[331,65,6],[345,61,3],[363,75,4],[229,148,3],[115,49,2],[233,43,2]];
   loose.forEach(([x,y,r])=>ring(x,y,r,'#979797a0','#87878710'));
   ctx.lineWidth=.75;
   [[44,72],[116,147],[238,27],[327,113],[383,49],[214,173]].forEach(([x,y])=>cross(x,y,3,'#7f7f7f9c'));
-  ctx.fillStyle='#d7d7d7';ctx.fillRect(173.8,96.8,4.4,4.4);
+  ctx.fillStyle=light?'#44464c':'#d7d7d7';ctx.fillRect(173.8,96.8,4.4,4.4);
 }

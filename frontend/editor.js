@@ -1,4 +1,5 @@
 import { tr, getLanguage } from './i18n.js'
+import { isLightTheme } from './theme.js'
 import { areaTreeRows, planAreaNotes } from './areas.js'
 import { fullGridIds } from './area-grid.js'
 import { mountBoard, normalizeBoard, boardSummary, emptyBoard } from './board.js'
@@ -19,7 +20,8 @@ import { createTagNavigator, noteTags } from './note-tags.js'
 import { canPickFolder, pickFolder, openFolder, isFolderPath, folderLabel, folderError } from './folder-links.js'
 
 // Version 1 stores content as text runs and media blocks. DOM nodes are only an editing view.
-const ink = ['#d4d4d4', '#e8dfc8', '#9dc9e2', '#e6aaa0', '#bba6db', '#dbbf79']
+const lightPaperInk = ['#303137', '#755841', '#295b86', '#a34340', '#68498e', '#84621a']
+const darkPaperInk = ['#d4d4d4', '#e8dfc8', '#9dc9e2', '#e6aaa0', '#bba6db', '#dbbf79']
 const icons = {
   padlock:'M5 10h14v11H5z M8 10V7a4 4 0 0 1 8 0v3',
   openPadlock:'M5 10h14v11H5z M8 10V7a4 4 0 0 1 7.6-1.8',
@@ -1223,8 +1225,10 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       const selection=getSelection();selection.removeAllRanges();selection.addRange(range)
       format('foreColor',color)
     }
+    const frame=root.closest('.vb-rich-frame')
+    const ink=(frame ? frame.dataset.light==='true' : isLightTheme()) ? lightPaperInk : darkPaperInk
     for(const c of ink){const b=button(tr('Выбрать ','Choose ')+c,null,()=>apply(c));b.classList.add('ve-swatch');b.style.setProperty('--ve-ink',c);choices.append(b)}
-    const custom=el('input');custom.type='color';custom.value='#d4d4d4';custom.setAttribute('aria-label',tr('Произвольный цвет текста','Custom text color'))
+    const custom=el('input');custom.type='color';custom.value=ink[0];custom.setAttribute('aria-label',tr('Произвольный цвет текста','Custom text color'))
     const actions=el('div','ve-actions'),pick=button(tr('Применить цвет','Apply color'),null,()=>apply(custom.value),true)
     actions.append(custom,pick);dlg.append(choices,actions)
   }

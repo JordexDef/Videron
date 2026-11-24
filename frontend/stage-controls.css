@@ -7,39 +7,39 @@
 .stage-edit {
   position:absolute; top:0; left:0; width:28px; height:28px; padding:0;
   display:grid; place-items:center; border:1px solid transparent; border-radius:7px;
-  color:#b8b8bc; background:transparent; opacity:0; pointer-events:none;
+  color:var(--fg-muted,#b8b8bc); background:transparent; opacity:0; pointer-events:none;
 }
 .stage-edit .ico { width:15px; height:15px; }
 .stage-insert {
   position:absolute;top:0;left:0;width:24px;height:24px;padding:0;
-  display:grid;place-items:center;color:#d6d5d8;border:0;background:none;
+  display:grid;place-items:center;color:var(--fg-soft,#d6d5d8);border:0;background:none;
   opacity:0;pointer-events:none;
 }
 .stage-insert::before {
-  content:'';position:absolute;width:17px;height:17px;background:#282729;
-  border:1px solid #666269;border-radius:50%;
+  content:'';position:absolute;width:17px;height:17px;background:var(--control-bg,#282729);
+  border:1px solid var(--focus-border,#666269);border-radius:50%;
 }
 .stage-insert .ico {position:relative;width:11px;height:11px}
 .stage-insert:is(.is-hot,:hover,:focus-visible,[aria-expanded="true"]) {opacity:1;pointer-events:auto}
 .stage-insert:focus-visible {border-radius:50%}
 .stage-insert-form {
   position:absolute;z-index:1;pointer-events:auto;display:flex;gap:3px;align-items:center;
-  background:var(--panel);border:1px solid #575459;border-radius:7px;
-  padding:3px 4px 3px 8px;box-shadow:0 4px 15px #0004;
+  background:var(--panel);border:1px solid var(--control-line,#575459);border-radius:7px;
+  padding:3px 4px 3px 8px;box-shadow:0 4px 15px var(--shadow-floating,#0004);
 }
 .stage-insert-form input {flex:1;min-width:0;border:0;outline:0;padding:4px 0;background:transparent;color:var(--text);font-size:12px}
-.stage-insert-form button {display:grid;place-items:center;padding:0;width:25px;height:25px;border-radius:4px;background:#353436;color:var(--text)}
-.stage-insert-form button:hover:enabled {background:#4a484d}
+.stage-insert-form button {display:grid;place-items:center;padding:0;width:25px;height:25px;border-radius:4px;background:var(--control-tint,#353436);color:var(--text)}
+.stage-insert-form button:hover:enabled {background:var(--control-hover,#4a484d)}
 .stage-insert-form button:disabled {opacity:.38}
 .stage-insert-form .ico {width:14px;height:14px}
 .stage-edit:is(.is-active,.is-touched,:focus-visible,[aria-expanded="true"]) {
-  opacity:1; pointer-events:auto; border-color:#49494c;
+  opacity:1; pointer-events:auto; border-color:var(--control-line,#49494c);
 }
 .stage-edit:is(:focus-visible,[aria-expanded="true"]) {
-  background:#363639; color:#f1f1f3; border-color:#76767d;
+  background:var(--control-hover,#363639); color:var(--fg-soft,#f1f1f3); border-color:var(--focus-border,#76767d);
 }
 @media (any-hover:hover) {
-  .stage-edit:hover {opacity:1;pointer-events:auto;background:#363639;color:#f1f1f3;border-color:#76767d}
+  .stage-edit:hover {opacity:1;pointer-events:auto;background:var(--control-hover,#363639);color:var(--fg-soft,#f1f1f3);border-color:var(--focus-border,#76767d)}
   /* Bridge the four-pixel gap on the title side without covering its text or drag handle. */
   .stage-edit::before {content:'';position:absolute;inset:0}
   .stage-edit[data-bridge="left"]::before {left:-5px}

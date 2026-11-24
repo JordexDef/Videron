@@ -3,9 +3,9 @@
   z-index: 4;
   color: var(--text);
   background: var(--panel);
-  border: 1px solid #454348;
+  border: 1px solid var(--control-line,#454348);
   border-radius: 9px;
-  box-shadow: 0 6px 24px #0004;
+  box-shadow: 0 6px 24px var(--shadow-floating,#0004);
   font-size: 12px;
 }
 .map-route-list {
@@ -34,9 +34,9 @@
   height: 30px;
   padding: 0 7px;
   border-radius: 5px;
-  color: #c6c4c9;
+  color: var(--fg-soft,#c6c4c9);
 }
-.route-btn:hover:enabled, .route-btn[aria-expanded="true"] { background: #38363b; color: #f2f0f4; }
+.route-btn:hover:enabled, .route-btn[aria-expanded="true"] { background: var(--control-hover,#38363b); color: var(--fg-soft,#f2f0f4); }
 .route-btn .ico { width: 15px; height: 15px; }
 .route-btn:focus-visible,.route-name:focus-visible,.route-fragment:focus-visible { outline-offset: -1px; }
 .route-start { flex: 1; min-width: 0; justify-content: flex-start; text-align: left; }
@@ -57,14 +57,14 @@
 .route-name,.route-fragment {
   min-width: 0;
   color: var(--text);
-  background: #1c1c1d;
+  background: var(--field-bg,#1c1c1d);
   border: 1px solid var(--border);
   border-radius: 4px;
 }
 .route-name { width: 156px; height: 30px; padding: 0 8px; }
-.route-save { background: #d9d7dc; color: #212022; }
-.route-save:hover:enabled { background: #eeecf0; color: #212022; }
-.route-hint { padding: 3px 4px 7px; color: #bebbc2; font-size: 11px; }
+.route-save { background: var(--primary-border,#d9d7dc); color: var(--on-primary,#212022); }
+.route-save:hover:enabled { background: var(--primary-hover,#eeecf0); color: var(--on-primary,#212022); }
+.route-hint { padding: 3px 4px 7px; color: var(--fg-muted,#bebbc2); font-size: 11px; }
 .route-edit-stops {
   margin: 0 0 5px;
   padding: 2px;
@@ -90,7 +90,7 @@
 .route-caption { display: grid; gap: 1px; min-width: 0; max-width: 180px; padding: 2px 11px 2px 5px; }
 .route-caption small { font-size: 10px; color: var(--muted); }
 .route-caption strong { font-weight: 500; }
-.route-position { white-space: nowrap; padding: 0 3px; color: #e2dee7; }
+.route-position { white-space: nowrap; padding: 0 3px; color: var(--fg-soft,#e2dee7); }
 .map-stage:is([data-route-mode="edit"],[data-route-mode="play"]) :is(.selection,.map-area-action) { visibility: hidden; }
 .map-stage[data-route-mode="edit"] canvas { cursor: crosshair; }
 @media (max-width: 1020px) {

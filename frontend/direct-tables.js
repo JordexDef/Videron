@@ -198,6 +198,7 @@ export function createDirectTables(initial, callbacks) {
   function render() {
     if (!mounted) return
     const workbook = callbacks.workbook(doc.elements)
+    let paper
     const keep = new Set(doc.elements.map(e => e.id))
     for (const [id, element] of nodes) if (!keep.has(id)) {
       if (element.matches('.vt-table')) ui.removeView(element)
@@ -217,9 +218,10 @@ export function createDirectTables(initial, callbacks) {
         ui.updateView(element, item, workbook)
       }
       else {
+        paper ??= getComputedStyle(row).getPropertyValue('--ve-bg').trim()
         element.style.aspectRatio = Math.max(1, item.w) + '/' + Math.max(1, item.h)
         element.querySelector('.ve-chart-remove').disabled = !!item.locked
-        updateChartView(element, item, workbook, doc.elements, '#171717')
+        updateChartView(element, item, workbook, doc.elements, paper)
       }
       if (item.locked && !element.querySelector('.ve-sheet-unlock')) {
         const unlock = action(tr('Разблокировать', 'Unlock'), '◇', () => {
@@ -255,7 +257,12 @@ export function createDirectTables(initial, callbacks) {
   return {
     row, key:callbacks.key, direct:true, focus,
     revealTableCell:ui.revealSearchCell,
-    mount() { if (!mounted) { mounted = true; render() } },
+    mount() {
+      if (mounted) return
+      mounted = true
+      window.addEventListener('videron:themechange', render)
+      render()
+    },
     update(next) {
       if (next.board !== block.board) {
         ui.finishEdit(true)
@@ -278,6 +285,7 @@ export function createDirectTables(initial, callbacks) {
     commitDraft: ui.commitDraft,
     prepareClose() { finishResize?.(false); ui.finishEdit() },
     destroy() {
+      window.removeEventListener('videron:themechange', render)
       mounted = false; finishResize?.(true); closeFiles?.(); ui.finishEdit(true); ui.destroy(); nodes.clear()
     }
   }

@@ -1,4 +1,5 @@
 import { getLanguage, tr } from './i18n.js';
+import { boardPaper, lightPaper } from './board-theme.js';
 import { historyDirection } from './shortcuts.js';
 import { addressOf, parseAddress, formatValue } from './table-engine.js';
 
@@ -179,12 +180,10 @@ function shorten(label, width, size) {
 }
 
 function colors(background) {
-  const bg = /^#[a-f\d]{6}$/i.test(background) ? background : '#171717';
-  const [r, g, b] = bg
-    .slice(1)
-    .match(/../g)
-    .map((v) => parseInt(v, 16));
-  const light = 0.2126 * r + 0.7152 * g + 0.0722 * b > 150;
+  const color = /^#[\da-f]{3}$/i.test(background)
+    ? '#' + [...background.slice(1)].map(channel => channel + channel).join('') : background;
+  const bg = boardPaper(/^#[a-f\d]{6}$/i.test(color) ? color : undefined);
+  const light = lightPaper(bg);
   return {
     bg,
     fg: light ? '#303034' : '#e0e0e3',

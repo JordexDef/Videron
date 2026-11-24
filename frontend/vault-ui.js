@@ -1,6 +1,7 @@
 import {icon} from './art.js'
 import {tr} from './i18n.js'
 import {normalizeIdleMinutes} from './idle-lock.js'
+import {isLightTheme,setTheme} from './theme.js'
 
 const openDialogs = new Set()
 
@@ -302,6 +303,25 @@ function idleSettings(view, initialMinutes, commit) {
   return section
 }
 
+function themeSettings() {
+  const group = el('fieldset', 'theme-settings')
+  group.append(el('legend', '', tr('Тема оформления', 'Theme')))
+  const choices = el('div', 'theme-options')
+  for (const [value, name] of [['dark', tr('Тёмная', 'Dark')], ['light', tr('Светлая', 'Light')]]) {
+    const label = el('label', 'theme-option')
+    const input = el('input')
+    input.type = 'radio'; input.name = 'app-theme'; input.value = value
+    input.checked = value === (isLightTheme() ? 'light' : 'dark')
+    input.onchange = () => { if (input.checked) setTheme(value) }
+    const swatch = el('span', 'theme-sample ' + value)
+    swatch.setAttribute('aria-hidden', 'true')
+    label.append(swatch, name, input)
+    choices.append(label)
+  }
+  group.append(choices)
+  return group
+}
+
 export function openVaultSettings({protected:encrypted = false, available = true, canLock = false, onEnable, onChange, onDisable, onLock, idleMinutes = 0, onIdleMinutesChange}) {
   const view = dialog()
   function edit(mode) {
@@ -317,6 +337,7 @@ export function openVaultSettings({protected:encrypted = false, available = true
   }
   function show() {
     view.content(tr('Настройки', 'Settings'), () => view.close())
+    view.panel.append(themeSettings())
     const section = el('section', 'vault-settings-section')
     section.append(el('h3', '', tr('Шифрование библиотеки', 'Library encryption')))
     view.panel.append(section)
@@ -345,8 +366,7 @@ export function openVaultSettings({protected:encrypted = false, available = true
         idleMinutes = minutes
       }))
     }
-    const firstAction = actions.querySelector('button') || view.panel.querySelector('button')
-    firstAction.focus()
+    view.panel.querySelector('.theme-option input:checked').focus()
   }
   show()
   return view.done

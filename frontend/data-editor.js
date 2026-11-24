@@ -6,6 +6,7 @@ import {
   indentOnInput, StreamLanguage, tags, json, javascript, python, sql, html, css
 } from './vendor/codemirror/editor-core.js'
 import { tr, getLanguage } from './i18n.js'
+import { isLightTheme } from './theme.js'
 import { historyDirection, primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
 import { editorButton, noteRelations, noteDetails, notePrivacyButton, noteSearchButton,
   finishNoteSession, keepTabInEditor } from './editor.js'
@@ -78,14 +79,17 @@ const russianPhrases = {
   'replaced match on line $':'Замена в строке $', 'replaced $ matches':'Выполнено замен: $'
 }
 const palette = HighlightStyle.define([
-  {tag:[tags.keyword,tags.modifier,tags.operatorKeyword], color:'#c8b1df'},
-  {tag:[tags.string,tags.special(tags.string)], color:'#d2bd9b'},
-  {tag:[tags.number,tags.bool,tags.null,tags.atom], color:'#d5a9a5'},
-  {tag:[tags.propertyName,tags.attributeName,tags.function(tags.variableName)], color:'#a8c6e0'},
-  {tag:[tags.typeName,tags.className,tags.tagName], color:'#ccc39f'},
-  {tag:[tags.comment,tags.meta], color:'#989898', fontStyle:'italic'},
-  {tag:[tags.separator,tags.bracket,tags.operator], color:'#b5adb9'}
+  {tag:[tags.keyword,tags.modifier,tags.operatorKeyword], color:'var(--ve-keyword,#c8b1df)'},
+  {tag:[tags.string,tags.special(tags.string)], color:'var(--ve-string,#d2bd9b)'},
+  {tag:[tags.number,tags.bool,tags.null,tags.atom], color:'var(--ve-number,#d5a9a5)'},
+  {tag:[tags.propertyName,tags.attributeName,tags.function(tags.variableName)], color:'var(--ve-key,#a8c6e0)'},
+  {tag:[tags.typeName,tags.className,tags.tagName], color:'var(--ve-type,#ccc39f)'},
+  {tag:[tags.comment,tags.meta], color:'var(--ve-comment,#989898)', fontStyle:'italic'},
+  {tag:[tags.separator,tags.bracket,tags.operator], color:'var(--ve-operator,#b5adb9)'}
 ])
+const darkEditor = EditorView.theme({}, {dark:true})
+const lightEditor = EditorView.theme({}, {dark:false})
+const currentScheme = () => isLightTheme() ? lightEditor : darkEditor
 const flash = StateEffect.define()
 const highlights = StateField.define({
   create:() => Decoration.none,
@@ -145,7 +149,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   let relations = noteRelations(note), finished = false, dirty = false, closePending, running
   let idleTimer, maxTimer, flashTimer, view, sourceDoc, grid, tableState, textScroll
   let hasHeader = note.dataHasHeader !== false, docRevision = 0, lastTableView, gridFormat
-  const languageSlot = new Compartment()
+  const languageSlot = new Compartment(), themeSlot = new Compartment()
   const tagNav = createTagNavigator({root,notes,noteId:note.id,onOpenNote:onOpenNote && navigateTo})
   const details = noteDetails({root,note,notes,areas,current:() => relations,update(patch,point) {
     relations = {...relations,...patch}; onChange?.({...patch,...point}); details.sync()
@@ -254,7 +258,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   const state = EditorState.create({doc:textDocument(source), extensions:[
     lineEndingSupport(source), languageSlot.of(formats[format.value].extension()), syntaxHighlighting(palette), indentOnInput(),
     bracketMatching(), history(), lineNumbers(), highlightActiveLineGutter(), highlightActiveLine(), drawSelection(),
-    search({top:true}), highlights, EditorView.theme({},{dark:true}), EditorState.tabSize.of(4),
+    search({top:true}), highlights, themeSlot.of(currentScheme()), EditorState.tabSize.of(4),
     keymap.of([{key:'Mod-g',run:gotoLine},{win:'Ctrl-Shift-z',run:redo,preventDefault:true},
       ...searchKeymap,{key:'Escape',run:cancelTextOperation},...historyKeymap,indentWithTab,...defaultKeymap]),
     EditorState.phrases.of(getLanguage() === 'ru' ? russianPhrases : {}),
@@ -270,7 +274,13 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
       if (update.docChanged || update.selectionSet) status(update.state)
     })
   ]})
+  function applyTheme() {
+    const effects = themeSlot.reconfigure(currentScheme())
+    if (tableState) tableState = tableState.update({effects}).state
+    else view.dispatch({effects})
+  }
   view = new EditorView({state,parent:host})
+  window.addEventListener('videron:themechange',applyTheme)
   sourceDoc = state.doc
   syncViewButtons()
   status(state); details.sync(); details.setTags(noteTags(title.value,''))
@@ -423,6 +433,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
       running?.abort(); releaseTable(); flush()
       if (!await finishNoteSession(root,beforeClose)) {showText(); return false}
       finished = true; clearTimeout(flashTimer)
+      window.removeEventListener('videron:themechange',applyTheme)
       titleReveal.clear(); tagNav.destroy(); view?.destroy(); tableState = null; root.remove()
       previousFocus?.focus?.({preventScroll:true}); onClose?.(reason)
       return true

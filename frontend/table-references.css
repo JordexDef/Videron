@@ -6,7 +6,8 @@
   --vt-ref-4: #ceba78;
   --vt-ref-5: #adb7cc;
 }
-.vb[data-light='true'] .vt-table {
+.vb[data-light='true'] .vt-table,
+:root[data-theme='light'] .ve-direct-tables .vt-table {
   --vt-ref-0: #456da9;
   --vt-ref-1: #976139;
   --vt-ref-2: #7959a5;

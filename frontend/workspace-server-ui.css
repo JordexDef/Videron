@@ -2,7 +2,7 @@
 .space-server-dialog .dialog-actions {flex-wrap:wrap}
 .server-summary {display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:3px 12px;margin:4px 0 14px}
 .server-summary .server-address {grid-column:1/-1;margin:0}
-.server-verified {display:flex;align-items:center;gap:6px;color:#a9d3b1;font-size:13px;font-weight:550}
+.server-verified {display:flex;align-items:center;gap:6px;color:var(--fg-success,#a9d3b1);font-size:13px;font-weight:550}
 .server-verified .ico {width:16px;height:16px}
 .server-method {margin-right:auto;padding:5px 0;font-size:12px;color:var(--muted);text-align:left;text-decoration:underline;text-underline-offset:3px}
 .server-method:hover,.server-method:focus-visible {color:var(--text)}
@@ -22,5 +22,5 @@
 .server-project-change {border-top:1px solid var(--border);margin:14px 0 0;padding-top:14px}
 .server-project-change .space-hint {margin:7px 0}
 .server-change-buttons {display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:14px}
-.server-delete-confirm {background:#4c3334;border:1px solid #815657;color:#ffdedd}
-.server-delete-confirm:hover {background:#5f3d3e}
+.server-delete-confirm {background:var(--danger-bg,#4c3334);border:1px solid var(--danger-line,#815657);color:var(--fg-error,#ffdedd)}
+.server-delete-confirm:hover {background:var(--danger-hover,#5f3d3e)}

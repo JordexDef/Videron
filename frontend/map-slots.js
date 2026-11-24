@@ -1,5 +1,6 @@
 import { gridRowSpacing, gridSpacing, MIN_GRID_SPACING, MAX_GRID_SPACING, setGridSpacing, slotPoint, validSlot } from './area-grid.js';
 import { tr } from './i18n.js';
+import { mapInk, mapPalette } from './map-palette.js';
 
 export function slotGridBounds(grid) {
   const pitchX = gridSpacing(grid), pitchY = gridRowSpacing(grid);
@@ -19,16 +20,17 @@ export function draggedGridSpacing(grid, dx, dy) {
 }
 
 export function drawGridGrip(ctx, grid, {ox,oy,zoom,width,height}, active) {
+  const palette=mapPalette();
   const {right,bottom} = slotGridBounds(grid), x=ox+right*zoom, y=oy+bottom*zoom;
   if (x < -10 || y < -10 || x > width+10 || y > height+10) return;
   ctx.save();
   ctx.beginPath();ctx.arc(x,y,9,0,Math.PI*2);
-  ctx.fillStyle='#252525';ctx.fill();
-  ctx.strokeStyle=active?'#ededed':'#8d8d8d';ctx.lineWidth=1;ctx.stroke();
+  ctx.fillStyle=palette.badge;ctx.fill();
+  ctx.strokeStyle=active?palette.ink:palette.grip;ctx.lineWidth=1;ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(x-3.5,y-3.5);ctx.lineTo(x+3.5,y+3.5);
   ctx.moveTo(x,y+3.5);ctx.lineTo(x+3.5,y+3.5);ctx.lineTo(x+3.5,y);
-  ctx.strokeStyle='#dedede';ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();
+  ctx.strokeStyle=palette.hover;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();
   ctx.restore();
 }
 
@@ -127,17 +129,17 @@ function fitStageName(ctx, name, width) {
 
 const stageCaptions = new WeakMap();
 
-function drawStageHandle(ctx, bounds, emphasized, tint) {
+function drawStageHandle(ctx, bounds, emphasized, tint, palette) {
   const x=(bounds.l+bounds.r)/2,y=(bounds.t+bounds.b)/2;
   ctx.beginPath();
   for(const dx of [-2,2]) for(const dy of [-4,0,4]){
     ctx.moveTo(x+dx+1.1,y+dy);ctx.arc(x+dx,y+dy,1.1,0,Math.PI*2);
   }
-  ctx.fillStyle=emphasized?'#eeeeef':'rgba('+tint+',.6)';
+  ctx.fillStyle=emphasized?palette.ink:'rgba('+tint+',.6)';
   ctx.fill();
 }
 
-function drawStageInsertion(ctx, header, reorder, bottom, view, tint) {
+function drawStageInsertion(ctx, header, reorder, bottom, view, tint, palette) {
   const {from,to,pointerX}=reorder;
   const name=header.grid.grid.stages[from];
   if (name === undefined) return;
@@ -145,18 +147,18 @@ function drawStageInsertion(ctx, header, reorder, bottom, view, tint) {
     const edge=reorder.boundary ?? (to>from ? to+1 : to);
     const x=header.l+header.pitch*edge,top=Math.max(2,header.t-2),end=Math.min(bottom,view.height-1);
     ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,end);
-    ctx.strokeStyle='rgba(237,235,245,.92)';ctx.lineWidth=1.75;ctx.stroke();
+    ctx.strokeStyle=palette.stageEdge;ctx.lineWidth=1.75;ctx.stroke();
     ctx.beginPath();ctx.moveTo(x-3.5,top);ctx.lineTo(x+3.5,top);ctx.lineTo(x,top+4.5);
-    ctx.fillStyle='#edeaf3';ctx.fill();
+    ctx.fillStyle=palette.stageTip;ctx.fill();
   }
   if (!Number.isFinite(pointerX) || view.width < 44 || view.height < 60) return;
   const label=fitStageName(ctx,name,Math.min(168,view.width-34)),w=Math.ceil(label.width)+20,h=24;
   const x=Math.max(4,Math.min(view.width-w-4,pointerX-w/2));
   const y=header.t>=h+24 ? header.t-h-20 : Math.min(view.height-h-4,Math.max(4,header.b+5));
   ctx.beginPath();ctx.roundRect(x,y,w,h,6);
-  ctx.fillStyle='#29282c';ctx.fill();
+  ctx.fillStyle=palette.stageFill;ctx.fill();
   ctx.strokeStyle='rgba('+tint+',.7)';ctx.lineWidth=1;ctx.stroke();
-  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#ededef';
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=palette.stageInk;
   ctx.fillText(label.text,x+w/2,y+h/2);
 }
 
@@ -196,7 +198,8 @@ export function gridMarqueeBounds(group, zoom) {
 }
 
 export function drawSlotGrid(ctx, group, view, {selected=false, active=false, slots=[], blocked=false, swapping=false, hoverSlot=null, hoverStage=null, hoverHandle=null, reorder=null} = {}) {
-  const {grid,tint,name} = group, {ox,oy,zoom,width,height} = view;
+  const {grid,name} = group, {ox,oy,zoom,width,height} = view;
+  const palette=mapPalette(), tint=mapInk(group,palette);
   const firstX = ox + grid.x * zoom, firstY = oy + grid.y * zoom;
   const {pitchX,pitchY,markerPitch,radius,strideX,strideY,compact,showStages,headerOffset}=gridMarkLayout(grid,zoom);
   const halfX = pitchX/2, halfY = pitchY/2;
@@ -217,7 +220,7 @@ export function drawSlotGrid(ctx, group, view, {selected=false, active=false, sl
     ctx.beginPath();
     ctx.rect(firstX-halfX,top,grid.cols*pitchX,lastY+halfY-top);
     ctx.fillStyle='rgba('+tint+',.045)';ctx.fill();
-    ctx.strokeStyle='#ededed';ctx.lineWidth=1.5;ctx.stroke();
+    ctx.strokeStyle=palette.ink;ctx.lineWidth=1.5;ctx.stroke();
   }
   let stageHeader;
   if (showStages) {
@@ -257,9 +260,9 @@ export function drawSlotGrid(ctx, group, view, {selected=false, active=false, sl
           : {l:left-room,r:left-2,t:stageHeader.t,b:stageHeader.b};
         stageHeader.handles.set(col,bounds);
         stageHeader.titles.set(col,{l:left-1,r:left+label.width+1,t:y-15,b:y+1});
-        if(source || hoverStage===col)drawStageHandle(ctx,bounds,source || hoverHandle===col,tint);
+        if(source || hoverStage===col)drawStageHandle(ctx,bounds,source || hoverHandle===col,tint,palette);
       }
-      ctx.fillStyle=pointed || source ? '#ededed':'rgba('+tint+',.88)';
+      ctx.fillStyle=pointed || source ? palette.ink:'rgba('+tint+',.88)';
       ctx.fillText(label.text,left,y);
       ctx.strokeStyle='rgba('+tint+',.32)';ctx.lineWidth=1;ctx.beginPath();
       ctx.moveTo(x-halfX+5,y+4);ctx.lineTo(x+halfX-5,y+4);ctx.stroke();
@@ -300,14 +303,14 @@ export function drawSlotGrid(ctx, group, view, {selected=false, active=false, sl
       const x = firstX + hoverSlot%grid.cols*pitchX, y = firstY + Math.floor(hoverSlot/grid.cols)*pitchY;
       const r = active ? ring+3 : radius+3;
       ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
-      ctx.strokeStyle = blocked ? '#dfac97' : '#e6e6e6';ctx.lineWidth=1.35;ctx.stroke();
+      ctx.strokeStyle = blocked ? palette.warning : palette.ink;ctx.lineWidth=1.35;ctx.stroke();
     }
   }
-  if (reorder && stageHeader) drawStageInsertion(ctx,stageHeader,reorder,lastY+halfY,view,tint);
+  if (reorder && stageHeader) drawStageInsertion(ctx,stageHeader,reorder,lastY+halfY,view,tint,palette);
   ctx.restore();
   const left = firstX-halfX, right = lastX+halfX;
   const label = {
-    text:name, group:true, rank:selected ? 4 : 2, tint:selected ? '#ededed' : 'rgba('+tint+',.9)',
+    text:name, group:true, rank:selected ? 4 : 2, tint:selected ? palette.ink : 'rgba('+tint+',.9)',
     x:(Math.max(left,0)+Math.min(right,width))/2, y:showStages ? headerTop-10 : headerY-5
   };
   if(stageHeader && stageHeader.b>=0 && stageHeader.t<=height)label.stageHeader=stageHeader;
@@ -323,6 +326,6 @@ export function drawSlotGrid(ctx, group, view, {selected=false, active=false, sl
   label.x = Math.max(52,Math.min(width-52, firstX+(hoverSlot%grid.cols)*pitchX));
   label.y = Math.max(12,Math.min(height-12, firstY+Math.floor(hoverSlot/grid.cols)*pitchY + (active ? 32 : 17)));
   label.rank = active ? 6 : 3;
-  label.tint = blocked ? '#dfac97' : '#ededed';
+  label.tint = blocked ? palette.warning : palette.ink;
   return label;
 }

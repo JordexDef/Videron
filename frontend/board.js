@@ -1,4 +1,5 @@
 import { tr } from './i18n.js';
+import { boardPaper, boardInk, lightPaper } from './board-theme.js';
 import { historyDirection, primaryCommand, shortcutLabel } from './shortcuts.js';
 import { icon } from './art.js';
 import { canPickFolder, folderError, folderLabel, isFolderPath, openFolder, pickFolder } from './folder-links.js';
@@ -162,6 +163,7 @@ export function normalizeBoard(input) {
         fill: validColor(raw.fill) ? raw.fill : 'none',
         lineWidth: clamp(num(raw.lineWidth, 2), 0.4, 40)
       };
+      if (raw.fixedStroke === true && e.stroke === '#d4d4d4') e.fixedStroke = true;
       if (shapes.has(e.type) || isConnector(e) || e.type === 'pen') {
         e.seed =
           Number.isInteger(raw.seed) && raw.seed > 0 && raw.seed <= 0x7fffffff
@@ -482,19 +484,8 @@ function paintLayers(e, d = pathData(e)) {
 }
 
 const previewJobs = new WeakMap();
-function lightBackground(color) {
-  if (!validColor(color)) return false;
-  const [r, g, b] = color.slice(1).match(/../g).map((v) => parseInt(v, 16));
-  return r * 0.2126 + g * 0.7152 + b * 0.0722 > 150;
-}
 function frameNeedsDarkText(item, canvasBackground) {
-  const color = validColor(item.frameBackground) ? item.frameBackground : canvasBackground || '#171717';
-  const [r, g, b] = color.slice(1).match(/../g).map(hex => {
-    const s = parseInt(hex, 16) / 255;
-    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  });
-  // Crossover where #242424 and #dedede have equal contrast on this surface.
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.18;
+  return lightPaper(validColor(item.frameBackground) ? item.frameBackground : canvasBackground);
 }
 export async function renderBoardPreview(canvas, input) {
   const { elements, background } = normalizeBoard(input);
@@ -536,7 +527,9 @@ export async function renderBoardPreview(canvas, input) {
   ctx.save();
   ctx.translate((w - b.w * z) / 2 - b.x * z, (h - b.h * z) / 2 - b.y * z);
   ctx.scale(z, z);
-  for (const e of elements) {
+  const paper = boardPaper(background);
+  for (const item of elements) {
+    const e = boardInk(item, background, paper);
     ctx.save();
     ctx.translate(e.x + e.w / 2, e.y + e.h / 2);
     ctx.rotate((e.angle * Math.PI) / 180);
@@ -547,9 +540,9 @@ export async function renderBoardPreview(canvas, input) {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     if (e.type === 'table') {
-      paintTablePreview(ctx, e, workbook, background);
+      paintTablePreview(ctx, e, workbook, paper);
     } else if (e.type === 'chart') {
-      paintChartPreview(ctx, e, workbook, elements, background);
+      paintChartPreview(ctx, e, workbook, elements, paper);
     } else if (e.type === 'image') {
       const img = images.get(e.id);
       if (img) {
@@ -568,17 +561,17 @@ export async function renderBoardPreview(canvas, input) {
         ctx.beginPath();
         ctx.roundRect(0, 0, e.w, e.h, 5);
         if (e.frameBackground !== 'none') {
-          ctx.fillStyle = e.frameBackground || background || '#171717';
+          ctx.fillStyle = e.frameBackground || paper;
           ctx.fill();
         }
         if (e.frameBorder !== 'none') {
           ctx.lineWidth = 1;
-          ctx.strokeStyle = e.frameBorder || (lightBackground(background) ? '#5659633b' : '#b8bbc33b');
+          ctx.strokeStyle = e.frameBorder || (lightPaper(paper) ? '#5659633b' : '#b8bbc33b');
           ctx.stroke();
         }
         ctx.clip();
         ctx.translate(12, 9);
-        ctx.fillStyle = frameNeedsDarkText(e, background) ? '#242424' : '#dedede';
+        ctx.fillStyle = frameNeedsDarkText(e, paper) ? '#242424' : '#dedede';
       }
       ctx.font = e.fontSize + 'px ' + fontStack(e.fontFamily);
       ctx.textBaseline = 'alphabetic';
@@ -762,7 +755,7 @@ export function mountBoard(container, options = {}) {
     strokeStyle: 'solid',
     fillStyle: 'hachure'
   };
-  if (lightBackground(background)) defaults.stroke = '#232323';
+  if (background && lightPaper(background)) defaults.stroke = '#232323';
   const pending = new Set(),
     past = [],
     future = [],
@@ -775,7 +768,7 @@ export function mountBoard(container, options = {}) {
       .then(() => {
         fontReady = true;
         if (!dead && earlyText.size) updateTextHeights(elements.filter((e) => earlyText.has(e.id)));
-        if (!dead) for (const view of views.values()) if (view.caption && view.last) view.caption.update(view.last);
+        if (!dead) for (const view of views.values()) if (view.caption && view.last) shapeCaption(view, view.last);
         earlyText.clear();
       })
       .finally(() => pending.delete(loading));
@@ -1055,7 +1048,8 @@ export function mountBoard(container, options = {}) {
     row.append(name, group); frameProperties.append(row);
     return (items, locked) => {
       const last = items.at(-1)[key];
-      color.value = validColor(last) ? last : key === 'frameBackground' ? background || '#171717' : lightBackground(background) ? '#888888' : '#515151';
+      const paper = boardPaper(background);
+      color.value = validColor(last) ? last : key === 'frameBackground' ? paper : lightPaper(paper) ? '#888888' : '#515151';
       for (const control of [color, auto, none]) control.disabled = locked;
       auto.setAttribute('aria-pressed', String(items.every(item => item[key] === undefined)));
       none.setAttribute('aria-pressed', String(items.every(item => item[key] === 'none')));
@@ -1137,6 +1131,10 @@ export function mountBoard(container, options = {}) {
         return withSmoothPoints(style, indices);
       }
       const next = { ...style, [key]: value };
+      if (key === 'stroke') {
+        if (value === '#d4d4d4') next.fixedStroke = true;
+        else delete next.fixedStroke;
+      }
       if (key === 'fontFamily') next.lineHeight = lineHeightFor({ fontFamily: value });
       if (key === 'fillStyle' && style.fill === 'none') next.fill = fill.value;
       return next;
@@ -1172,8 +1170,10 @@ export function mountBoard(container, options = {}) {
     remember(state());
     lastTyping = null;
     if (ids) selection = new Set(ids);
-    if (newBackground !== background)
-      defaults.stroke = lightBackground(newBackground) ? '#232323' : '#d4d4d4';
+    if (newBackground !== background) {
+      defaults.stroke = newBackground && lightPaper(newBackground) ? '#232323' : '#d4d4d4';
+      delete defaults.fixedStroke;
+    }
     background = newBackground;
     elements = boundConnectors(next);
     draw();
@@ -1201,7 +1201,8 @@ export function mountBoard(container, options = {}) {
     selection = new Set([...selection].filter((id) => elements.some((e) => e.id === id)));
     lastTyping = null;
     checkpoint = false;
-    defaults.stroke = lightBackground(background) ? '#232323' : '#d4d4d4';
+    defaults.stroke = background && lightPaper(background) ? '#232323' : '#d4d4d4';
+    delete defaults.fixedStroke;
     draw();
   }
   function undo(redo) {
@@ -1224,7 +1225,8 @@ export function mountBoard(container, options = {}) {
     background = s.background;
     selection = new Set(s.selection);
     lastTyping = null;
-    defaults.stroke = lightBackground(background) ? '#232323' : '#d4d4d4';
+    defaults.stroke = background && lightPaper(background) ? '#232323' : '#d4d4d4';
+    delete defaults.fixedStroke;
     draw();
     emit();
   }
@@ -1293,6 +1295,7 @@ export function mountBoard(container, options = {}) {
       fill: defaults.fill,
       lineWidth: defaults.lineWidth
     };
+    if (defaults.fixedStroke) e.fixedStroke = true;
     if (type === 'text')
       Object.assign(e, {
         textAlign: defaults.textAlign,
@@ -1432,7 +1435,7 @@ export function mountBoard(container, options = {}) {
     bounds.classList.toggle('vb-locked', locked);
     bounds.classList.toggle('vb-single-text', items.length === 1 && items[0].type === 'text');
     const style = items.at(-1) || defaults;
-    stroke.value = style.stroke;
+    stroke.value = boardInk(style, background).stroke;
     fill.value = style.fill === 'none' ? '#686868' : style.fill;
     noFill.setAttribute('aria-pressed', String(style.fill === 'none'));
     thickness.value = String(style.lineWidth);
@@ -1548,7 +1551,7 @@ export function mountBoard(container, options = {}) {
           }
         });
     }
-    view.caption.update(item);
+    view.caption.update(boardInk(item, background));
     return view.caption;
   }
   function makeView(e) {
@@ -1710,23 +1713,20 @@ export function mountBoard(container, options = {}) {
       view.rich.update(item.body, item.text, { locked: !!item.locked });
     }
   }
-  function updateView(v, e, workbook) {
-    if (v.last === e && (!isSheetObject(e) || (v.workbook === workbook && v.background === background)) &&
-        (!e.body || v.background === background))
-      return;
+  function updateView(v, item, workbook, paper) {
+    if (v.last === item && v.background === paper && (!isSheetObject(item) || v.workbook === workbook)) return;
+    const e = boardInk(item, background, paper);
     layout(v.wrap, e);
     v.wrap.classList.toggle('vb-object-locked', !!e.locked);
     if (e.type === 'table' || e.type === 'chart') {
       if (e.type === 'table') tableUI.updateView(v.content, e, workbook);
-      else updateChartView(v.content, e, workbook, elements, background);
+      else updateChartView(v.content, e, workbook, elements, paper);
       v.workbook = workbook;
-      v.background = background;
     } else if (e.type === 'text') {
       if (e.body) {
         v.wrap.style.backgroundColor = e.frameBackground === 'none' ? 'transparent' : e.frameBackground || '';
         v.wrap.style.borderColor = e.frameBorder === 'none' ? 'transparent' : e.frameBorder || '';
-        v.wrap.dataset.light = String(frameNeedsDarkText(e, background));
-        v.background = background;
+        v.wrap.dataset.light = String(frameNeedsDarkText(e, paper));
         updateRichView(v, e);
       } else if (e.folderPath) {
         v.content.lastElementChild.textContent = e.text;
@@ -1764,7 +1764,7 @@ export function mountBoard(container, options = {}) {
         'fill',
         'lineWidth'
       ];
-      if (!v.last || geometry.some((key) => e[key] !== v.last[key])) {
+      if (!v.last || v.displayStroke !== e.stroke || geometry.some((key) => item[key] !== v.last[key])) {
         const ink = v.content.lastChild,
           d = pathData(e);
         v.hit.setAttribute('d', d);
@@ -1784,26 +1784,30 @@ export function mountBoard(container, options = {}) {
         ink.replaceChildren(...layers);
       }
     }
-    if (shapes.has(e.type) && (e.label || v.caption)) shapeCaption(v, e);
-    v.last = e;
+    if (shapes.has(e.type) && (e.label || v.caption)) shapeCaption(v, item);
+    v.last = item;
+    v.background = paper;
+    v.displayStroke = e.stroke;
   }
   function refreshWorkbook() {
     const sheets = elements.filter(isSheetObject);
     if (!sheets.length) return;
     const workbook = currentWorkbook(elements);
+    const paper = boardPaper(background);
     for (const sheet of sheets) {
       const view = views.get(sheet.id);
-      if (view) updateView(view, sheet, workbook);
+      if (view) updateView(view, sheet, workbook, paper);
     }
   }
   function draw() {
     const hadFocus = root.contains(document.activeElement);
     const workbook = elements.some(isSheetObject) ? currentWorkbook(elements) : null;
     if (inline) root.dataset.sheetOnly = String(elements.length > 0 && elements.every(isSheetObject));
-    root.dataset.light = String(lightBackground(background));
-    root.style.setProperty('--vb-bg', background || '#171717');
-    root.style.setProperty('--vb-grid', lightBackground(background) ? '#00000022' : '#ffffff17');
-    root.style.setProperty('--vb-selection', lightBackground(background) ? '#565963' : '#b8bbc3');
+    const paper = boardPaper(background), light = lightPaper(paper);
+    root.dataset.light = String(light);
+    root.style.setProperty('--vb-bg', paper);
+    root.style.setProperty('--vb-grid', light ? '#00000026' : '#ffffff17');
+    root.style.setProperty('--vb-selection', light ? '#565963' : '#b8bbc3');
     const active = new Set(elements.map((e) => e.id));
     for (const [id, v] of views) {
       if (!active.has(id)) {
@@ -1824,7 +1828,7 @@ export function mountBoard(container, options = {}) {
         views.set(e.id, v);
       }
       if (objects.children[i] !== v.wrap) objects.insertBefore(v.wrap, objects.children[i] || null);
-      updateView(v, e, workbook);
+      updateView(v, e, workbook, paper);
     }
     updateUI();
     camera();
@@ -3172,6 +3176,7 @@ export function mountBoard(container, options = {}) {
     if (e.code === 'Space') releaseSpace();
   });
   listen(window, 'blur', releaseSpace);
+  listen(window, 'videron:themechange', draw);
   listen(root, 'pointerdown', (e) => {
     if (!panel.hidden && !panel.contains(e.target) && !styleButton.contains(e.target)) {
       panel.hidden = true;

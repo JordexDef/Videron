@@ -24,12 +24,12 @@
   display: grid;
   place-items: center;
   padding: 0;
-  color: #aaa;
-  background: #222;
-  border: 1px solid #454545;
+  color: var(--muted,#aaa);
+  background: var(--control-bg,#222);
+  border: 1px solid var(--control-line,#454545);
 }
 .ve-inline-remove { right: 6px; top: 6px; width: 24px; height: 24px; border-radius: 5px; }
-.ve-inline-remove:hover,.ve-inline-resize:hover { background: #383838; color: #fff; }
+.ve-inline-remove:hover,.ve-inline-resize:hover { background: var(--control-hover,#383838); color: var(--text,#fff); }
 .ve-inline-resize {
   right: -1px; bottom: -1px; width: 16px; height: 16px;
   border-radius: 3px 0 7px 0;

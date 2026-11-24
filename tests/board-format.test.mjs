@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { boardSummary, normalizeBoard } from '../frontend/board.js';
 import { exportScene, importScene } from '../frontend/board-files.js';
+import { boardInk } from '../frontend/board-theme.js';
 import { magnets } from '../frontend/board-connectors.js';
 import {
   copiedSheetObjects,
@@ -35,6 +36,23 @@ test('folder targets survive board saves while Excalidraw receives only the fold
 const item = (id, type, options = {}) => ({ id, type, x: 12, y: 20, w: 80, h: 46, ...options });
 const roundTrip = (elements) =>
   normalizeBoard(importScene(exportScene(normalizeBoard({ elements })))).elements;
+
+test('theme ink preserves document colors and keeps a caption legible over a dark fill', () => {
+  const { elements: [legacy, fixed, blue] } = normalizeBoard({ elements: [
+    item('legacy', 'rect', { label:'A', fill:'#303030', fillStyle:'solid' }),
+    item('fixed', 'ellipse', { stroke:'#d4d4d4', fixedStroke:true }),
+    item('blue', 'line', { stroke:'#6789ab' })
+  ] });
+  const display = boardInk(legacy, undefined, '#fafafa');
+  assert.equal(display.stroke, '#232323');
+  assert.equal(display.labelColor, '#d4d4d4');
+  assert.equal(legacy.stroke, '#d4d4d4');
+  assert.equal(legacy.labelColor, undefined);
+  assert.equal(boardInk(legacy, undefined, '#171717'), legacy);
+  assert.equal(boardInk(legacy, '#ffffff'), legacy);
+  assert.equal(boardInk(fixed, undefined, '#fafafa'), fixed);
+  assert.equal(boardInk(blue, undefined, '#fafafa'), blue);
+});
 
 test('canvas text areas keep editable note blocks and publish a portable scene fallback', () => {
   const reference = {text:'Работа', folderPath:'D:/local-only/Работа'};

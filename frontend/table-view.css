@@ -24,7 +24,10 @@
   outline: none !important;
   text-align: left;
 }
-.vb[data-light='true'] .vt-table {
+.vb[data-light='false'] .vt-table { color-scheme: dark; }
+.vb[data-light='true'] .vt-table,
+:root[data-theme='light'] .ve-direct-tables .vt-table {
+  color-scheme: light;
   --vt-ink: #303030;
   --vt-muted: #626262;
 }
@@ -296,18 +299,18 @@
   max-width: min(300px, calc(100vw - 8px));
   box-sizing: border-box;
   padding: 5px 9px;
-  border: 1px solid #595959;
+  border: 1px solid var(--control-line,#595959);
   border-radius: 6px;
-  background: #282828;
-  color: #f1f1f1;
-  box-shadow: 0 2px 8px #0004;
+  background: var(--control-bg,#282828);
+  color: var(--text,#f1f1f1);
+  box-shadow: 0 2px 8px var(--shadow-floating,#0004);
   font: 12px/1.4 Inter, 'Segoe UI', sans-serif;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
 }
 .vt-fill-tip[hidden], .vt-fill-tip-mode[hidden] { display: none; }
-.vt-fill-tip-address, .vt-fill-tip-mode { color: #b5b5b5; font-size: 11px; }
+.vt-fill-tip-address, .vt-fill-tip-mode { color: var(--muted,#b5b5b5); font-size: 11px; }
 .vt-fill-tip-value { overflow: hidden; text-overflow: ellipsis; font-weight: 550; }
 .vt-row-number .vt-fill-handle { width: 12px; height: 12px; }
 .vb .vt-fill-table-corner { right: calc(9px * var(--vb-inverse)); }

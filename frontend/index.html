@@ -1,9 +1,14 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="dark light">
+  <script>
+    try {
+      if (localStorage.getItem('videron.theme.v1') === 'light') document.documentElement.dataset.theme = 'light';
+    } catch {}
+  </script>
   <title data-en="Videron — Note workspace">Videron — пространство заметок</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">

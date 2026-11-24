@@ -9,11 +9,11 @@
 .vs-query .ico { position: absolute; top: 50%; left: 12px; transform: translateY(-50%); width: 17px; height: 17px; color: var(--muted); pointer-events: none; }
 .vs-query .query { height: 42px; padding-left: 38px; }
 .vs-panel .options { display: grid; grid-template-columns: auto auto auto minmax(0,1fr); gap: 6px; }
-.vs-escape { padding: 3px 6px; border: 1px solid #434343; border-radius: 4px; color: var(--muted); font: 11px var(--mono); }
-.vs-area { justify-self: end; color-scheme: dark; min-width: 0; max-width: 100%; }
+.vs-escape { padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); font: 11px var(--mono); }
+.vs-area { justify-self: end; color-scheme: inherit; min-width: 0; max-width: 100%; }
 .vs-status { min-height: 29px; padding-top: 7px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
 .vs-announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.vs-status[data-state="error"] { color: #e0b19f; overflow-wrap: anywhere; }
+.vs-status[data-state="error"] { color: var(--ve-error,#e0b19f); overflow-wrap: anywhere; }
 .vs-status[data-state="pending"]::before {
   content: ""; display: inline-block; width: 10px; height: 10px; margin-inline-end: 6px;
   border: 1.5px solid var(--border); border-top-color: currentColor; border-right-color: currentColor;
@@ -24,11 +24,12 @@
   .vs-status[data-state="pending"]::before { animation: vs-search-spin .9s linear infinite; }
   @keyframes vs-search-spin { to { transform: rotate(360deg); } }
 }
-.vs-results .vs-active { background: #2e2e2e; }
+.vs-results .vs-active { background: var(--ve-hover,#2e2e2e); }
 .vs-result-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
 .vs-result-heading strong { min-width: 0; }
 .vs-result-heading .vs-location { max-width: 44%; flex: none; direction: rtl; text-align: right; font-size: 11px; }
 .vs-results mark { border-radius: 2px; background: #515151; color: #f2f2f2; }
+html[data-theme="light"] .vs-results mark { background: #ffe8ad; color: #463616; }
 .vs-results .vs-hit { display: flex; align-items: baseline; }
 .vs-hit .vs-before, .vs-hit .vs-after, .vs-hit mark { overflow: hidden; text-overflow: ellipsis; white-space: pre; min-width: 0; }
 .vs-hit .vs-before { direction: rtl; text-align: left; flex: 0 2 auto; }

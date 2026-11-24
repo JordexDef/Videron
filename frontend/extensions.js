@@ -1,6 +1,7 @@
 import { getLanguage, tr } from './i18n.js';
 import { appearanceOf } from './icons/node-art.js';
 import { isProtectedNote } from './note-vault.js';
+import { isLightTheme } from './theme.js';
 
 function renderTagSpectrum() {
   const content = document.querySelector('#content');
@@ -132,6 +133,15 @@ const builtIn = {
     .back{display:block;color:#d9dade;background:transparent;border:0;padding:2px 0 12px;font-size:12px}
     .more{border:1px solid #323438;border-radius:5px;background:transparent;padding:5px 12px;margin-top:12px;font-size:12px}
     .empty{margin:26px 0;color:#a8aaaf;font-size:13px;line-height:1.7}
+    :root[data-theme=light]{color-scheme:light;color:#252629;background:#fafafa}
+    [data-theme=light] :is(#count,.subtitle,.empty){color:#60636b}
+    [data-theme=light] :is(.row,.more){border-color:#d6d7db}
+    [data-theme=light] .row:hover{background:#ebebee}
+    [data-theme=light] button:focus-visible{outline-color:#50535c}
+    [data-theme=light] :is(.tag span:first-child,.back){color:#252629}
+    [data-theme=light] .tag b{color:#42454c}
+    [data-theme=light] .track{background:#e4e5e9}
+    [data-theme=light] .track i{background:#747882}
   </style>
   <header><h2></h2><span id="count"></span></header><section id="content"></section>
   <script>(${renderTagSpectrum.toString()})()</script>`
@@ -191,7 +201,7 @@ export function projectWorkspace(workspace) {
 }
 
 const pluginPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-src 'none'; connect-src 'none'";
-const pluginHead = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${pluginPolicy}"><meta name="referrer" content="no-referrer"><script>addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();parent.postMessage({type:'videron:back'},'*')}},true);addEventListener('error',event=>{parent.postMessage({type:'videron:error',message:String(event.message || '')},'*')});<\/script>`;
+const pluginHead = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${pluginPolicy}"><meta name="referrer" content="no-referrer"><script>addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();parent.postMessage({type:'videron:back'},'*')}},true);addEventListener('error',event=>{parent.postMessage({type:'videron:error',message:String(event.message || '')},'*')});<\/script>`;
 
 let activeManager = null;
 
@@ -283,7 +293,8 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
       frame.remove();
       disposeFrame = null;
     };
-    frame.srcdoc = pluginHead + plugin.html;
+    const theme = isLightTheme() ? 'light' : 'dark';
+    frame.srcdoc = `<!doctype html><html data-theme="${theme}">` + pluginHead + plugin.html;
     content.replaceChildren(back, status, frame);
     back.focus();
   }

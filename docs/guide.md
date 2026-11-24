@@ -10,6 +10,8 @@ A local Windows build produces `build/bin/Videron.exe`. To switch versions, clos
 
 Use **Language** at the bottom of the sidebar to switch between English and Russian. The setting takes effect immediately and is saved on this device. On first launch, look for **Язык** and select **English**.
 
+Choose **Settings → Theme → Light** for a white canvas and light editors. You can switch back to **Dark** at any time. Videron remembers the theme on this device across workspaces.
+
 ## Areas and notes
 
 The sidebar groups notes by area. Notes outside any area appear at the top level. Click the arrow beside an area to collapse its branch, or click a note to open it. Use the arrow keys to navigate the tree and **Enter** to open the selected note.
