@@ -51,6 +51,78 @@ function fixture() {
   return {record,payloads,snapshots,bridge,open,get key() {return key},set failWrite(value){savingFails=value}}
 }
 
+test('remembered access reopens the current envelope without another prompt or plaintext workspace writes', async () => {
+  const f = fixture(), hints = new Map(), deadline = 1_800_000_000_000
+  const initial = await f.open()
+  await initial.manageProtection()
+  await initial.beforeClose()
+  let prompts = 0, closes = 0, resumes = 0
+  f.bridge.UnlockNoteFor = async (space, id, sealed, password, minutes) => {
+    assert.equal(space, 'personal')
+    assert.equal(minutes, 15)
+    return {plain:await f.bridge.UnlockNote(id, sealed, password), remembered:true, expiresAt:deadline}
+  }
+  f.bridge.ResumeNote = async (space, id, sealed) => {
+    resumes++
+    assert.equal(space, 'personal')
+    assert.equal(sealed, f.record.sealed)
+    return {plain:await f.bridge.UnlockNote(id, sealed, 'test password'), remembered:true, expiresAt:deadline}
+  }
+  f.bridge.CloseNoteEditor = async () => { closes++; await f.bridge.LockNote() }
+  const options = {
+    spaceId:'personal',
+    onRemember(id, expiresAt) { if (expiresAt === null) hints.delete(id); else hints.set(id, expiresAt) },
+    async prompt({allowRemember, onSubmit}) {
+      prompts++
+      assert.equal(allowRemember, true)
+      await onSubmit({password:'test password', rememberMinutes:15})
+      return true
+    },
+  }
+  let session = await f.open(options)
+  assert.equal(session.expiresAt, deadline)
+  assert.equal(hints.get(f.record.id), deadline)
+  session.changed({plain:'private edit at the deadline'})
+  f.failWrite = true
+  await assert.rejects(session.beforeClose(), /VD_WRITE/)
+  assert.equal(closes, 0)
+  f.failWrite = false
+  assert.ok(await session.beforeClose())
+  assert.equal(closes, 1)
+  const synced = {...JSON.parse(f.payloads.get(f.record.sealed)),title:'private remote title'}
+  f.record.sealed = 'synced-envelope'
+  f.payloads.set(f.record.sealed, JSON.stringify(synced))
+  session = await f.open({...options, tryResume:true})
+  assert.equal(resumes, 1)
+  assert.equal(prompts, 1)
+  assert.equal(session.expiresAt, deadline)
+  assert.equal(session.note.title, 'private remote title')
+  assert.equal(session.note.plain, 'private edit at the deadline')
+  assert.doesNotMatch(JSON.stringify(f.record), /private/)
+  assert.ok(await session.beforeClose())
+})
+
+test('an expired grant requests the password again and cancellation revokes an in-flight unlock', async () => {
+  const f = fixture(), hints = []
+  const initial = await f.open()
+  await initial.manageProtection()
+  await initial.beforeClose()
+  f.bridge.ResumeNote = async () => { throw new Error('VD_LOCKED') }
+  f.bridge.UnlockNoteFor = async (_space,id,sealed,password) => ({
+    plain:await f.bridge.UnlockNote(id,sealed,password), remembered:true, expiresAt:0,
+  })
+  f.bridge.CloseNoteEditor = () => assert.fail('cancelled unlock must release the grant')
+  const options = {
+    spaceId:'personal', tryResume:true, onRemember:(id,deadline) => hints.push([id,deadline]),
+    async prompt({onSubmit}) { await onSubmit({password:'test password', rememberMinutes:-1}); return false },
+  }
+  assert.equal(await f.open(options), null)
+  assert.deepEqual(hints, [['a',null],['a',0],['a',null]])
+  assert.equal(f.key, false)
+  f.bridge.ResumeNote = async () => { throw new Error('VD_CORRUPT') }
+  await assert.rejects(f.open({...options, prompt:() => assert.fail('corrupt envelope')}), /VD_CORRUPT/)
+})
+
 test('data note language and full document stay inside the envelope across edits', async () => {
   const f = fixture()
   Object.assign(f.record,{type:'data',body:[],dataLanguage:'json',dataText:'{"value":"private"}'})
@@ -78,6 +150,50 @@ test('sealing an open task keeps progress reported since the editor opened', asy
   assert.equal(reopened.note.agentTask.status,'done')
   assert.equal(reopened.note.agentTask.result,'Verified result')
   assert.ok(await reopened.beforeClose())
+})
+
+test('restyling a closed encrypted note updates only map fields and survives resealing', async () => {
+  const f = fixture()
+  f.record.appearance = {shape:'diamond',icon:'lucide/bookmark',color:'#ABCDEF',caption:'private caption'}
+  let session = await f.open()
+  await session.manageProtection()
+  assert.ok(await session.beforeClose())
+  assert.deepEqual(f.record.appearance,{shape:'diamond',icon:'lucide/bookmark',color:'#abcdef'})
+  assert.doesNotMatch(JSON.stringify(f.record),/private|caption/)
+  const space = {notes:[f.record],areas:[]}, records = new WorkspaceRecords(space)
+  const style = {shape:'square',icon:'phosphor/house',color:'#a9c6ed'}
+  f.record.appearance = style
+  records.mark({notes:[f.record]})
+  assert.deepEqual({...records.prepare(space).patch.notes.edit[0].set},{appearance:style})
+  assert.equal(f.key,false)
+  session = await f.open()
+  assert.deepEqual(session.note.appearance,{...style,caption:'private caption'})
+  session.changed({title:'private edit'})
+  assert.ok(await session.beforeClose())
+  session = await f.open()
+  assert.deepEqual(session.note.appearance,{...style,caption:'private caption'})
+  await session.manageProtection()
+  assert.deepEqual(f.record.appearance,{...style,caption:'private caption'})
+  assert.ok(await session.beforeClose())
+})
+
+test('previously private legacy appearance stays private across edits and failed protection removal', async () => {
+  const f = fixture()
+  f.record.appearance = {shape:'diamond',icon:'lucide/bookmark',color:'#abcdef'}
+  let session = await f.open()
+  await session.manageProtection()
+  await session.beforeClose()
+  delete f.record.appearance // A record created by an older application.
+  session = await f.open()
+  session.changed({plain:'private update'})
+  await session.flush()
+  assert.equal(Object.hasOwn(f.record,'appearance'),false)
+  const unlock=f.bridge.UnlockNote
+  f.bridge.UnlockNote=async(...args)=>{const value=await unlock(...args);f.failWrite=true;return value}
+  await assert.rejects(session.manageProtection(),/VD_WRITE/)
+  assert.equal(Object.hasOwn(f.record,'appearance'),false)
+  f.failWrite=false
+  assert.ok(await session.beforeClose())
 })
 
 test('a task state edit survives local saves, workspace deltas and a note lock', async () => {

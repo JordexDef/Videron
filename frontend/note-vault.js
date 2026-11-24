@@ -1,5 +1,6 @@
 import { tr } from './i18n.js'
 import { checkNote } from './data.js'
+import { appearanceOf } from './icons/node-art.js'
 import { openVaultPassword } from './vault-ui.js'
 
 export function isProtectedNote(record) {
@@ -17,7 +18,15 @@ function mapFields(record) {
   for (const field of ['id', 'x', 'y', 'pinned', 'areaId', 'slot', 'links', 'opens', 'created', 'modified']) {
     if (Object.hasOwn(record, field)) result[field] = record[field]
   }
+  if (Object.hasOwn(record, 'appearance')) result.appearance = appearanceOf(record)
   return result
+}
+
+function noteWithMapFields(note, record) {
+  const fields = mapFields(record)
+  // An extension's private data in the original appearance object stays inside the envelope.
+  if (fields.appearance) fields.appearance = {...note.appearance, ...fields.appearance}
+  return {...note, ...fields}
 }
 
 function lockedRecord(record, sealed) {
@@ -35,35 +44,55 @@ function decodeNote(raw, record) {
   try { note = JSON.parse(raw) } catch { throw new Error('VD_INVALID') }
   checkNote(note)
   if (note.id !== record.id || isProtectedNote(note)) throw new Error('VD_INVALID')
-  return {...note, ...mapFields(record)}
+  return noteWithMapFields(note, record)
 }
 
 // The open editor gets a separate object. Search, extensions, undo and every
 // serialization path continue to see only the map placeholder and ciphertext.
-export async function openNoteSession({record, bridge, dirty, persist, onPrivacyChange, onError, hasPlainHistory=false, prompt = openVaultPassword}) {
-  let note, hasKey = false
+export async function openNoteSession({record, bridge, dirty, persist, onPrivacyChange, onError, hasPlainHistory=false,
+  spaceId, tryResume=false, onRemember=()=>{}, prompt = openVaultPassword}) {
+  let note, hasKey = false, remembered = false, expiresAt = 0
   const id = record.id
-  async function releaseKey() {
+  const allowRemember = !!(spaceId && bridge?.UnlockNoteFor && bridge.ResumeNote && bridge.CloseNoteEditor)
+  async function releaseKey(keepAccess=false) {
     if (!hasKey) return
-    await bridge.LockNote(id)
+    if (keepAccess && remembered) await bridge.CloseNoteEditor(id)
+    else {
+      await bridge.LockNote(id)
+      onRemember(id, null)
+      remembered = false; expiresAt = 0
+    }
     hasKey = false
+  }
+  async function acceptUnlock({plain,remembered:reuse=false,expiresAt:deadline=0}) {
+    hasKey = true
+    try { note = decodeNote(plain, record) }
+    catch (error) { await releaseKey(); throw error }
+    remembered = reuse
+    expiresAt = deadline
+    onRemember(id, reuse ? deadline : null)
   }
   if (isProtectedNote(record)) {
     if (!bridge) throw new Error('VD_UNAVAILABLE')
-    const opened = await prompt({mode:'unlock', scope:'note', onSubmit:async ({password}) => {
-      const raw = await bridge.UnlockNote(id, record.sealed, password)
-      hasKey = true
-      try { note = decodeNote(raw, record) }
-      catch (error) { await releaseKey(); throw error }
-    }})
-    if (!opened) {
-      await releaseKey()
-      return null
+    if (allowRemember && tryResume) {
+      try { await acceptUnlock(await bridge.ResumeNote(spaceId,id,record.sealed)) }
+      catch (error) {
+        onRemember(id,null)
+        if (String(error?.message || error).split('|')[0] !== 'VD_LOCKED') throw error
+      }
+    }
+    if (!note) {
+      const opened = await prompt({mode:'unlock', scope:'note', allowRemember, onSubmit:async ({password,rememberMinutes=0}) => {
+        const result = allowRemember ? await bridge.UnlockNoteFor(spaceId,id,record.sealed,password,rememberMinutes)
+          : {plain:await bridge.UnlockNote(id,record.sealed,password)}
+        await acceptUnlock(result)
+      }})
+      if (!opened) { await releaseKey(); return null }
     }
   } else note = {...record}
 
   let revision = 0, sealedRevision = 0, preparingSeal, pendingSeal, managing = false, closed = false
-  function currentNote() { return {...note, ...mapFields(record)} }
+  function currentNote() { return noteWithMapFields(note, record) }
 
   function changed(patch) {
     if (closed) return
@@ -119,11 +148,14 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
     await persist()
     await bridge.UnlockNote(id, record.sealed, currentPassword)
     const previous = record.sealed
+    const hadMapAppearance = Object.hasOwn(record, 'appearance')
     const previousRevision = sealedRevision
     replaceRecord(record, currentNote())
     policyChanged()
     try { await persist() }
     catch (error) {
+      // An older note may have a private style that was never visible on its map.
+      if (!hadMapAppearance) delete record.appearance
       replaceRecord(record, lockedRecord(record, previous))
       sealedRevision = previousRevision
       policyChanged()
@@ -150,7 +182,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
         await flush()
         await persist()
       }
-      await releaseKey()
+      await releaseKey(true)
       closed = true
       return true
     } catch (error) {
@@ -159,5 +191,5 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
       return false
     }
   }
-  return {note, changed, flush, manageProtection, beforeClose, get protected() { return isProtectedNote(record) }}
+  return {note, changed, flush, manageProtection, beforeClose, get expiresAt() {return expiresAt}, get protected() { return isProtectedNote(record) }}
 }

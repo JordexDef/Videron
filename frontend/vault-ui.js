@@ -121,7 +121,7 @@ function actionTitle(mode, note) {
   }
 }
 
-function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlainHistory=false}) {
+function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlainHistory=false, allowRemember=false}) {
   const note = scope === 'note'
   const setting = mode === 'set' || mode === 'change'
   const space=scope==='space'
@@ -138,7 +138,8 @@ function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlai
       : space ? tr('Введите пароль пространства, чтобы открыть карту и заметки.', 'Enter the space password to open its map and notes.')
       : note ? tr('Введите пароль этой заметки.', 'Enter the password for this note.')
              : tr('Введите пароль, чтобы открыть заметки и карту.', 'Enter your password to open your notes and map.')
-  form.append(el('p', 'vault-hint', help))
+  const hint = el('p', 'vault-hint', help)
+  form.append(hint)
   if(hasPlainHistory)form.append(el('p','vault-hint',tr('Прежние версии останутся читаемыми в истории папки и её резервных копиях. При синхронизации они попадут на сервер и другие устройства в том же виде.','Earlier versions remain readable in this folder’s history and its backups. Sync also copies those versions to the server and other devices in readable form.')))
   function field(label) {
     const wrap = el('label', 'vault-field')
@@ -154,6 +155,30 @@ function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlai
   const current = mode === 'change' || mode === 'remove' ? field(tr('Текущий пароль', 'Current password')) : null
   const password = mode !== 'remove' ? field(setting ? tr('Новый пароль', 'New password') : tr('Пароль', 'Password')) : null
   const confirm = setting ? field(tr('Повторите новый пароль', 'Confirm new password')) : null
+  let duration
+  if (note && mode === 'unlock' && allowRemember) {
+    const label = el('label', 'vault-field')
+    duration = el('select')
+    duration.add(new Option(tr('До закрытия заметки', 'Until I close the note'), '0'))
+    for (const minutes of [5, 15, 60]) {
+      duration.add(new Option(tr('{minutes} мин', '{minutes} min', {minutes}), String(minutes)))
+    }
+    duration.add(new Option(tr('До конца сеанса', 'Until the session ends'), '-1'))
+    label.append(el('span', '', tr('Оставить заметку разблокированной', 'Keep this note unlocked')), duration)
+    form.append(label)
+    hint.setAttribute('aria-live', 'polite')
+    function describeDuration() {
+      if (duration.value === '0') {
+        hint.textContent = tr('При следующем открытии заметки потребуется пароль.', 'You’ll need the password the next time you open this note.')
+      } else if (duration.value === '-1') {
+        hint.textContent = tr('После смены пространства, блокировки или выхода из Videron потребуется ввести пароль снова.', 'Switching spaces, locking or quitting Videron ends access to this note.')
+      } else {
+        hint.textContent = tr('Отсчёт начинается после ввода пароля. Когда время истечёт, Videron сохранит правки и заблокирует заметку.', 'The timer starts when you unlock the note. When it expires, Videron saves your edits and locks the note.')
+      }
+    }
+    duration.onchange = describeDuration
+    describeDuration()
+  }
   const errorText = el('div', 'vault-error')
   errorText.setAttribute('role', 'alert')
   const actions = el('div', 'vault-actions')
@@ -201,7 +226,9 @@ function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlai
       remove: tr('Снимаем пароль…', 'Removing password…')
     }[mode]
     try {
-      await onSubmit({password:password?.value, currentPassword:current?.value})
+      const values = {password:password?.value, currentPassword:current?.value}
+      if (duration) values.rememberMinutes = Number(duration.value)
+      await onSubmit(values)
     } catch (error) {
       pending = false
       if (!view.settled(false)) return
@@ -221,10 +248,10 @@ function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlai
   }
 }
 
-export function openVaultPassword({mode, scope = 'note', onSubmit, signal, hasPlainHistory=false}) {
+export function openVaultPassword({mode, scope = 'note', onSubmit, signal, hasPlainHistory=false, allowRemember=false}) {
   if (signal?.aborted) return Promise.resolve(false)
   const view = dialog()
-  passwordForm(view, {mode, scope, onSubmit, hasPlainHistory, onSuccess:() => view.close(true), onCancel:() => view.close()})
+  passwordForm(view, {mode, scope, onSubmit, hasPlainHistory, allowRemember, onSuccess:() => view.close(true), onCancel:() => view.close()})
   if (!signal) return view.done
   signal.addEventListener('abort',view.interrupt,{once:true})
   return view.done.finally(()=>signal.removeEventListener('abort',view.interrupt))

@@ -3,6 +3,7 @@ import { lucideExtra } from './lucide-extra.js';
 import { phosphorExtra } from './phosphor-extra.js';
 
 const namespace = 'http://www.w3.org/2000/svg';
+export const lockSticker = 'phosphor/lock-key';
 export const shapeNames = ['circle', 'square', 'diamond', 'triangle', 'pentagon', 'hexagon'];
 export const iconChoices = new Map(
   [...vectors, ...lucideExtra, ...phosphorExtra].map(([id, ru, en, layers]) => [
@@ -50,6 +51,13 @@ export function appearanceOf(note) {
         ? source.color.toLowerCase()
         : null
   };
+}
+
+export function validMapAppearance(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const style = appearanceOf({appearance:value});
+  return Object.entries(value).every(([key, item]) => Object.hasOwn(style,key) &&
+    style[key] === (key === 'color' && typeof item === 'string' ? item.toLowerCase() : item));
 }
 
 export const geometryFor = (shape) => geometries.get(shape) || null;

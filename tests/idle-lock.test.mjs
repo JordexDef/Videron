@@ -84,3 +84,31 @@ test('old libraries default to session-only and large timers use a supported sch
   f.advance(50_000 * 60_000 - 2_147_483_647); f.tick()
   assert.equal(f.locks(),1)
 })
+
+test('a timed note keeps its deadline through typing, sleep and clock rollback', () => {
+  for (const [wallDelta, monoDelta] of [[10_000,0],[-60_000,10_000]]) {
+    const f = fixture()
+    f.advance(40_000)
+    f.idle.until(60_000)
+    f.advance(10_000)
+    assert.ok(f.send('keydown'))
+    f.advance(wallDelta, monoDelta)
+    assert.equal(f.send('keydown'), false)
+    assert.equal(f.locks(), 1)
+    assert.equal(f.timers.size, 0)
+  }
+})
+
+test('opening after a note deadline locks immediately and closing early cancels its timer', () => {
+  const f = fixture()
+  f.advance(1_000)
+  f.idle.until(900)
+  assert.equal(f.locks(), 1)
+  assert.equal(f.timers.size, 0)
+  f.idle.until(2_000)
+  f.idle.destroy()
+  f.advance(2_000)
+  f.send('resume')
+  assert.equal(f.locks(), 1)
+  assert.equal(f.timers.size, 0)
+})

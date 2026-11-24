@@ -31,6 +31,7 @@ test('different changes to the same document need a choice and keep its version 
 test('opaque note payloads conflict, while passive views and drift merge with real edits',()=>{
   const base=workspace({...note('n',''),sealed:'first'}),[local,remote]=copies(base);
   local.notes[0].opens=8;local.notes[0].x=20;remote.notes[0].sealed='second';
+  local.notes[0].appearance={shape:'hexagon',icon:'lucide/bookmark',color:'#a9c6ed'};
   let result=mergeWorkspace(base,local,remote);
   assert.deepEqual(result.conflicts,[]);assert.deepEqual(result.data.notes[0],{...local.notes[0],sealed:'second'});
   local.notes[0].sealed='third';

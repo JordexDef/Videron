@@ -13,7 +13,7 @@ import { dragPaintLayer, releaseDragPaint } from './map-drag-paint.js';
 import { MapZoomPreview } from './map-zoom-preview.js';
 import { areaContactFamilies, measureAreaHulls, separateAreaSiblings } from './area-physics.js';
 import { intersectsNote, mapAreaButton, selectionRect } from './map-selection.js';
-import { appearanceOf, contact, containsPoint, edgeRadius, geometryFor } from './icons/node-art.js';
+import { appearanceOf, contact, containsPoint, edgeRadius, geometryFor, lockSticker } from './icons/node-art.js';
 
 const NEUTRAL = '#b3b3b3';
 const TAU = Math.PI * 2;
@@ -373,6 +373,7 @@ export class Graph {
       const tags = [...new Set((note.tags || []).map(t => String(t).replace(/^#/, '').toLowerCase()).filter(Boolean))];
       const links = [...new Set(note.links || [])];
       const appearance = appearanceOf(note);
+      const protectedNote = Object.hasOwn(note,'sealed');
       const naturalRadius = radius(note), r = seated ? seatedRadius(naturalRadius,group.grid) : naturalRadius;
       const layoutKey = JSON.stringify([tags, links, !!note.pinned, note.areaId, seated, r, appearance.shape]);
       const heatTarget = 1 - Math.exp(-Math.max(0, Number(note.opens) || 0) / 10);
@@ -382,7 +383,8 @@ export class Graph {
         index, title, inputX: x, inputY: y,
         taskRoot:task?.rootId, taskStatus:task?.status,
         r, naturalRadius, pinned: !!note.pinned, areaId:note.areaId ?? null, slot:note.slot, seated, tags, links, layoutKey,
-        geometry: geometryFor(appearance.shape), icon: appearance.icon, customColor: !!appearance.color,
+        geometry: geometryFor(appearance.shape), icon: appearance.icon || (protectedNote ? lockSticker : null), customColor: !!appearance.color,
+        lockBadge: protectedNote && !!appearance.icon && appearance.icon !== lockSticker,
         tint: appearance.color ? rgb(appearance.color) : group?.tint || rgb(note.color),
         heatTarget, heat: node?.heat ?? heatTarget
       };

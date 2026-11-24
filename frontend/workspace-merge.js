@@ -39,7 +39,8 @@ function mergeFields(base,local,remote){
 const locationKeys=new Set(['areaId','slot','pinned']);
 const transientKeys=new Set(['x','y','opens','modified']);
 const mapKeys=new Set([...locationKeys,...transientKeys,'links']);
-function contentOf(note){return note && Object.fromEntries(Object.entries(note).filter(([key])=>!mapKeys.has(key)))}
+const protectedMapKeys=new Set([...mapKeys,'appearance']);
+function contentOf(note,keys){return note && Object.fromEntries(Object.entries(note).filter(([key])=>!keys.has(key)))}
 function fieldsOf(note,keys){return note && Object.fromEntries(Object.entries(note).filter(([key])=>keys.has(key)))}
 function withoutDrift(note){
   return Object.fromEntries(Object.entries(note).filter(([key])=>!transientKeys.has(key) || (note.pinned && (key==='x' || key==='y'))));
@@ -58,7 +59,9 @@ function linkUnion(base,local,remote){
 }
 function mergeNote(base,local,remote){
   // Text, rendering caches, boards and the encrypted envelope travel as a unit.
-  const content=threeWay(contentOf(base),contentOf(local),contentOf(remote));
+  const separateAppearance=base?.sealed && local.sealed && remote.sealed;
+  const keys=separateAppearance?protectedMapKeys:mapKeys;
+  const content=threeWay(contentOf(base,keys),contentOf(local,keys),contentOf(remote,keys));
   const location=threeWay(fieldsOf(base,locationKeys),fieldsOf(local,locationKeys),fieldsOf(remote,locationKeys));
   if(content===diverged || location===diverged)return diverged;
   const left=coordinates(local),right=coordinates(remote);
@@ -72,6 +75,11 @@ function mergeNote(base,local,remote){
     else point=(left.x??0)>(right.x??0) || (left.x===right.x && (left.y??0)>(right.y??0))?left:right;
   }
   const note={...content,...location,...point,links:linkUnion(base?.links,local.links,remote.links)};
+  if(separateAppearance){
+    const style=threeWay(base.appearance,local.appearance,remote.appearance);
+    if(style===diverged)return diverged;
+    if(style!==undefined)note.appearance=style;
+  }
   for(const key of ['opens','modified']){
     const values=[local[key],remote[key]].filter(Number.isFinite);
     if(values.length)note[key]=Math.max(...values);

@@ -401,6 +401,7 @@ func TestMixedProtectedRecordsCannotReachStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok := map[string]any{"id": "note-a", "sealed": encoded, "pinned": true, "links": []string{"b"}, "slot": nil, "x": 3, "title": "", "plain": "", "body": []any{}, "weight": 0, "tags": []string{}}
+	ok["appearance"] = map[string]any{"shape": "diamond", "color": "#a9c6ed", "icon": "lucide/bookmark"}
 	record, err := json.Marshal(ok)
 	if err != nil {
 		t.Fatal(err)
@@ -412,6 +413,7 @@ func TestMixedProtectedRecordsCannotReachStorage(t *testing.T) {
 	for field, value := range map[string]any{
 		"plain": "PRIVATE-INDEX", "title": "PRIVATE-TITLE", "body": []any{map[string]string{"text": "PRIVATE-CODE"}},
 		"tags": []string{"private-tag"}, "board": map[string]any{}, "extraAttachment": "PRIVATE-IMAGE", "sealed": originalNote,
+		"appearance": map[string]any{"shape": "circle", "caption": "PRIVATE-TITLE"},
 	} {
 		t.Run(field, func(t *testing.T) {
 			bad := make(map[string]any, len(ok)+1)
@@ -455,6 +457,27 @@ func TestVaultEnvelopeHasUnambiguousFieldNames(t *testing.T) {
 	} {
 		if _, err := parseEnvelope([]byte(invalid), noteVault); !errors.Is(err, errCorrupt) {
 			t.Fatal("accepted ambiguous envelope", err)
+		}
+	}
+}
+
+func TestSealedMapAppearanceAcceptsOnlyPublicStyles(t *testing.T) {
+	for _, raw := range []string{
+		`{"shape":"circle","color":null,"icon":null}`,
+		`{"shape":"hexagon","color":"#ab12FF","icon":"phosphor/lock-key"}`,
+		`{"icon":"lucide/briefcase-business"}`, `{"icon":"lucide/bookmark"}`,
+	} {
+		if err := validateSealedAppearance([]byte(raw)); err != nil {
+			t.Fatal(raw, err)
+		}
+	}
+	for _, raw := range []string{
+		`null`, `[]`, `{"shape":"PRIVATE"}`, `{"icon":"lucide/unpublished-title"}`,
+		`{"color":"private"}`, `{"color":"#abcdef","Color":"private"}`,
+		`{"shape":"square","shape":"circle"}`, `{"icon":{"svg":"private"}}`,
+	} {
+		if validateSealedAppearance([]byte(raw)) == nil {
+			t.Fatalf("accepted %s", raw)
 		}
 	}
 }

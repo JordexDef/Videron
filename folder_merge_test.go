@@ -128,6 +128,22 @@ func TestNativeMergeMetadataFieldsAndNoteDrift(t *testing.T) {
 		t.Fatal(p.conflicts)
 	}
 }
+
+func TestRestyledEncryptedNoteMergesWithRemoteCiphertext(t *testing.T) {
+	base := mergeTestNote("n", "")
+	base["sealed"] = "original"
+	local, remote := maps.Clone(base), maps.Clone(base)
+	style := mergeObject{"shape": "square", "color": "#abcdef", "icon": "phosphor/house"}
+	local["appearance"], remote["sealed"] = style, "updated"
+	result, ok := mergedNote(base, local, remote)
+	if !ok || mergeMap(result)["sealed"] != "updated" || !mergeEqual(mergeMap(result)["appearance"], style) {
+		t.Fatal(result)
+	}
+	remote["appearance"] = mergeObject{"shape": "triangle"}
+	if _, ok := mergedNote(base, local, remote); ok {
+		t.Fatal("divergent explicit map styles must be resolved")
+	}
+}
 func TestFolderNativeMergeAcrossDevices(t *testing.T) {
 	for _, pw := range []string{"", testPass} {
 		t.Run(map[bool]string{false: "plain", true: "encrypted"}[pw != ""], func(t *testing.T) {

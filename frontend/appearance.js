@@ -1,6 +1,6 @@
 import { tr } from './i18n.js';
 import { icon } from './art.js';
-import { appearanceOf, iconChoices, iconSvg, shapeNames, shapeSvg } from './icons/node-art.js';
+import { appearanceOf, iconChoices, iconSvg, lockSticker, shapeNames, shapeSvg } from './icons/node-art.js';
 
 const forms = [
   ['Круг', 'Circle'],
@@ -48,6 +48,7 @@ function searchText(value) {
 
 export function openAppearance({ note, areaColor, onChange }) {
   let value = appearanceOf(note);
+  const secured = Object.hasOwn(note,'sealed');
   let pack = value.icon?.split('/')[0] || 'all';
   const inherited = areaColor || note.color || '#b3b3b3';
   const source = document.activeElement;
@@ -225,10 +226,15 @@ export function openAppearance({ note, areaColor, onChange }) {
     const outline = shapeSvg(value.shape);
     outline.classList.add('ap-preview-outline');
     emblem.replaceChildren(outline);
-    if (value.icon) {
-      const sticker = iconSvg(value.icon);
+    if (value.icon || secured) {
+      const sticker = iconSvg(value.icon || lockSticker);
       sticker.classList.add('ap-preview-icon');
       emblem.append(sticker);
+    }
+    if (secured && value.icon && value.icon !== lockSticker) {
+      const lock = iconSvg(lockSticker);
+      lock.classList.add('ap-preview-lock');
+      emblem.append(lock);
     }
   }
   function apply(patch) {

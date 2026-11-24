@@ -1,4 +1,4 @@
-import { drawIcon, edgeRadius, traceOutline } from './icons/node-art.js';
+import { drawIcon, edgeRadius, lockSticker, traceOutline } from './icons/node-art.js';
 import { lightMap, mapInk, mapPalette } from './map-palette.js';
 
 const rgba = (tint, alpha) => `rgba(${tint},${alpha})`;
@@ -109,6 +109,13 @@ export function paintMapNote(c,n,x,y,r,z,select,hover,seated,dpr,overview,palett
   if (n.icon) {
     const apothem = n.geometry?.apothem || 1;
     drawIcon(c,n.icon,x,y,Math.min(r*1.05, r*apothem*1.68),palette.icon);
+  }
+  if (n.lockBadge && r > 14) {
+    const offset = edgeRadius(n,-Math.SQRT1_2,-Math.SQRT1_2)*z*Math.SQRT1_2;
+    const left = x-offset, top = y-offset;
+    c.beginPath(); c.arc(left,top,6,0,2*Math.PI); c.fillStyle=palette.badge; c.fill();
+    c.strokeStyle=rgba(mapInk(n,palette),0.5); c.lineWidth=1; c.stroke();
+    drawIcon(c,lockSticker,left,top,9,palette.icon);
   }
   if ((n.pinned || seated) && r > 7 && (!n.icon || r > 14)) {
     c.save();

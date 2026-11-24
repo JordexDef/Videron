@@ -12,7 +12,7 @@ export function createIdleLock({
   wallNow = () => Date.now(), monoNow = () => performance.now(),
   setTimer = setTimeout, clearTimer = clearTimeout,
 }) {
-  let delay = 0, active = false, armed = false, timer = null
+  let delay = 0, active = false, armed = false, fixed = false, timer = null
   let lastWall = 0, lastMono = 0
   const listeners = new AbortController()
   const capture = {capture:true, signal:listeners.signal}
@@ -49,8 +49,7 @@ export function createIdleLock({
       expire()
       return
     }
-    lastWall = wall
-    lastMono = mono
+    if (!fixed) { lastWall = wall; lastMono = mono }
     // Reuse the pending timer, even during high-frequency pointer movement.
   }
   for (const type of ['pointerdown','pointermove','pointerup','keydown','wheel','input','click']) {
@@ -59,21 +58,31 @@ export function createIdleLock({
   for (const type of ['focus','pageshow']) win.addEventListener(type, check, capture)
   for (const type of ['visibilitychange','resume']) doc.addEventListener(type, check, capture)
 
-  function configure(minutes, enabled) {
-    const next = normalizeIdleMinutes(minutes) * minute
-    if (next === delay && !!enabled === active) return
+  function arm(next, enabled, absolute, wall = wallNow()) {
     disarm()
     delay = next
     active = !!enabled
-    if (!active || !delay) return
-    lastWall = wallNow()
+    fixed = absolute
+    if (!active) return
+    lastWall = wall
     lastMono = monoNow()
     armed = true
-    timer = setTimer(tick, Math.min(maxTimerDelay, delay))
+    if (delay <= 0) expire()
+    else timer = setTimer(tick, Math.min(maxTimerDelay, delay))
+  }
+  function configure(minutes, enabled) {
+    const next = normalizeIdleMinutes(minutes) * minute
+    enabled = !!enabled && next > 0
+    if (!fixed && next === delay && enabled === active) return
+    arm(next, enabled, false)
+  }
+  function until(timestamp) {
+    const wall = wallNow()
+    arm(timestamp - wall, true, true, wall)
   }
   function destroy() {
     disarm()
     listeners.abort()
   }
-  return {configure, destroy}
+  return {configure, until, destroy}
 }

@@ -193,7 +193,7 @@ func validNote(id string, payload []byte) bool {
 	return err == nil && storedID == id
 }
 
-// A sealed note may keep its map coordinates and links beside the envelope.
+// A sealed note may keep its map position, links and appearance beside the envelope.
 // Apply this second check where snapshots, folder revisions and sync all
 // enter storage. Ordinary note types and extension fields remain opaque.
 type storedNote struct{}
@@ -245,6 +245,12 @@ func (*storedNote) UnmarshalJSON(data []byte) error {
 		case "links":
 			var links []string
 			return d.Decode(&links)
+		case "appearance":
+			var raw json.RawMessage
+			if err := d.Decode(&raw); err != nil {
+				return err
+			}
+			return validateSealedAppearance(raw)
 		case "x", "y", "slot", "opens", "created", "modified":
 			var number float64
 			return d.Decode(&number)
@@ -303,6 +309,7 @@ func (a *App) dropKeys() {
 	a.serverTickets.reset()
 	a.projectKey.forget()
 	a.projectKey = nil
+	a.forgetRememberedNotes()
 	for _, key := range a.noteKeys {
 		key.forget()
 	}
@@ -334,24 +341,28 @@ func (a *App) ProtectNote(id, payload, password string) (string, error) {
 		key.forget()
 		return "", err
 	}
+	a.forgetRememberedNote(id)
 	a.cacheNoteKey(id, key)
 	return string(sealed), nil
 }
 
 func (a *App) UnlockNote(id, sealed, password string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.readSealedNote(id, sealed, password, true)
 }
 
 // Comparison reads a historical copy without granting an editor session access
 // or replacing the key used to save another version of the same note.
 func (a *App) PreviewSealedNote(id, sealed, password string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.readSealedNote(id, sealed, password, false)
 }
 
+// The caller holds mu. A preview never changes the live editor or a remembered key.
 func (a *App) readSealedNote(id, sealed, password string, keepKey bool) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.canUnlockNote() {
 		return "", errLocked
 	}
 	if id == "" {
@@ -362,17 +373,18 @@ func (a *App) readSealedNote(id, sealed, password string, keepKey bool) (string,
 		return "", err
 	}
 	key := deriveVaultKey(password, env.Salt)
-	plain, err := key.open(env, id)
+	plain, err := openNoteContents(key, env, id)
 	if err != nil {
 		key.forget()
 		return "", err
 	}
 	defer clear(plain)
-	if !validNote(id, plain) {
+	if !a.canUnlockNote() {
 		key.forget()
-		return "", errCorrupt
+		return "", errLocked
 	}
 	if keepKey {
+		a.forgetRememberedNote(id)
 		a.cacheNoteKey(id, key)
 	} else {
 		key.forget()
@@ -399,6 +411,11 @@ func (a *App) SealNote(id, payload string) (string, error) {
 func (a *App) LockNote(id string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.forgetRememberedNote(id)
+	a.closeNoteEditor(id)
+}
+
+func (a *App) closeNoteEditor(id string) {
 	a.noteKeys[id].forget()
 	delete(a.noteKeys, id)
 }

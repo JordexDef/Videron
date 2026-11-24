@@ -66,6 +66,8 @@ let library=newLibrary(), page='map', currentArea=null, selected=null, editor=nu
 let graph, areaDrag, native, ready=false, revision=0, saved=0, pending=null, timer, dirtySince=0, toastTimer, popover=null;
 let reading,routes,mapMetrics,routeCamera,stageControls;
 let noteSession=null, openingNote=null, projectProtected=false, policyWrite=null;
+// Only IDs and native expiry times are kept here. Native code checks the key on every reopen.
+let rememberedNotes=new Map(), expiringNote=null;
 let idle=null, lockScreen=null, locking=null, lockDuringStartup=false;
 const storageKey='videron.library.v1';
 const mapCameraMemory=createMapCameraMemory();
@@ -383,8 +385,20 @@ async function saveOpenEditor(){
 function hasOpenProtectedContent(){
   return projectProtected || folderSession?.encrypted || noteSession?.protected;
 }
+function hasRememberedNotes(){
+  const now=Date.now();
+  for(const [id,deadline] of rememberedNotes)if(deadline && deadline<=now)rememberedNotes.delete(id);
+  return rememberedNotes.size>0;
+}
+function forgetNoteAccess(ids){
+  const keys=ids.filter(id=>rememberedNotes.delete(id));
+  return Promise.all(keys.map(id=>native.LockNote(id)));
+}
+function forgetRemovedNoteAccess(){
+  return forgetNoteAccess([...rememberedNotes.keys()].filter(id=>!isProtectedNote(byId(id))));
+}
 function syncIdle(){
-  idle?.configure(library.autoLockMinutes,ready && !lockScreen && (hasOpenProtectedContent() || suspendedSpaceIds.size>0 || reviewing || !!agents.current));
+  idle?.configure(library.autoLockMinutes,ready && !lockScreen && (hasOpenProtectedContent() || hasRememberedNotes() || suspendedSpaceIds.size>0 || reviewing || !!agents.current));
 }
 async function setIdleMinutes(minutes){
   const previous=normalizeIdleMinutes(library.autoLockMinutes);
@@ -395,9 +409,14 @@ async function setIdleMinutes(minutes){
 
 // Keep the editor and keys available behind the opaque cover until the last
 // encrypted write succeeds. The retry uses the same note even after its editor closed.
-function requestLock(){
-  if(!native)return;
-  endAgentAccess();
+function requestLock(expired=null){
+  if(!native || (expired && (expired!==noteSession || !expired.expiresAt)))return;
+  document.querySelector('.ap-dialog[open]')?.close();
+  const hadRemembered=rememberedNotes.size>0;
+  if(!expired){
+    // A full lock also takes precedence if it arrives during a timed note lock.
+    expiringNote=null;rememberedNotes=new Map();endAgentAccess();
+  }
   storageIndicator.close();
   clearSpacePassphrases(document);
   dismissWorkspaceConflicts();dismissWorkspaceServer();
@@ -406,7 +425,8 @@ function requestLock(){
     return;
   }
   if(lockScreen)return locking;
-  if(!hasOpenProtectedContent() && !suspendedSpaceIds.size && !openingNote && !spaceOperation && !policyWrite && !document.querySelector('.vault-dialog'))return;
+  if(!expired && !hadRemembered && !hasOpenProtectedContent() && !suspendedSpaceIds.size && !openingNote && !spaceOperation && !policyWrite && !document.querySelector('.vault-dialog'))return;
+  expiringNote=expired;
   saveMapView();
   spaceActivity.setMessage('');
   cancelNoteTransition();
@@ -420,17 +440,20 @@ function requestLock(){
   }
   async function finish(){
     try{
-      await native.ForgetSuspendedFolderKeys?.();
       await interruptVaultDialogs();
       if(folderPoll)await folderPoll.catch(()=>{});
       if(spaceOperation)await spaceOperation.catch(()=>{});
-      suspendedSpaceIds.clear();
       if(openingNote)await openingNote;
       // Failed password changes leave the previous protection policy in place.
       if(policyWrite)await policyWrite.catch(()=>{});
+      if(!expiringNote){
+        await native.ForgetSuspendedFolderKeys?.();
+        await native.ForgetRememberedNotes?.();
+        suspendedSpaceIds.clear();
+      }
       if(target===null){
-        if(!hasOpenProtectedContent()){
-          lockScreen.close();lockScreen=null;renderAreas(workspace().areas);syncMapVisibility();syncIdle();return true;
+        if(!hasOpenProtectedContent() || (expiringNote && (expiringNote!==noteSession || !expiringNote.protected))){
+          expiringNote=null;lockScreen.close();lockScreen=null;renderAreas(workspace().areas);syncMapVisibility();syncIdle();return true;
         }
         target=noteSession?.note.id||'';
       }
@@ -440,6 +463,15 @@ function requestLock(){
         noteSession=null;
       }
       graph.flushPositions();await flush();
+      if(expiringNote){
+        await native.LockNote(target);
+        rememberedNotes.delete(target);
+        if(expiringNote){
+          expiringNote=null;lockScreen.close();lockScreen=null;render();syncIdle();
+          notify(tr('Срок доступа истёк. Заметка заблокирована.','Access expired. The note is locked.'));
+          return true;
+        }
+      }
       await native.LockSession(target);
       ready=false;$('shell').hidden=true;
       location.reload();
@@ -475,7 +507,7 @@ function settings(){
   closeMenu();
   openVaultSettings({
     native,agentSession:agents,
-    available:!!native,protected:projectProtected,canLock:!!folderSession?.encrypted || suspendedSpaceIds.size>0,
+    available:!!native,protected:projectProtected,canLock:!!folderSession?.encrypted || suspendedSpaceIds.size>0 || hasRememberedNotes(),
     idleMinutes:normalizeIdleMinutes(library.autoLockMinutes),onIdleMinutesChange:setIdleMinutes,
     onEnable:password=>applyProjectProtection(payload=>native.ProtectProject(payload,password),true),
     onChange:(current,password)=>applyProjectProtection(payload=>native.ChangeProjectPassword(payload,current,password),true),
@@ -893,7 +925,12 @@ function changeSpace(work,message){
   });
   return spaceOperation;
 }
-function showSpace(next,session){
+async function showSpace(next,session){
+  document.querySelector('.ap-dialog[open]')?.close();
+  if(library.active!==next.active || folderSession!==session){
+    rememberedNotes=new Map();
+    await native?.ForgetRememberedNotes?.();
+  }
   endAgentAccess();
   saveMapView();
   if(library.active && !Object.hasOwn(next.spaces,library.active))mapCameraMemory.forget(library.active);
@@ -919,7 +956,7 @@ async function activateSpace(next,session=null){
     throw error;
   }
   deferredStartupFolder='';
-  showSpace(next,session);
+  await showSpace(next,session);
   if(previous && previous!==session){
     if(previous.encrypted && native.SuspendFolderSpace && !lockScreen && !closingApp){
       if(await native.SuspendFolderSpace(previous.folder))suspendedSpaceIds.add(previousId);
@@ -927,8 +964,8 @@ async function activateSpace(next,session=null){
     }else await native.CloseFolderSpace(previous.folder);
   }
 }
-function promptForSpace(options){
-  if(lockScreen || lockDuringStartup)return Promise.resolve(false);
+function promptForVault(options){
+  if(lockScreen || lockDuringStartup || closingApp)return Promise.resolve(false);
   return openVaultPassword(options);
 }
 function switchSpace(id){
@@ -937,7 +974,7 @@ function switchSpace(id){
     const entry=library.spaces[id];
     if(isFolderSpace(entry)){
       const info=await native.InspectSpaceFolder(entry.folder);
-      const doc=await readSpaceFolder(native,info,promptForSpace,entry);
+      const doc=await readSpaceFolder(native,info,promptForVault,entry);
       if(doc)await activateSpace({...library,active:id,spaces:{...library.spaces,[id]:doc.link}},doc);
     }else if(entry)await activateSpace({...library,active:id});
     else if(id==='demo')await activateSpace({...library,active:id,demoHidden:false,spaces:{...library.spaces,demo:demoWorkspace()}});
@@ -972,7 +1009,7 @@ async function attachSpace(){
       const info=await native.InspectSpaceFolder(path),entry=folderEntry(library.spaces,info.folder);
       const id=entry?.[0]??crypto.randomUUID();
       if(id===library.active)return;
-      const doc=await readSpaceFolder(native,info,promptForSpace,entry?.[1]);
+      const doc=await readSpaceFolder(native,info,promptForVault,entry?.[1]);
       if(doc)await activateSpace({...library,active:id,spaces:{...library.spaces,[id]:doc.link}},doc);
     },tr('Открываем пространство из папки…','Opening space from folder…'));
   }catch(error){notify(storageErrorMessage(error))}
@@ -992,13 +1029,13 @@ async function deleteSpace(id,deleteFile){
       catch(error){
         // Keep the link registered if a cloud client replaced the file before confirmation.
         try{await writeCatalog(library)}
-        catch{showSpace(next,null);await native.CloseFolderSpace(previous.folder)}
+        catch{await showSpace(next,null);await native.CloseFolderSpace(previous.folder)}
         throw error;
       }
     }
     if(id===deferredStartupFolder)deferredStartupFolder='';
     if(current){
-      showSpace(next,null);
+      await showSpace(next,null);
       if(previous && !deleteFile)await native.CloseFolderSpace(previous.folder);
     }else{
       if(isFolderSpace(removed))await native?.CloseFolderSpace(removed.folder);
@@ -1219,7 +1256,8 @@ function pollFolder(force){
       const merged=previewFolderUpdate(session,update);
       if(openId && preservesOpenNote(session,merged,openId)){
         graph.remaining=0;
-        editorMerge=update.prepared?commitPreparedMerge(native,session,update):commitIncoming(native,session,update,merged,openId);
+        const write=update.prepared?commitPreparedMerge(native,session,update):commitIncoming(native,session,update,merged,openId);
+        editorMerge=write.then(forgetRemovedNoteAccess);
         try{await editorMerge}finally{editorMerge=null;$('shell').inert=!!editor}
         session.incoming=null;session.deferred=null;
         refreshOpenSearch();
@@ -1251,6 +1289,7 @@ function pollFolder(force){
       if(lockScreen || closingApp || spaceOperation || session!==folderSession)return;
       if(update.prepared)await commitPreparedMerge(native,session,update,choices);
       else await commitIncoming(native,session,update,merged);
+      await forgetRemovedNoteAccess();
       refreshOpenSearch();
       branchSaved(session);
       library.spaces[library.active]=session.link;
@@ -1373,7 +1412,7 @@ async function serverSettings(){
         const paused=session.serverPaused;
         clearServerStatus(session);
         session={folder:link.folder,link,encrypted:link.encrypted,raw:session.raw,data:session.data,records:session.records,head:session.head,serverPaused:paused};
-        showSpace(next,session);
+        await showSpace(next,session);
         if(moved.keptSource)notify(tr('Перенос завершён. Часть файлов осталась в прежней папке.','Move complete. Some files remain in the previous folder.'));
         return link.folder;
       }),
@@ -1394,7 +1433,7 @@ async function serverSettings(){
           requireCurrent();
           if(info.exists && !doc){
             report?.(tr('Открываем рабочую копию…','Opening the working copy…'));
-            doc=await readSpaceFolder(native,info,promptForSpace,entry?.[1]);
+            doc=await readSpaceFolder(native,info,promptForVault,entry?.[1]);
             if(!doc)return false;
           }
           requireCurrent();
@@ -1406,7 +1445,7 @@ async function serverSettings(){
           if(!doc){
             info=await native.InspectSpaceFolder(info.folder);
             requireCurrent();
-            doc=await readSpaceFolder(native,info,promptForSpace,entry?.[1]);
+            doc=await readSpaceFolder(native,info,promptForVault,entry?.[1]);
             if(!doc)return {savedFolder:info.folder};
           }
           requireCurrent();
@@ -1471,7 +1510,7 @@ function returnToMapNote(id,camera){
 }
 function edit(id,returnToResults=null,searchTarget=null,navigation={}){
   if(editorMerge)return editorMerge.then(()=>edit(id,returnToResults,searchTarget,navigation),()=>{});
-  const record=byId(id);if(!record||editor||openingNote||lockScreen||!ready)return;
+  const record=byId(id);if(!record||editor||openingNote||spaceOperation||lockScreen||closingApp||!ready)return;
   cancelNoteTransition();
   const fromMap=navigation.fromMap && showingMap();
   const mapVisit=fromMap?{space:library.active,camera:graph.captureCamera()}:navigation.mapVisit;
@@ -1486,10 +1525,13 @@ async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
   const id=record.id;
   const fromTree=$('areas').contains(document.activeElement);
   const hiddenRouteFragments=new Map();
-  let session,openEditor;
+  const unlocks=rememberedNotes;
+  let session,openEditor,deadline;
   try{
     if(lockScreen || closingApp)return;
-    session=await openNoteSession({record,bridge:native,dirty:()=>dirty({notes:[record]}),persist:flush,hasPlainHistory:!!folderSession && !folderSession.encrypted,onPrivacyChange:()=>{
+    session=await openNoteSession({record,bridge:native,prompt:promptForVault,spaceId:library.active,tryResume:unlocks.has(id),
+      onRemember(id,expiresAt){if(expiresAt===null)unlocks.delete(id);else unlocks.set(id,expiresAt)},
+      dirty:()=>dirty({notes:[record]}),persist:flush,hasPlainHistory:!!folderSession && !folderSession.encrypted,onPrivacyChange:()=>{
       // Fragment keys can include a fingerprint of the selected paragraph.
       // Strip them before the first encrypted write, including on save retry.
       if(isProtectedNote(record)){
@@ -1515,6 +1557,11 @@ async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
   }
   if(closingApp){if(await session.beforeClose())noteSession=null;return}
   if(lockScreen && (projectProtected||folderSession?.encrypted||session.protected))return;
+  if(session.expiresAt){
+    deadline=createIdleLock({onIdle:()=>requestLock(session)});
+    deadline.until(session.expiresAt);
+    if(lockScreen){deadline.destroy();return}
+  }
   syncIdle();
   chooseTool('select');selected=id;graph.select(id);record.opens=(record.opens||0)+1;dirty({notes:[record]});
   const backLabels={map:tr('К карте','Back to map'),list:tr('К списку','Back to list'),pinned:tr('К закреплённым','Back to pinned'),area:tr('К области','Back to area')};
@@ -1542,6 +1589,7 @@ async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
       return notePrivacyChange;
     }:null,isProtected:()=>session.protected,
     onClose:reason=>{
+      deadline?.destroy();
       cancelNoteTransition();
       saveStatus.close();editor=null;noteSession=null;$('shell').inert=!!editorMerge;syncIdle();
       if(lockScreen)return;
@@ -1635,8 +1683,11 @@ function pin(n){
   n.pinned=!n.pinned;dirty({notes:[n]});render();
 }
 function appearance(n){
-  openAppearance({note:n,areaColor:areaById(n.areaId)?.color,onChange:value=>{
-    n.appearance=value;dirty({notes:[n]});render();
+  const spaceId=library.active;
+  openAppearance({note:mapNote(n),areaColor:areaById(n.areaId)?.color,onChange:value=>{
+    const current=byId(n.id);
+    if(!current||spaceId!==library.active||lockScreen||closingApp)return;
+    current.appearance=value;dirty({notes:[current]});render();
   }});
 }
 function undoButton(){
@@ -1686,7 +1737,14 @@ function removeNotes(ids){
   const d=dialog(single?tr('Удалить заметку?','Delete note?'):tr('Удалить выбранные заметки?','Delete selected notes?'));
   d.box.append(element('p','',single?tr('«{title}» и её связи будут удалены из этого пространства.','“{title}” and its links will be removed from this workspace.',{title}):
     tr('Выбрано заметок · ','Selected notes · ')+ids.length+shortcutLabel(tr('. Удаление можно отменить через Ctrl+Z.','. You can undo this with Ctrl+Z.'))));
-  const actions=element('div','dialog-actions');actions.append(button(tr('Отмена','Cancel'),d.close),button(tr('Удалить','Delete'),()=>{
+  const actions=element('div','dialog-actions');actions.append(button(tr('Отмена','Cancel'),d.close),button(tr('Удалить','Delete'),async event=>{
+    const confirm=event.currentTarget;
+    if(ids.some(id=>rememberedNotes.has(id))){
+      confirm.disabled=true;
+      try{await forgetNoteAccess(ids)}
+      catch(error){confirm.disabled=false;notify(storageErrorMessage(error));return}
+    }
+    if(!d.box.isConnected)return;
     d.close();
     if(space!==workspace() || !ready || lockScreen || spaceOperation || editor || reviewing)return;
     graph.flushPositions();
@@ -1778,14 +1836,15 @@ function context(id,x,y,gridId=null,openNote=edit){
   }
   selected=id;graph.select(id);renderSelection();
   menu({x,y},[{icon:isProtectedNote(n)?'lock':'edit',name:tr('Открыть заметку','Open note'),run:()=>openNote(id)},
-    ...(isProtectedNote(n)?[]:[{icon:'appearance',name:tr('Внешний вид','Appearance'),run:()=>appearance(n)},metricAction(n,'note',{x,y})]),{icon:inSlot(n)?'slots':'pin',name:pinLabel(n),run:()=>pin(n)},
+    {icon:'appearance',name:tr('Внешний вид','Appearance'),run:()=>appearance(n)},
+    ...(isProtectedNote(n)?[]:[metricAction(n,'note',{x,y})]),{icon:inSlot(n)?'slots':'pin',name:pinLabel(n),run:()=>pin(n)},
     {icon:'link',name:tr('Связать с заметкой','Link to another note'),run:()=>chooseTool('link')},...(sizeAction?[sizeAction]:[]),
     ...agentMenuItems(n),...(isProtectedNote(n)?[]:extensionMenuItems({x,y},n)),null,{icon:'trash',name:tr('Удалить заметку','Delete note'),run:()=>removeNotes([id])}]);
 }
 function renderSelection(){
   const s=$('selection'),n=byId(selected);s.hidden=!n||tool==='link';
   if(n)s.replaceChildren(element('strong','',noteTitle(n)),iconButton(isProtectedNote(n)?'lock':'edit',tr('Открыть заметку','Open note'),()=>editFromMap(n.id)),
-    ...(isProtectedNote(n)?[]:[iconButton('appearance',tr('Внешний вид','Appearance'),()=>appearance(n))]),iconButton(inSlot(n)?'slots':'pin',pinLabel(n),()=>pin(n)),iconButton('more',tr('Действия','More actions'),e=>{
+    iconButton('appearance',tr('Внешний вид','Appearance'),()=>appearance(n)),iconButton(inSlot(n)?'slots':'pin',pinLabel(n),()=>pin(n)),iconButton('more',tr('Действия','More actions'),e=>{
       const r=e.currentTarget.getBoundingClientRect();context(n.id,r.left,r.top-175,null,editFromMap);
     }));
 }
@@ -2275,6 +2334,7 @@ function bindUI(){
 }
 async function loadDesktopLibrary(){
   await native.ResetAgentConnections?.();
+  await native.ForgetRememberedNotes?.();
   // A WebView reload starts with a fresh idle timer and no remembered unlocks.
   await native.ForgetSuspendedFolderKeys?.();
   let resume='';
@@ -2310,7 +2370,7 @@ async function loadDesktopLibrary(){
       let notice='';
       try{
         const info=await native.InspectSpaceFolder(entry.folder);
-        folderSession=await readSpaceFolder(native,info,promptForSpace,entry);
+        folderSession=await readSpaceFolder(native,info,promptForVault,entry);
       }catch(error){notice=storageErrorMessage(error)}
       if(lockDuringStartup){
         if(folderSession)await native.CloseFolderSpace(folderSession.folder);

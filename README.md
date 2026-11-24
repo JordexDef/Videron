@@ -33,7 +33,7 @@ On first launch, choose **English** from the language selector at the bottom of 
 
 ## Encryption
 
-- **One note.** Click the lock in the note editor to set a password. It protects the title, text, tags and attachments. The map still shows the node’s position, area and manual links. Workspace search excludes the note even while you have it open.
+- **One note.** Click the lock in the note editor to set a password. It protects the title, text, tags and attachments. The node's position, area, manual links and chosen map appearance (shape, icon and color) remain visible. Workspace search excludes the note even while you have it open.
 - **Local library.** Choose **Settings → Library encryption → Set password** to protect the library file on this computer. Each space stored in a separate folder has its own encryption setting.
 - **A folder or synced project.** Select **Encrypt space** when creating the space. Videron encrypts the notes, attachments and revision history on your device before syncing. If the space started unencrypted, protecting a note later leaves its earlier plaintext revisions readable in the folder, on the server and in backups.
 

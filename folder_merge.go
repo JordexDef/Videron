@@ -209,7 +209,11 @@ func mergeLinks(base, local, remote any) any {
 	return out
 }
 func mergedNote(base, local, remote mergeObject) (any, bool) {
-	content, ok := threeWayValue(mergeSubset(base, mergeContentKey), mergeSubset(local, mergeContentKey), mergeSubset(remote, mergeContentKey))
+	// A restyle of an already sealed note is independent of edits to its ciphertext.
+	// During a protection change the two still travel together.
+	separateAppearance := base["sealed"] != nil && local["sealed"] != nil && remote["sealed"] != nil
+	contentKey := func(k string) bool { return mergeContentKey(k) && !(separateAppearance && k == "appearance") }
+	content, ok := threeWayValue(mergeSubset(base, contentKey), mergeSubset(local, contentKey), mergeSubset(remote, contentKey))
 	if !ok {
 		return nil, false
 	}
@@ -240,6 +244,15 @@ func mergedNote(base, local, remote mergeObject) (any, bool) {
 		}
 	}
 	result := maps.Clone(mergeMap(content))
+	if separateAppearance {
+		style, ok := threeWayValue(mergeField(base, "appearance"), mergeField(local, "appearance"), mergeField(remote, "appearance"))
+		if !ok {
+			return nil, false
+		}
+		if style != absentField {
+			result["appearance"] = style
+		}
+	}
 	maps.Copy(result, mergeMap(loc))
 	maps.Copy(result, mergeMap(point))
 	if links := mergeLinks(mergeField(base, "links"), local["links"], remote["links"]); links != absentField {

@@ -25,6 +25,7 @@ type App struct {
 	protected            bool
 	projectKey           *vaultKey
 	noteKeys             map[string]*vaultKey
+	rememberedNotes      map[string]*rememberedNote
 	folderSpaces         map[string]*folderSpaceSession
 	suspendedFolderKeys  map[string]*vaultKey
 	resumeNote           string
@@ -54,6 +55,7 @@ func (a *App) sessionLocked(ctx context.Context) {
 		go runtime.EventsEmit(ctx, "videron:session-lock")
 	}
 	// Show the lock screen immediately even if the storage mutex is busy.
+	a.ForgetRememberedNotes()
 	a.ForgetSuspendedFolderKeys()
 	a.revokingFolderKeys.Store(false)
 }
