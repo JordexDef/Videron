@@ -1,13 +1,21 @@
 <!doctype html>
-<html lang="ru" data-theme="dark">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <script>
-    try {
-      if (localStorage.getItem('videron.theme.v1') === 'light') document.documentElement.dataset.theme = 'light';
-    } catch {}
+    // Resolve the preference before styles or the unlock screen can paint.
+    (() => {
+      let saved;
+      try { saved = localStorage.getItem('videron.theme.v1'); } catch {}
+      const root = document.documentElement;
+      const mode = saved === 'dark' || saved === 'light' ? saved : 'system';
+      root.dataset.themeMode = mode;
+      root.dataset.theme = mode === 'system'
+        ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : mode;
+    })();
   </script>
   <title data-en="Videron — Note workspace">Videron — пространство заметок</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">

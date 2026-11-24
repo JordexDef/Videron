@@ -32,21 +32,26 @@ func (s desktopWindowState) valid() bool {
 }
 
 func rememberDesktopWindow(config *options.App) {
+	// The native window can otherwise appear before the WebView paints the
+	// user's theme, especially on the first launch on macOS.
+	var previous desktopWindowState
+	var once sync.Once
+	config.StartHidden = true
+	config.OnDomReady = func(ctx context.Context) {
+		once.Do(func() {
+			if previous.valid() {
+				restoreDesktopWindow(ctx, previous)
+			}
+			runtime.WindowShow(ctx)
+		})
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return
 	}
 	path := filepath.Join(dir, "Videron", "window.json")
-	var previous desktopWindowState
-	if data, err := os.ReadFile(path); err == nil && json.Unmarshal(data, &previous) == nil && previous.valid() {
-		config.StartHidden = true
-		var once sync.Once
-		config.OnDomReady = func(ctx context.Context) {
-			once.Do(func() {
-				restoreDesktopWindow(ctx, previous)
-				runtime.WindowShow(ctx)
-			})
-		}
+	if data, err := os.ReadFile(path); err == nil && json.Unmarshal(data, &previous) != nil {
+		previous = desktopWindowState{}
 	}
 	beforeClose := config.OnBeforeClose
 	config.OnBeforeClose = func(ctx context.Context) bool {

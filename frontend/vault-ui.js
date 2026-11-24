@@ -1,7 +1,7 @@
 import {icon} from './art.js'
 import {tr} from './i18n.js'
 import {normalizeIdleMinutes} from './idle-lock.js'
-import {isLightTheme,setTheme} from './theme.js'
+import {getThemeMode,setTheme} from './theme.js'
 
 const openDialogs = new Set()
 
@@ -307,15 +307,16 @@ function themeSettings() {
   const group = el('fieldset', 'theme-settings')
   group.append(el('legend', '', tr('Тема оформления', 'Theme')))
   const choices = el('div', 'theme-options')
-  for (const [value, name] of [['dark', tr('Тёмная', 'Dark')], ['light', tr('Светлая', 'Light')]]) {
+  const modes = [['system', tr('Как в системе', 'Use system setting')], ['light', tr('Светлая', 'Light')], ['dark', tr('Тёмная', 'Dark')]]
+  for (const [value, name] of modes) {
     const label = el('label', 'theme-option')
     const input = el('input')
     input.type = 'radio'; input.name = 'app-theme'; input.value = value
-    input.checked = value === (isLightTheme() ? 'light' : 'dark')
+    input.checked = value === getThemeMode()
     input.onchange = () => { if (input.checked) setTheme(value) }
     const swatch = el('span', 'theme-sample ' + value)
     swatch.setAttribute('aria-hidden', 'true')
-    label.append(swatch, name, input)
+    label.append(swatch, input, el('span', 'theme-label', name))
     choices.append(label)
   }
   group.append(choices)

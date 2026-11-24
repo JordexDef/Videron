@@ -58,6 +58,13 @@ function readText(block) {
   return typeof block.text === 'string' ? block.text : Array.isArray(block.runs) ? block.runs.map(run => run?.text || '').join('') : ''
 }
 
+const previewBoards = new WeakMap()
+function paintPreview(canvas) {
+  import('./board.js').then(({renderBoardPreview}) => {
+    if (canvas.isConnected) return renderBoardPreview(canvas, previewBoards.get(canvas))
+  }).catch(() => { canvas.replaceWith(el('p','',tr('Предпросмотр холста недоступен.', 'Canvas preview unavailable.'))) })
+}
+
 function boardContent(node, board) {
   const items = board?.elements || []
   const canvas = el('canvas', 'conflict-board')
@@ -65,9 +72,8 @@ function boardContent(node, board) {
   canvas.setAttribute('role','img')
   canvas.setAttribute('aria-label', tr('Холст, объектов · ', 'Canvas, objects · ') + (items.length || board?.strokes?.length || 0))
   node.append(canvas)
-  import('./board.js').then(({renderBoardPreview}) => {
-    if (canvas.isConnected) return renderBoardPreview(canvas, board)
-  }).catch(() => { canvas.replaceWith(el('p','',tr('Предпросмотр холста недоступен.', 'Canvas preview unavailable.'))) })
+  previewBoards.set(canvas, board)
+  paintPreview(canvas)
   // Provide full-size readable text, including formulas and cells outside
   // the visible portion of a canvas/table thumbnail.
   for (const item of items) {
@@ -191,6 +197,9 @@ export function openWorkspaceConflicts({conflicts, spaceName, previewSealed}) {
     top.append(heading,context)
     const versions=el('div','conflict-versions')
     const foot=el('footer'), choices=new Map(), lifetime=new AbortController()
+    window.addEventListener('videron:themechange', () => {
+      versions.querySelectorAll('canvas.conflict-board').forEach(paintPreview)
+    }, {signal:lifetime.signal})
     let index=0
     function finish(result){
       if (dismissCurrent!==dismiss) return

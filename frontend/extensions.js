@@ -201,7 +201,20 @@ export function projectWorkspace(workspace) {
 }
 
 const pluginPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-src 'none'; connect-src 'none'";
-const pluginHead = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${pluginPolicy}"><meta name="referrer" content="no-referrer"><script>addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();parent.postMessage({type:'videron:back'},'*')}},true);addEventListener('error',event=>{parent.postMessage({type:'videron:error',message:String(event.message || '')},'*')});<\/script>`;
+function setupPluginHost() {
+  addEventListener('message', event => {
+    if (event.source !== parent || event.data?.type !== 'videron:theme') return;
+    const {theme} = event.data;
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  });
+  addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    parent.postMessage({type:'videron:back'}, '*');
+  }, true);
+  addEventListener('error', event => parent.postMessage({type:'videron:error', message:String(event.message || '')}, '*'));
+}
+const pluginHead = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${pluginPolicy}"><meta name="referrer" content="no-referrer"><style>:where(html[data-theme=light]){color-scheme:light}:where(html[data-theme=dark]){color-scheme:dark}</style><script>(${setupPluginHost.toString()})()<\/script>`;
 
 let activeManager = null;
 
@@ -287,9 +300,13 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
       }
     }
     window.addEventListener('message', receive);
+    const syncTheme = () => frame.contentWindow?.postMessage({type:'videron:theme', theme:isLightTheme() ? 'light' : 'dark'}, '*');
+    frame.addEventListener('load', syncTheme);
+    window.addEventListener('videron:themechange', syncTheme);
     disposeFrame = () => {
       clearTimeout(hintTimer);
       window.removeEventListener('message', receive);
+      window.removeEventListener('videron:themechange', syncTheme);
       frame.remove();
       disposeFrame = null;
     };

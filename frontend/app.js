@@ -1,5 +1,5 @@
 import { Graph } from './graph.js';
-import { syncWindowTheme } from './theme.js';
+import { initTheme } from './theme.js';
 import { createMapCameraMemory } from './map-camera-memory.js';
 import { playNoteTransition, cancelNoteTransition } from './note-transition.js';
 import { mountMapReading, readingFragments } from './map-reading.js';
@@ -2112,7 +2112,7 @@ async function loadDesktopLibrary(){
   }
 }
 async function init(){
-  syncWindowTheme();
+  initTheme();
   translateStatic();$('language-select').value=getLanguage();status();
   paintIcons();drawAtlas($('atlas'));
   window.addEventListener('videron:themechange',()=>{

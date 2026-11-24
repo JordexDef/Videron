@@ -72,7 +72,7 @@
   height: 6px;
   margin-inline-end: 5px;
   border-radius: 50%;
-  background: #78bd90;
+  background: var(--fg-success,#78bd90);
   vertical-align: .1em;
 }
 

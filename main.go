@@ -37,7 +37,7 @@ func main() {
 			OnSecondInstanceLaunch: app.focusWindow,
 		},
 		Windows: &windows.Options{
-			Theme:            windows.Dark,
+			Theme:            windows.SystemDefault,
 			DisablePinchZoom: true,
 			WindowClassName:  desktopWindowClass,
 		},

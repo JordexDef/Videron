@@ -633,10 +633,11 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     }
     return true
   }
-  let removeFloatingTools
+  let removeFloatingTools, stopColorPicker
   function destroy(){
     if(finished)return
     removeFloatingTools?.()
+    stopColorPicker?.()
     finished=true;searchReveal.clear();tagNav.destroy();sizeObserver.disconnect()
     for(const v of inlineViews.values())v.destroy()
     inlineViews.clear()
@@ -1226,9 +1227,29 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       format('foreColor',color)
     }
     const frame=root.closest('.vb-rich-frame')
-    const ink=(frame ? frame.dataset.light==='true' : isLightTheme()) ? lightPaperInk : darkPaperInk
-    for(const c of ink){const b=button(tr('Выбрать ','Choose ')+c,null,()=>apply(c));b.classList.add('ve-swatch');b.style.setProperty('--ve-ink',c);choices.append(b)}
-    const custom=el('input');custom.type='color';custom.value=ink[0];custom.setAttribute('aria-label',tr('Произвольный цвет текста','Custom text color'))
+    const custom=el('input');custom.type='color';custom.setAttribute('aria-label',tr('Произвольный цвет текста','Custom text color'))
+    let customPicked=false
+    custom.oninput=()=>{customPicked=true}
+    function syncPalette(){
+      const ink=(frame ? frame.dataset.light==='true' : isLightTheme()) ? lightPaperInk : darkPaperInk
+      ink.forEach((color,index)=>{
+        let swatch=choices.children[index]
+        const name=tr('Выбрать ','Choose ')+color
+        if(!swatch){
+          swatch=button(name,null,()=>apply(swatch.dataset.color))
+          swatch.classList.add('ve-swatch');choices.append(swatch)
+        }
+        swatch.dataset.color=color;swatch.title=name;swatch.setAttribute('aria-label',name)
+        swatch.style.setProperty('--ve-ink',color)
+      })
+      if(!customPicked)custom.value=ink[0]
+    }
+    stopColorPicker?.()
+    syncPalette()
+    window.addEventListener('videron:themechange',syncPalette)
+    const stop=()=>window.removeEventListener('videron:themechange',syncPalette)
+    stopColorPicker=stop
+    dlg.addEventListener('close',()=>{stop();if(stopColorPicker===stop)stopColorPicker=null},{once:true})
     const actions=el('div','ve-actions'),pick=button(tr('Применить цвет','Apply color'),null,()=>apply(custom.value),true)
     actions.append(custom,pick);dlg.append(choices,actions)
   }

@@ -19,7 +19,7 @@ export function lightPaper(color) {
 export function boardInk(item, background, paper = boardPaper(background)) {
   if (background || item.fixedStroke || item.stroke !== '#d4d4d4' || paper === '#171717') return item;
   const ink = {...item, stroke:'#232323'};
-  if (item.label && !item.labelColor && item.fillStyle === 'solid' && item.fill !== 'none' && !lightPaper(item.fill)) {
+  if (!item.labelColor && item.fillStyle === 'solid' && item.fill && item.fill !== 'none' && !lightPaper(item.fill)) {
     ink.labelColor = '#d4d4d4';
   }
   return ink;

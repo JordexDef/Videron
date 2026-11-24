@@ -3176,7 +3176,11 @@ export function mountBoard(container, options = {}) {
     if (e.code === 'Space') releaseSpace();
   });
   listen(window, 'blur', releaseSpace);
-  listen(window, 'videron:themechange', draw);
+  listen(window, 'videron:themechange', () => {
+    draw();
+    // An unfinished connector lives outside the saved drawing.
+    if (chain) updateView(chain.ghost, chainElement([...chain.nodes, chain.preview]));
+  });
   listen(root, 'pointerdown', (e) => {
     if (!panel.hidden && !panel.contains(e.target) && !styleButton.contains(e.target)) {
       panel.hidden = true;

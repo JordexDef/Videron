@@ -10,7 +10,7 @@ A local Windows build produces `build/bin/Videron.exe`. To switch versions, clos
 
 Use **Language** at the bottom of the sidebar to switch between English and Russian. The setting takes effect immediately and is saved on this device. On first launch, look for **Язык** and select **English**.
 
-Choose **Settings → Theme → Light** for a white canvas and light editors. You can switch back to **Dark** at any time. Videron remembers the theme on this device across workspaces.
+On first launch, **Settings → Theme → Use system setting** follows the appearance of Windows or macOS. The map, editors and open dialogs update when the system switches themes. Choose **Light** or **Dark** to keep a fixed theme. Videron remembers this choice on this device across workspaces.
 
 ## Areas and notes
 

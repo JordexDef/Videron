@@ -46,6 +46,8 @@ test('theme ink preserves document colors and keeps a caption legible over a dar
   const display = boardInk(legacy, undefined, '#fafafa');
   assert.equal(display.stroke, '#232323');
   assert.equal(display.labelColor, '#d4d4d4');
+  // The caret uses the caption color before the first character is entered.
+  assert.equal(boardInk({...legacy, label:''}, undefined, '#fafafa').labelColor, '#d4d4d4');
   assert.equal(legacy.stroke, '#d4d4d4');
   assert.equal(legacy.labelColor, undefined);
   assert.equal(boardInk(legacy, undefined, '#171717'), legacy);
