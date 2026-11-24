@@ -1153,7 +1153,8 @@ export class Graph {
         const pickGrid = !id && !this.callbacks.recordingRoute?.();
         const title = pickGrid && this.hitGridLabel(drag.start);
         const group = title || (pickGrid && drag.cell?.group);
-        this.changeSelection(new Set(id ? [id] : []), group?.id);
+        const pickedInk = pickGrid && !group && this.callbacks.onPickInk?.(this.world(drag.start));
+        if (!pickedInk) this.changeSelection(new Set(id ? [id] : []), group?.id);
       }
     } else if (drag.noteIds) {
       try {
@@ -1408,7 +1409,7 @@ export class Graph {
     const plainOverview = preview?.supported && this.nodes.size >= 2000 && this.zoom < .22 &&
       !this.remaining && !this.heating.size && !this.drag && !this.target && !this.pinch &&
       !this.hover && !this.selectedIds.size && !this.groups.some(group => group.grid) &&
-      !this.canvas.parentElement?.dataset?.routeMode;
+      !this.canvas.parentElement?.dataset?.routeMode && !this.canvas.parentElement?.classList?.contains('drawing-on-map');
     if (plainOverview && zoomFrame && preview.show(this.camera,this.width,this.height)) {
       this.clearAgentPulses();
       this.callbacks.onMapFrame?.(this);
@@ -1589,6 +1590,7 @@ export class Graph {
       c.strokeStyle = 'rgba('+palette.marquee+',.7)'; c.lineWidth = 1;
       c.strokeRect(left,top,right-left,bottom-top);
     }
+    this.callbacks.onDrawInkSelection?.(c,view);
     const showAction = this.tool === 'select' && !this.linking && !this.drag?.moved && !this.pinch && !this.callbacks.recordingRoute?.();
     this.areaAction?.place(showAction ? bounds : null,selected.size,w,h);
     this.callbacks.onMapFrame?.(this);

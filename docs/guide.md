@@ -48,7 +48,9 @@ In **Appearance → Shape size**, leave **By content** selected or choose **Manu
 
 If you sync notes with individual passwords, update Videron on each computer before saving a custom diameter or edge badge on those notes. Clients through 0.50.0 only recognize shape, center icon and color in an encrypted note’s public appearance.
 
-Choose the pencil in the lower-left map toolbar (**P**) to draw around notes. Use the pen for a freehand outline or drag out a rectangle or ellipse. Hold **Shift** for a square or circle. Pick a stroke color and turn on **Glow** for a luminous outline. The selection arrow in the drawing toolbar lets you move or restyle an outline. **Delete** removes the selected drawing and **Ctrl+Z** undoes a change. Click the checkmark to return to moving notes.
+Choose the pencil in the lower-left map toolbar (**P**) to draw around notes. Use the pen for a freehand outline or drag out a rectangle or ellipse. Hold **Shift** for a square or circle. With **Text**, click where the caption should start and type. **Enter** adds a line, **Ctrl+Enter** finishes, and a double-click opens the caption for editing.
+
+Click a drawing’s outline on the map to select it. Drag the outline to move it or a handle to resize it. Hold **Shift** while resizing a shape to keep its proportions. For a caption, drag a corner to change its font size. Open the color swatch and move over the palette to preview the result on the map. Click to keep the color or press **Esc** to restore it. **Glow** adds a halo. **Delete** removes the selection and **Ctrl+Z** undoes the last change.
 
 ### Routes, charts and search
 

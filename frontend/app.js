@@ -429,6 +429,7 @@ function requestLock(expired=null){
   }
   if(lockScreen)return locking;
   if(!expired && !hadRemembered && !hasOpenProtectedContent() && !suspendedSpaceIds.size && !openingNote && !spaceOperation && !policyWrite && !document.querySelector('.vault-dialog'))return;
+  ink?.flushText();
   expiringNote=expired;
   saveMapView();
   spaceActivity.setMessage('');
@@ -915,6 +916,7 @@ function showHelp(){
 }
 function changeSpace(work,message){
   if(spaceOperation || !ready || lockScreen || editor || openingNote)return Promise.reject(new Error('VD_LOCKED'));
+  ink?.flushText();
   $('shell').inert=true;
   cancelTransfers();graph.flushPositions();
   graph.remaining=0; // Keep the flushed positions stable during the folder picker or password prompt.
@@ -1488,6 +1490,7 @@ function spaceMenu(anchor){
   menu(anchor,items,{scrollChoices:true});
 }
 function navigate(target,area=null){
+  ink?.flushText();
   cancelNoteTransition();
   routes?.reset();reading?.hide();
   cancelTransfers();closeMenu();page=target;currentArea=area;selected=null;listSelection.clear();lastListId=null;
@@ -1517,6 +1520,7 @@ function returnToMapNote(id,camera){
 function edit(id,returnToResults=null,searchTarget=null,navigation={}){
   if(editorMerge)return editorMerge.then(()=>edit(id,returnToResults,searchTarget,navigation),()=>{});
   const record=byId(id);if(!record||editor||openingNote||spaceOperation||lockScreen||closingApp||!ready)return;
+  ink?.flushText();
   cancelNoteTransition();
   const fromMap=navigation.fromMap && showingMap();
   const mapVisit=fromMap?{space:library.active,camera:graph.captureCamera()}:navigation.mapVisit;
@@ -1643,6 +1647,7 @@ function noteTypeItems(pos,seat=null){
   ];
 }
 function chooseTool(next){
+  if(tool==='ink' && next!==tool)ink?.flushText();
   if(next!=='select')routes?.reset();
   if(next==='ink' && (!library.active || lockScreen || editor || spaceOperation || !showingMap()))return;
   if(next==='link'&&workspace().notes.length<2){notify(tr('Для связи нужны две заметки.','Create at least two notes to link them.'));return}
@@ -1721,7 +1726,8 @@ function undoWorkspaceChange(){
     notify(tr('Прежнее место больше недоступно.','The previous location is no longer available.'),undoButton());return;
   }
   if(change.kind==='ink'){
-    dirty(change.before ? {mapInk:change.after?[change.before]:true} : {removedInk:change.id});graph.repaint();updateEmptyMap();
+    dirty(change.before ? {mapInk:change.after?[change.before]:true} : {removedInk:change.id});
+    ink?.refreshSelection();graph.repaint();updateEmptyMap();
     notify(tr('Изменение рисунка отменено','Drawing change undone'),undoButton());return;
   }
   let ids=[];
@@ -2104,6 +2110,7 @@ function render(){
   $('routes').hidden=!map;
   mapMetrics=map && !lockScreen?resolveMapMetrics(workspace()):null;
   graph.setView(library.view);graph.setData(notes.map(mapNote),areas);
+  if(ink?.active)ink.refreshSelection();
   if(tool==='link')renderLinkHint();
   reading?.invalidate();routes?.refresh();
   if(selected || (!graph.selectedGridId && graph.selectedIds.size<2))graph.select(selected);
@@ -2292,12 +2299,16 @@ function bindUI(){
   $('extensions').onclick=()=>launchExtensions();
   $('agent-session').onclick=()=>{const s=agents.current;if(s)showAgent(s.rootId,s.mode)};
   document.addEventListener('keydown',e=>{
-    const find=e.code==='KeyF' && e.shiftKey, save=e.code==='KeyS' && !e.shiftKey && editor && !editor.element.inert;
+    const find=e.code==='KeyF' && e.shiftKey, save=e.code==='KeyS' && !e.shiftKey && ((editor && !editor.element.inert) || ink?.editingText);
     if(!(find||save)||!primaryCommand(e)||e.isComposing||e.keyCode===229||e.defaultPrevented)return;
     if(!ready||!library.active||spaceOperation||openingNote||lockScreen||reviewing)return;
     if(document.querySelector('.shade,dialog[open],[role="dialog"]:not(.vd-editor)'))return;
     e.preventDefault();e.stopPropagation();
-    if(!e.repeat){if(save)void saveOpenEditor();else search()}
+    if(!e.repeat){
+      if(!save)search();
+      else if(editor)void saveOpenEditor();
+      else{ink.flushText();flush().catch(reportWriteError)}
+    }
   },true);
   document.addEventListener('keydown',e=>{
     if(e.defaultPrevented||e.isComposing||e.keyCode===229||e.altKey)return;
@@ -2446,6 +2457,7 @@ async function init(){
     window.runtime.EventsOn('videron:close-requested',async()=>{
       if(closing)return;closing=true;
       try{
+        ink?.flushText();
         saveMapView();
         closingApp=true;endAgentAccess();dismissWorkspaceConflicts();dismissWorkspaceServer();
         if(folderPoll)await folderPoll.catch(()=>{});
@@ -2500,7 +2512,15 @@ async function init(){
   };
   stageControls=mountStageControls({canvas:$('graph'),onEdit:editMapGrid,onInsert:insertMapStage});
   graph=new Graph($('graph'),{onSelect:id=>{selected=id;renderSelection()},onAreaAction:pickForNotes,onOpen:editFromMap,onLink:linkClick,
-    onDrawInk:(ctx,view)=>ink?.draw(ctx,view),inkBounds:()=>ink?.bounds(),
+    onDrawInk:(ctx,view)=>ink?.draw(ctx,view),onDrawInkSelection:(ctx,view)=>ink?.drawSelection(ctx,view),inkBounds:()=>ink?.bounds(),
+    onPickInk:point=>{
+      if(tool!=='select' || editor || !ready || openingNote || reviewing || lockScreen || spaceOperation)return false;
+      const item=ink?.itemAt(point);
+      if(!item)return false;
+      chooseTool('ink');
+      ink.selectItem(item.id,{fromMap:true});
+      return true;
+    },
     onContext:(id,x,y,gridId)=>context(id,x,y,gridId,editFromMap),
     onEditStage:(id,col,anchor)=>editMapGrid(id,anchor,col),
     onStageContext:stageContext,
@@ -2571,7 +2591,10 @@ async function init(){
   if(startupNotice)notify(startupNotice);
   restoreMapView();
   if(resume && byId(resume))await edit(resume);
-  if(!native)window.addEventListener('pagehide',()=>{editor?.flush?.();graph.flushPositions();if(saved!==revision)localStorage.setItem(storageKey,serializeLibrary(catalogWithStartupFolder(library,deferredStartupFolder)))});
+  if(!native)window.addEventListener('pagehide',()=>{
+    ink?.flushText();editor?.flush?.();graph.flushPositions();
+    if(saved!==revision)localStorage.setItem(storageKey,serializeLibrary(catalogWithStartupFolder(library,deferredStartupFolder)));
+  });
 }
 init().catch(error=>{
   ready=false;status('unavailable');

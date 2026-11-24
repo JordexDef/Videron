@@ -3,12 +3,15 @@ import { pointsInBox, seedFromId } from './board-points.js';
 import { boardInk } from './board-theme.js';
 import { tr } from './i18n.js';
 import { mapPalette } from './map-palette.js';
+import { mountInkColor } from './map-ink-color.js';
+import { mountMapTextEditor, newMapText, paintMapText } from './map-ink-text.js';
+import { inkHandleAt, paintInkHandles, resizeMapInk } from './map-ink-resize.js';
 
-const shapes = new Set(['pen', 'rect', 'ellipse']);
+const shapes = new Set(['pen', 'rect', 'ellipse', 'text']);
 const defaultStroke = '#d4d4d4';
 
 function drawable(item) {
-  return item && shapes.has(item.type) && typeof item.id === 'string' && item.id &&
+  return item && shapes.has(item.type) && (item.type !== 'text' || typeof item.text === 'string') && typeof item.id === 'string' && item.id &&
     Number.isFinite(item.x) && Number.isFinite(item.y) &&
     Number.isFinite(item.w) && item.w > 0 && Number.isFinite(item.h) && item.h > 0;
 }
@@ -59,12 +62,21 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
   bar.hidden = true;
   bar.setAttribute('role', 'toolbar');
   stage.append(bar);
-  let active = false, tool = 'pen', selectedId = null, gesture = null;
+  let active = false, tool = 'pen', selectedId = null, gesture = null, quickSelection = false;
   let style = {stroke: defaultStroke, lineWidth: 2, glow: false};
   const buttons = new Map();
   const labels = [];
   const listen = (node, event, handler, capture = false) =>
     node.addEventListener(event, handler, {capture, signal: controller.signal});
+  const textEditor = mountMapTextEditor({stage, canvas, graph, onFinish(original, after, save) {
+    let selection = original?.id ?? null;
+    if (save && original !== after && (!original || getItems().includes(original)) &&
+        onChange((original || after).id, original, after) !== false) selection = after?.id ?? null;
+    selectedId = selection;
+    if (tool === 'text' && selection) tool = 'select';
+    updateControls();
+    graph.repaint();
+  }});
 
   function label(node, getLabel) {
     labels.push(() => {
@@ -89,22 +101,20 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
     ['pen', 'pen', () => tr('Перо', 'Pen')],
     ['rect', 'rect', () => tr('Прямоугольник', 'Rectangle')],
     ['ellipse', 'circle', () => tr('Эллипс', 'Ellipse')],
+    ['text', 'text', () => tr('Текст', 'Text')],
     ['erase', 'erase', () => tr('Ластик', 'Eraser')]
   ];
   for (const [key, icon, text] of toolEntries) button(key, icon, text, () => {
     cancel();
+    quickSelection = false;
     tool = key;
     selectedId = null;
     updateControls();
     graph.repaint();
   });
   bar.append(doc.createElement('span'));
-  const color = doc.createElement('input');
-  color.type = 'color';
-  color.className = 'map-ink-color';
-  label(color, () => tr('Цвет штриха', 'Stroke color'));
-  listen(color, 'change', () => changeStyle({stroke: color.value, fixedStroke: true}));
-  bar.append(color);
+  const palette = mountInkColor({bar,canvas,signal:controller.signal,target:currentStyle,
+    commit:stroke=>changeStyle({stroke,fixedStroke:true}),repaint:()=>graph.repaint()});
   const width = doc.createElement('input');
   width.type = 'range';
   width.className = 'map-ink-width';
@@ -116,6 +126,7 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
   button('done', 'check', () => tr('Завершить рисование', 'Finish drawing'), () => onExit());
 
   function refreshLanguage() {
+    palette.refreshLanguage();
     bar.setAttribute('aria-label', tr('Рисование на карте', 'Map drawing'));
     for (const translate of labels) translate();
     updateControls();
@@ -123,11 +134,20 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
   function currentSelection() {
     return selectedId ? getItems().find(item => item.id === selectedId) : null;
   }
+  function selectItem(id, {fromMap = false} = {}) {
+    if (!active || !getItems().some(item => item.id === id)) return false;
+    cancel();
+    quickSelection = fromMap;
+    tool = 'select';
+    selectedId = id;
+    updateControls();
+    graph.repaint();
+    return true;
+  }
   function currentStyle() { return currentSelection() || style; }
   function updateControls() {
     const current = currentStyle();
     width.value = String(current.lineWidth || 2);
-    color.value = boardInk(current).stroke || defaultStroke;
     for (const [key] of toolEntries) {
       const el = buttons.get(key);
       el.classList.toggle('active', tool === key);
@@ -136,7 +156,9 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
     buttons.get('glow').classList.toggle('active', !!current.glow);
     buttons.get('glow').setAttribute('aria-pressed', String(!!current.glow));
     const editing = tool !== 'erase' && (tool !== 'select' || !!currentSelection());
-    width.disabled = color.disabled = buttons.get('glow').disabled = !editing;
+    palette.sync(!editing);
+    width.disabled = !editing || tool==='text' || current.type==='text';
+    buttons.get('glow').disabled = !editing;
     canvas.dataset.inkTool = active ? tool : '';
   }
   function changeStyle(patch) {
@@ -157,6 +179,7 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
     }).catch(error => console.error('Could not load the drawing engine', error));
   }
   function layers(item) {
+    loadEngine();
     let result = geometry.get(item);
     if (!result) {
       // Loaded and local strokes share the board renderer, including its seeded
@@ -177,6 +200,10 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
       if (!drawable(item)) continue;
       const x = point.x - item.x, y = point.y - item.y, margin = strokeMargin(item) + tolerance;
       if (x < -margin || y < -margin || x > item.w + margin || y > item.h + margin) continue;
+      if (item.type === 'text') {
+        if (x >= -tolerance && y >= -tolerance && x <= item.w + tolerance && y <= item.h + tolerance) return item;
+        continue;
+      }
       hitCanvas ??= doc.createElement('canvas').getContext('2d');
       for (const layer of layers(item)) {
         hitCanvas.lineWidth = layer.width + tolerance * 2;
@@ -187,49 +214,54 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
   }
 
   function draw(ctx, {ox, oy, zoom, width, height}) {
+    textEditor.sync();
     const items = getItems();
     if (!items.length && !gesture) return;
-    loadEngine();
     ctx.save();
     ctx.translate(ox, oy);
     ctx.scale(zoom, zoom);
     ctx.lineJoin = ctx.lineCap = 'round';
-    const paint = (item, x, y, selected) => {
+    const paint = (item, x, y) => {
       const padding = strokeMargin(item) * zoom + 24;
       if (ox + (x + item.w) * zoom < -padding || oy + (y + item.h) * zoom < -padding ||
           ox + x * zoom > width + padding || oy + y * zoom > height + padding) return;
       ctx.save();
       ctx.translate(x, y);
-      const ink = boardInk(item).stroke || defaultStroke;
+      const ink = palette.previewFor(item) || boardInk(item).stroke || defaultStroke;
       ctx.strokeStyle = ctx.fillStyle = ink;
       if (item.glow) {
         ctx.shadowColor = /^#[\da-f]{6}$/i.test(ink) ? ink + 'ab' : ink;
         ctx.shadowBlur = (graph.dpr || 1) * Math.min(18, Math.max(4, 7 * Math.sqrt(zoom)));
       }
-      for (const layer of layers(item)) {
+      if (item.type === 'text') paintMapText(ctx, item);
+      else for (const layer of layers(item)) {
         if (layer.fill) ctx.fill(layer.path);
         if (layer.stroke) { ctx.lineWidth = layer.width; ctx.stroke(layer.path); }
-      }
-      if (selected) {
-        const pad = 4 / zoom;
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = mapPalette().caption;
-        ctx.lineWidth = 1 / zoom;
-        ctx.setLineDash([3 / zoom, 4 / zoom]);
-        ctx.strokeRect(-pad, -pad, item.w + pad * 2, item.h + pad * 2);
       }
       ctx.restore();
     };
     for (const item of items) {
-      if (!drawable(item)) continue;
+      if (!drawable(item) || textEditor.item?.id === item.id) continue;
       const moving = gesture?.kind === 'move' && gesture.item === item;
-      paint(item, item.x + (moving ? gesture.dx : 0), item.y + (moving ? gesture.dy : 0), active && item.id === selectedId);
+      const shown = gesture?.kind === 'resize' && gesture.item === item ? gesture.draft : item;
+      paint(shown, shown.x + (moving ? gesture.dx : 0), shown.y + (moving ? gesture.dy : 0));
     }
     if (gesture?.kind === 'draw') {
       const draft = draftItem(gesture);
-      paint(draft, draft.x, draft.y, false);
+      paint(draft, draft.x, draft.y);
     }
     ctx.restore();
+  }
+
+  function drawSelection(ctx, view) {
+    if (!active || tool !== 'select' || textEditor.item) return;
+    let item = currentSelection();
+    if (!drawable(item)) return;
+    if (gesture?.item === item) {
+      if (gesture.kind === 'resize') item = gesture.draft;
+      if (gesture.kind === 'move') item = {...item, x:item.x + gesture.dx, y:item.y + gesture.dy};
+    }
+    paintInkHandles(ctx, item, view, mapPalette());
   }
 
   function draftItem(g) {
@@ -259,13 +291,31 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
       e.stopImmediatePropagation();
       return;
     }
+    const local = graph.local(e), point = graph.world(local);
+    const selected = tool === 'select' ? currentSelection() : null;
+    const handle = inkHandleAt(selected, point, graph.zoom, e.pointerType === 'touch');
+    const target = !handle && (tool === 'select' || tool === 'erase' || tool === 'text') ? hit(point) : null;
+    // A shape picked from the normal map only borrows the drawing tools while it is being edited.
+    if (quickSelection && !handle && (!target || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey ||
+        graph.hit(local) || graph.gridSurface(local).area)) {
+      onExit();
+      return;
+    }
     e.preventDefault(); e.stopImmediatePropagation();
     graph.target = null;
     canvas.focus({preventScroll: true});
-    const local = graph.local(e), point = graph.world(local);
+    if (tool === 'text') {
+      const original = target?.type === 'text' ? target : null;
+      selectedId = original?.id ?? null;
+      textEditor.open(original || newMapText(point, style), original);
+      return;
+    }
     const common = {id: e.pointerId, pointerType: e.pointerType, start: point, lastLocal: local};
-    if (tool === 'select' || tool === 'erase') {
-      const item = hit(point);
+    if (handle) {
+      gesture = {...common, kind: 'resize', handle, item:selected, draft:selected};
+      canvas.style.setProperty('--map-ink-select-cursor', handle.cursor);
+    } else if (tool === 'select' || tool === 'erase') {
+      const item = target;
       selectedId = tool === 'select' ? item?.id : null;
       gesture = {...common, kind: tool === 'erase' ? 'erase' : 'move', item, dx: 0, dy: 0};
       updateControls();
@@ -285,6 +335,8 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
     if (g.kind === 'move') {
       g.dx = p.x - g.start.x;
       g.dy = p.y - g.start.y;
+    } else if (g.kind === 'resize') {
+      g.draft = resizeMapInk(g.item, g.handle.name, p.x - g.start.x, p.y - g.start.y, e.shiftKey);
     } else if (g.kind === 'draw') {
       if (g.base.type === 'pen') {
         const [x, y] = g.points.at(-1);
@@ -301,7 +353,13 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
     if (!active || graph.drag || graph.pinch || graph.spacePan && !gesture) return;
     if (gesture && gesture.id !== e.pointerId) return;
     e.stopImmediatePropagation();
-    if (!gesture) return;
+    if (!gesture) {
+      if (tool === 'select') {
+        const handle = inkHandleAt(currentSelection(), graph.world(graph.local(e)), graph.zoom);
+        canvas.style.setProperty('--map-ink-select-cursor', handle?.cursor || 'default');
+      }
+      return;
+    }
     const samples = gesture.kind === 'draw' && gesture.base.type === 'pen' ? e.getCoalescedEvents?.() : null;
     for (const event of samples?.length ? samples : [e]) sample(gesture, event);
     graph.repaint();
@@ -329,18 +387,23 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
     if (g.kind === 'draw') {
       if (g.base.type === 'pen' || Math.hypot(g.end.x - g.start.x, g.end.y - g.start.y) * graph.zoom >= 3) {
         const item = draftItem(g);
-        onChange(item.id, null, item);
+        if (onChange(item.id, null, item) !== false && (item.type === 'rect' || item.type === 'ellipse')) selectItem(item.id);
       }
     } else if (g.item && getItems().includes(g.item)) {
       if (g.kind === 'erase' && hit(graph.world(g.lastLocal)) === g.item) onChange(g.item.id, g.item, null);
+      if (g.kind === 'resize' && g.draft !== g.item) onChange(g.item.id, g.item, g.draft);
       if (g.kind === 'move' && Math.hypot(g.dx, g.dy) * graph.zoom > 2)
         onChange(g.item.id, g.item, {...g.item, x: g.item.x + g.dx, y: g.item.y + g.dy});
     }
     graph.repaint();
   }
   function reset() {
+    quickSelection = false;
+    palette.close();
+    textEditor.finish(false);
     cancel();
     selectedId = null;
+    canvas.style.removeProperty('--map-ink-select-cursor');
     updateControls();
     graph.repaint();
   }
@@ -366,15 +429,34 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
   listen(canvas, 'pointerdown', pointerDown, true);
   listen(canvas, 'pointermove', pointerMove, true);
   for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) listen(canvas, event, pointerEnd, true);
-  for (const event of ['dblclick', 'contextmenu']) listen(canvas, event, e => {
+  listen(canvas, 'dblclick', e => {
+    if (!active) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (tool !== 'select') return;
+    const item = hit(graph.world(graph.local(e)));
+    if (item?.type === 'text') textEditor.open(item, item);
+  }, true);
+  listen(canvas, 'contextmenu', e => {
+    if (quickSelection) { onExit(); return; }
     if (active) { e.preventDefault(); e.stopImmediatePropagation(); }
   }, true);
+  listen(canvas, 'keydown', e => {
+    if (!active || tool !== 'select' || e.key !== 'Enter' || e.isComposing || e.repeat ||
+        e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    const item = currentSelection();
+    if (item?.type === 'text') {
+      e.preventDefault(); e.stopPropagation(); textEditor.open(item, item);
+    }
+  });
   listen(doc.defaultView, 'blur', cancel);
   listen(doc.defaultView, 'videron:themechange', updateControls);
   refreshLanguage();
   return {
-    draw, bounds: () => mapInkBounds(getItems()), setActive, reset, refreshLanguage, deleteSelection, cancel,
-    get busy() { return !!gesture; }, get active() { return active; },
+    draw, drawSelection, itemAt: hit, selectItem, bounds: () => mapInkBounds(getItems()), setActive, reset, refreshLanguage, deleteSelection, cancel,
+    refreshSelection: updateControls,
+    flushText: () => textEditor.finish(true),
+    get editingText() { return !!textEditor.item; },
+    get busy() { return !!gesture || !!textEditor.item; }, get active() { return active; },
     destroy() { setActive(false); controller.abort(); bar.remove(); }
   };
 }

@@ -32,6 +32,21 @@ function map(notes,areas) {
   return {graph,point,calls,space};
 }
 
+test('an ordinary map click can select ink behind notes without stealing note clicks or a marquee',()=>{
+  const {graph,point}=map([{id:'front',x:0,y:0,links:[]}],[]);
+  const seen=[];
+  graph.callbacks.onPickInk=p=>{seen.push(p);return true};
+  const click=e=>{graph.pointerDown(e);graph.pointerUp(e)};
+  click(point(100,20));
+  assert.deepEqual(seen,[{x:100,y:20}]);
+  click(point(0,0));
+  assert.deepEqual([...graph.selectedIds],['front']);
+  click({...point(100,20),shiftKey:true});
+  graph.pointerDown(point(-100,-60));graph.pointerUp(point(100,60));
+  assert.equal(seen.length,1);
+  assert.deepEqual([...graph.selectedIds],['front']);
+});
+
 test('free layout freezes the current frame, new data and overlapping notes until automatic layout resumes',()=>{
   const notes=[{id:'a',x:0,y:0,tags:['shared']},{id:'b',x:1,y:0,links:['a']},{id:'c',x:150,y:0,tags:['shared']}];
   const {graph,calls}=map(notes,[]);
