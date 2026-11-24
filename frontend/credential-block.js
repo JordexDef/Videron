@@ -60,6 +60,7 @@ export function createCredentialBlock({block, onChange, onRemove}) {
   }
   function filter() {
     const query = search.value.trim().toLowerCase()
+    row.classList.toggle('ve-credential-empty-block', !entries.length)
     let matches = 0
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i]
@@ -82,15 +83,56 @@ export function createCredentialBlock({block, onChange, onRemove}) {
     }
   }
 
-  async function copy(value) {
-    try {
-      if (window.runtime?.ClipboardSetText) {
-        if (await window.runtime.ClipboardSetText(value) === false) throw Error()
-      } else await navigator.clipboard.writeText(value)
-      status.textContent = tr('Скопировано', 'Copied')
-    } catch {
-      status.textContent = tr('Не удалось скопировать', 'Could not copy')
-    }
+  // Float the tools outside the entries so hovering a copy button keeps it under the pointer.
+  function placeTools() {
+    const bounds = row.getBoundingClientRect()
+    const scroll = row.closest('.ve-scroll')?.getBoundingClientRect()
+    const toolbar = row.closest('.ve-main')?.querySelector(':scope > .ve-toolbar')
+    const top = Math.max(0, scroll?.top ?? 0, toolbar?.getBoundingClientRect().bottom ?? 0)
+    const bottom = Math.min(window.innerHeight, scroll?.bottom ?? window.innerHeight)
+    const height = bar.offsetHeight
+    row.dataset.toolsEdge = bounds.top - top >= height ? 'above'
+      : bottom - bounds.bottom >= height ? 'below' : 'inside'
+  }
+  row.addEventListener('pointerenter', placeTools)
+  row.addEventListener('focusin', placeTools)
+  row.addEventListener('pointerdown', () => row.classList.add('ve-credential-pointer'))
+  row.addEventListener('keydown', event => {
+    if (event.key === 'Tab') row.classList.remove('ve-credential-pointer')
+  })
+  row.addEventListener('focusout', event => {
+    if (!row.contains(event.relatedTarget)) row.classList.remove('ve-credential-pointer')
+  })
+
+  let lastCopy = 0
+  function copyAction(label, readValue) {
+    let resetTimer, latestAttempt
+    const button = action(label, 'copy', async () => {
+      const attempt = ++lastCopy
+      latestAttempt = attempt
+      let copied = false
+      try {
+        const value = readValue()
+        if (window.runtime?.ClipboardSetText) {
+          copied = await window.runtime.ClipboardSetText(value) !== false
+        } else {
+          await navigator.clipboard.writeText(value)
+          copied = true
+        }
+      } catch { /* Report clipboard failures in the block. */ }
+      if (latestAttempt !== attempt || !button.isConnected) return
+      clearTimeout(resetTimer)
+      button.classList.toggle('is-copied', copied)
+      if (copied) resetTimer = setTimeout(reset, 1400)
+      if (attempt === lastCopy) {
+        status.classList.toggle('is-error', !copied)
+        status.textContent = copied ? tr('Скопировано', 'Copied') : tr('Не удалось скопировать', 'Could not copy')
+      }
+    })
+    function reset() { button.classList.remove('is-copied') }
+    button.classList.add('ve-credential-copy')
+    button.insertAdjacentHTML('beforeend', icon('check'))
+    return button
   }
 
   const names = {
@@ -102,9 +144,9 @@ export function createCredentialBlock({block, onChange, onRemove}) {
       const group = element('div', 've-credential-entry')
       group.setAttribute('role', 'group')
       group.setAttribute('aria-label', tr('Запись {number}', 'Entry {number}', {number:index + 1}))
-      const pair = action(tr('Скопировать логин:пароль', 'Copy login:password'), 'copy', () => {
+      const pair = copyAction(tr('Скопировать логин:пароль', 'Copy login:password'), () => {
         const {login,password} = entries[index]
-        if (login && password) void copy(login + ':' + password)
+        return login + ':' + password
       })
       pair.classList.add('ve-credential-pair')
       pair.append(document.createTextNode('a:b'))
@@ -140,8 +182,8 @@ export function createCredentialBlock({block, onChange, onRemove}) {
           cell.append(toggle)
         }
         if (key !== 'resource') {
-          copyButton = action(key === 'login' ? tr('Скопировать логин','Copy login') : tr('Скопировать пароль','Copy password'),
-            'copy', () => copy(input.value))
+          copyButton = copyAction(key === 'login' ? tr('Скопировать логин','Copy login') : tr('Скопировать пароль','Copy password'),
+            () => input.value)
           copyButton.disabled = !input.value
           cell.append(copyButton)
         }
