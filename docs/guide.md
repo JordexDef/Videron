@@ -180,25 +180,31 @@ Use a long, unique passphrase and store it in your password manager. Recovering 
 
 ## AI agents and notes
 
-Open the idea you want to share and click **AI** in the note editor. You can also right-click the note on the map. Choose **Copy for AI** for a snapshot or **Work with an agent…** for a live session.
+Open the idea you want to share and click **AI** in the note editor. You can also right-click the note on the map.
 
 **Paste a snapshot into a chat.** Choose **Copy for AI** and paste into the conversation. The Markdown includes headings, nested checklists, code with its language and the full contents of data notes. Each drawing describes the positions of shapes, paths, labels and arrow connections. Tables include cell addresses, formulas and their calculated values. Charts identify their source table and range.
 
 Rich paste can also carry embedded images and drawing previews. A chat that accepts only plain text receives image captions and drawing geometry. Attach the original image separately if the agent needs to inspect its pixels. Copying an individually encrypted note requires opening it with its password first. The system clipboard then contains the readable copy.
 
-**Connect an agent you already use.** Choose **Connect an existing agent (MCP)** and select **Read only** or **Read and manage tasks**. Click **Share note → Copy MCP configuration**. In your **local** MCP client, add the generated `videron` entry under `mcpServers`. If your client uses another configuration format, transfer its command, arguments and environment variables. The command launches Videron with `--agent-mcp` on the same computer. Keep Videron open. The configuration contains a temporary credential that expires when you choose **End session**, switch spaces or lock the app. Generate a fresh configuration for a later session.
+**Register an existing agent once.** In **Settings → External agents → Add agent…**, enter a name you will recognize, such as “Codex on my laptop”. Choose **Add and copy configuration**. In that local MCP client’s settings, add the generated `videron` entry under `mcpServers`. If the client uses another format, transfer the command, arguments and environment variables. Replace any temporary Videron configuration from an earlier version. Reload the client’s MCP settings if needed. Keep the configuration private and register each client separately. Registrations belong to this computer.
 
-Read-only agents can call `read_idea` and `list_tasks`. Task management also enables `create_tasks` and `update_task` for that idea. An agent can reopen the selected idea in pages and follow its task list. Other notes, including notes reached through ordinary links or tags, stay outside the grant. Individually password-protected notes support manual copying after unlocking. Live connections require an idea without an individual password and an unlocked space.
+**Share one idea.** With Videron open and unlocked, choose **AI → Share with agent…** on the note, select the registered client and choose **Read** or **Manage tasks**. Ask the agent to read the shared note. **Read** lets it read the idea and list its linked tasks. **Manage tasks** also lets it create and update those tasks. Other notes, including notes reached through ordinary links or tags, stay private. For an individually password-protected idea, unlock it and use **Copy for AI**.
+
+The note header shows the client’s name and rights. Click the **×** beside its name, or choose **Stop sharing** in the agent dialog, to end access. One idea can be shared at a time. Switching spaces, locking Videron or closing the app also ends access. To share again, choose the client and rights on the desired note. The client keeps its configuration.
+
+If you move or rename the Videron executable, open **Settings → External agents** in the new location. Click the copy button beside your client and replace its MCP configuration to update the executable path. Choose **Forget** to remove a client’s registration and end its access.
+
+MCP clients can discover the tools with `tools/list` before a note is shared. To read shared content, call `read_idea` or `list_tasks`. When a result includes a `nextOffset`, pass it as `offset` together with the returned `scope` to fetch the next page. For `create_tasks` or `update_task`, pass the `scope` from `read_idea` for the current grant.
 
 Each task is a separate note. Use space encryption to protect the idea and all its task notes together.
 
-**Start an agent from the note.** Install and sign in to the ACP-compatible agent or adapter you want to use on this computer. Videron includes launch profiles for OpenCode (`opencode acp`), Qwen Code (`qwen --acp`), Claude Agent ACP (`claude-agent-acp`) and Codex ACP (`codex-acp`). For another adapter, enter its executable and arguments. Model selection, accounts and local inference are configured in the adapter.
+**Start an agent from the note.** Install and sign in to the ACP-compatible agent or adapter you want to use on this computer. Choose **AI → Run an agent…** on the note. Videron includes launch profiles for OpenCode (`opencode acp`), Qwen Code (`qwen --acp`), Claude Agent ACP (`claude-agent-acp`) and Codex ACP (`codex-acp`). For another adapter, enter its executable and arguments. Model selection, accounts and local inference are configured in the adapter.
 
 Choose the working folder explicitly if the agent should implement the idea in an existing project. With the folder left empty, the agent starts in a temporary directory that is removed when the run ends. The selected folder is the process's working directory. Its access to files and network follows the installed adapter's own permissions. Enter an instruction such as “Split this idea into tasks, implement the first in the selected project and record how you tested it.” Start the run and respond to any permission requests from the adapter in Videron.
 
 A run starts a fresh conversation by default. If the adapter supports resuming, **Continue the previous conversation in its working folder** reopens the last conversation for the same idea, adapter profile, folder and access level.
 
-With task management enabled, the agent can create linked notes and report progress. Open a task from the checklist in the idea to see its description and result. A working task pulses on the map while the connection is active. A finished task turns green and its checkbox fills. The area containing the idea shows progress by estimated effort. Completing a task of weight 3 contributes three times as much as completing a task of weight 1. Adding work can lower the percentage, and cancelled tasks leave the calculation.
+With task management enabled, the agent can create linked notes and report progress. Open a task from the checklist in the idea to see its description and result. For an external agent, a working task pulses on the map for 30 seconds after its latest successful tool call. The note stays shared when the pulsing stops. A finished task turns green and its checkbox fills. The area containing the idea shows progress by estimated effort. Completing a task of weight 3 contributes three times as much as completing a task of weight 1. Adding work can lower the percentage, and cancelled tasks leave the calculation.
 
 ## Extensions
 

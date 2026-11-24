@@ -31,6 +31,8 @@ type agentAnswer struct {
 
 type noteGrant struct {
 	id, token, endpoint string
+	host                string
+	pair                *pairedNoteGrant
 	write               bool
 	ctx                 context.Context
 	cancel              context.CancelFunc
@@ -48,6 +50,9 @@ type agentAccess struct {
 func (g *noteGrant) close() {
 	g.cancel()
 	_ = g.server.Close()
+	if g.pair != nil {
+		_ = os.Remove(g.pair.discoveryPath)
+	}
 }
 
 func (s *agentAccess) revoke(id string) {
@@ -60,40 +65,75 @@ func (s *agentAccess) revoke(id string) {
 }
 
 func startNoteGrant(write bool, emit func(string, string, string, string)) (*noteGrant, error) {
+	return listenNoteGrant(write, emit, nil)
+}
+
+func listenNoteGrant(write bool, emit func(string, string, string, string), client *agentClient) (*noteGrant, error) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	g := &noteGrant{id: rand.Text(), token: rand.Text() + rand.Text(), endpoint: "http://" + listener.Addr().String() + "/mcp",
-		write: write, ctx: ctx, cancel: cancel, emit: emit, pending: make(map[string]chan agentAnswer)}
+		host: listener.Addr().String(), write: write, ctx: ctx, cancel: cancel, emit: emit, pending: make(map[string]chan agentAnswer)}
+	if client != nil {
+		secured, err := g.preparePairedListener(listener, *client)
+		if err != nil {
+			cancel()
+			listener.Close()
+			return nil, err
+		}
+		listener = secured
+	}
 	g.server = &http.Server{Handler: g, ReadHeaderTimeout: 4 * time.Second, ReadTimeout: 12 * time.Second, WriteTimeout: 55 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	go func() { _ = g.server.Serve(listener) }()
 	return g, nil
 }
 
 func (a *App) OpenAgentAccess(write bool) (string, error) {
+	return a.openAgentAccess("", write, a.emitAgentCall)
+}
+
+func (a *App) OpenPairedAgentAccess(id string, write bool) (string, error) {
+	if id == "" {
+		return "", errAgentClientUnknown
+	}
+	return a.openAgentAccess(id, write, a.emitAgentCall)
+}
+
+func (a *App) emitAgentCall(grant, request, tool, params string) {
+	wails.EventsEmit(a.ctx, "videron:agent-call", grant, request, tool, params)
+}
+
+func (a *App) openAgentAccess(clientID string, write bool, emit func(string, string, string, string)) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
-		return "", errLocked
-	}
 	s := &a.noteAccess
 	s.Lock()
 	defer s.Unlock()
+	if !a.agentWorkspaceReady() {
+		return "", errLocked
+	}
 	if s.current != nil {
 		return "", errors.New("VD_AGENT_BUSY")
 	}
-	if a.sessionLockPending.Load() || a.revokingFolderKeys.Load() {
-		return "", errors.New("VD_LOCKED")
+	var client *agentClient
+	if clientID != "" {
+		c, err := findAgentClient(clientID)
+		if err != nil {
+			return "", err
+		}
+		client = &c
 	}
-	g, err := startNoteGrant(write, func(grant, request, tool, params string) {
-		wails.EventsEmit(a.ctx, "videron:agent-call", grant, request, tool, params)
-	})
+	g, err := listenNoteGrant(write, emit, client)
 	if err != nil {
 		return "", err
 	}
 	s.current = g
+	if client != nil {
+		out, err := json.Marshal(map[string]string{"id": g.id})
+		return string(out), err
+	}
 	config, err := g.mcpConfig()
 	if err != nil {
 		s.current = nil
@@ -108,6 +148,9 @@ func (a *App) OpenAgentAccess(write bool) (string, error) {
 }
 
 func (g *noteGrant) mcpConfig() (map[string]any, error) {
+	if g.pair != nil {
+		return nil, errors.New("VD_AGENT_CONFIG")
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -161,7 +204,7 @@ type agentRPC struct {
 	Params  json.RawMessage `json:"params"`
 }
 
-func agentTools(write bool) []map[string]any {
+func agentTools(write, paired bool) []map[string]any {
 	limited := func(limit int) map[string]any { return map[string]any{"type": "string", "maxLength": limit} }
 	key := map[string]any{"type": "string", "pattern": "^[a-zA-Z0-9_-]{1,64}$"}
 	weight := map[string]any{"type": "number", "exclusiveMinimum": 0, "maximum": 1000}
@@ -173,7 +216,17 @@ func agentTools(write bool) []map[string]any {
 		}
 		return s
 	}
-	tool := func(name, desc string, schema any) map[string]any {
+	tool := func(name, desc string, schema map[string]any) map[string]any {
+		if paired {
+			schema["properties"].(map[string]any)["scope"] = map[string]any{"type": "string", "description": "The scope from read_idea for this shared idea, or the preceding page for pagination."}
+			switch name {
+			case "read_idea", "list_tasks":
+				desc += " Include the returned scope on later pages."
+			default:
+				schema["required"] = append(schema["required"].([]string), "scope")
+				desc += " Requires task access and the scope returned by read_idea for this grant."
+			}
+		}
 		return map[string]any{"name": name, "description": desc, "inputSchema": schema}
 	}
 	out := []map[string]any{
@@ -191,11 +244,11 @@ func agentTools(write bool) []map[string]any {
 func (g *noteGrant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if r.URL.Path != "/mcp" || r.Host != strings.TrimSuffix(strings.TrimPrefix(g.endpoint, "http://"), "/mcp") {
+	if r.URL.Path != "/mcp" || r.Host != g.host {
 		http.NotFound(w, r)
 		return
 	}
-	if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host {
+	if origin := r.Header.Get("Origin"); origin != "" && origin != strings.TrimSuffix(g.endpoint, "/mcp") {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -227,17 +280,26 @@ func (g *noteGrant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, code, message := g.dispatch(r.Context(), req)
-	reply := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+	payload, err := agentReply(req.ID, result, code, message)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(payload)
+}
+
+func agentReply(id json.RawMessage, result any, code int, message string) ([]byte, error) {
+	reply := map[string]any{"jsonrpc": "2.0", "id": id}
 	if code != 0 {
 		reply["error"] = map[string]any{"code": code, "message": message}
 	} else {
 		reply["result"] = result
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(reply)
+	return json.Marshal(reply)
 }
 
-func (g *noteGrant) dispatch(ctx context.Context, req agentRPC) (any, int, string) {
+func agentInfo(req agentRPC, write, paired bool) (any, int, string) {
 	switch req.Method {
 	case "initialize":
 		var params struct {
@@ -253,55 +315,78 @@ func (g *noteGrant) dispatch(ctx context.Context, req agentRPC) (any, int, strin
 	case "ping":
 		return map[string]any{}, 0, ""
 	case "tools/list":
-		return map[string]any{"tools": agentTools(g.write)}, 0, ""
-	case "tools/call":
-		var p struct {
-			Name      string          `json:"name"`
-			Arguments json.RawMessage `json:"arguments"`
-		}
-		if json.Unmarshal(req.Params, &p) != nil {
-			return nil, -32602, "Invalid tool call"
-		}
-		switch p.Name {
-		case "read_idea", "list_tasks":
-		case "create_tasks", "update_task":
-			if !g.write {
-				return nil, -32602, "Read-only access"
-			}
-		default:
-			return nil, -32602, "Unknown tool"
-		}
-		if len(p.Arguments) == 0 {
-			p.Arguments = json.RawMessage("{}")
-		}
-		if p.Arguments[0] != '{' {
-			return nil, -32602, "Expected an arguments object"
-		}
-		id := rand.Text()
-		ch := make(chan agentAnswer, 1)
-		g.mu.Lock()
-		if len(g.pending) >= 8 {
-			g.mu.Unlock()
-			return nil, -32000, "Workspace busy"
-		}
-		g.pending[id] = ch
-		g.mu.Unlock()
-		defer func() { g.mu.Lock(); delete(g.pending, id); g.mu.Unlock() }()
-		g.emit(g.id, id, p.Name, string(p.Arguments))
-		timer := time.NewTimer(45 * time.Second)
-		defer timer.Stop()
-		select {
-		case answer := <-ch:
-			return map[string]any{"content": []map[string]string{{"type": "text", "text": answer.text}}, "isError": answer.failed}, 0, ""
-		case <-g.ctx.Done():
-			return nil, -32000, "Access ended"
-		case <-ctx.Done():
-			return nil, -32000, "Call cancelled"
-		case <-timer.C:
-			return nil, -32000, "Videron did not respond"
-		}
+		return map[string]any{"tools": agentTools(write, paired)}, 0, ""
 	default:
 		return nil, -32601, "Method not found"
+	}
+}
+
+func agentToolResult(text string, failed bool) any {
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": text}}, "isError": failed}
+}
+
+func (g *noteGrant) dispatch(ctx context.Context, req agentRPC) (any, int, string) {
+	if req.Method != "tools/call" {
+		return agentInfo(req, g.write, g.pair != nil)
+	}
+	var p struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if json.Unmarshal(req.Params, &p) != nil {
+		return nil, -32602, "Invalid tool call"
+	}
+	switch p.Name {
+	case "read_idea", "list_tasks":
+	case "create_tasks", "update_task":
+		if !g.write {
+			if g.pair != nil {
+				return agentToolResult("This idea is shared for reading only.", true), 0, ""
+			}
+			return nil, -32602, "Read-only access"
+		}
+	default:
+		return nil, -32602, "Unknown tool"
+	}
+	if len(p.Arguments) == 0 {
+		p.Arguments = json.RawMessage("{}")
+	}
+	if p.Arguments[0] != '{' {
+		return nil, -32602, "Expected an arguments object"
+	}
+	if g.pair != nil {
+		if err := g.checkPairedScope(p.Name, p.Arguments); err != nil {
+			return agentToolResult(err.Error(), true), 0, ""
+		}
+	}
+	id := rand.Text()
+	ch := make(chan agentAnswer, 1)
+	g.mu.Lock()
+	if len(g.pending) >= 8 {
+		g.mu.Unlock()
+		return nil, -32000, "Workspace busy"
+	}
+	g.pending[id] = ch
+	g.mu.Unlock()
+	defer func() { g.mu.Lock(); delete(g.pending, id); g.mu.Unlock() }()
+	g.emit(g.id, id, p.Name, string(p.Arguments))
+	timer := time.NewTimer(45 * time.Second)
+	defer timer.Stop()
+	select {
+	case answer := <-ch:
+		if g.ctx.Err() != nil {
+			return nil, -32000, "Access ended"
+		}
+		if g.pair != nil && !answer.failed && (p.Name == "read_idea" || p.Name == "list_tasks") {
+			answer = g.pairedPage(p.Name, answer)
+		}
+		return agentToolResult(answer.text, answer.failed), 0, ""
+	case <-g.ctx.Done():
+		return nil, -32000, "Access ended"
+	case <-ctx.Done():
+		return nil, -32000, "Call cancelled"
+	case <-timer.C:
+		return nil, -32000, "Videron did not respond"
 	}
 }
 
@@ -312,8 +397,18 @@ func serveAgentStdio(input io.Reader, output io.Writer, endpoint, token string) 
 	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.User != nil || u.Path != "/mcp" || u.RawQuery != "" || u.Fragment != "" || token == "" {
 		return errors.New("invalid or missing Videron connection")
 	}
-	client := &http.Client{Timeout: 50 * time.Second, Transport: &http.Transport{}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := agentHTTPClient(&http.Transport{})
 	defer client.CloseIdleConnections()
+	return scanAgentStdio(input, output, func(line []byte) ([]byte, error) {
+		return forwardAgentRPC(client, endpoint, token, line)
+	})
+}
+
+func agentHTTPClient(transport *http.Transport) *http.Client {
+	return &http.Client{Timeout: 50 * time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+func scanAgentStdio(input io.Reader, output io.Writer, handle func([]byte) ([]byte, error)) error {
 	scan := bufio.NewScanner(input)
 	scan.Buffer(make([]byte, 4096), agentRequestLimit)
 	for scan.Scan() {
@@ -321,30 +416,41 @@ func serveAgentStdio(input io.Reader, output io.Writer, endpoint, token string) 
 		if len(line) == 0 {
 			continue
 		}
-		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(line))
+		data, err := handle(line)
 		if err != nil {
 			return err
 		}
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json, text/event-stream")
-		resp, err := client.Do(req)
-		if err != nil {
-			return errors.New("Videron connection closed")
-		}
-		data, err := io.ReadAll(io.LimitReader(resp.Body, agentReplyLimit+1))
-		resp.Body.Close()
-		if err != nil || len(data) > agentReplyLimit || resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return fmt.Errorf("Videron connection unavailable (%d)", resp.StatusCode)
-		}
-		if resp.StatusCode != http.StatusAccepted {
-			if !json.Valid(data) {
-				return errors.New("invalid Videron response")
-			}
+		if len(data) > 0 {
 			if _, err = fmt.Fprintln(output, string(bytes.TrimSpace(data))); err != nil {
 				return err
 			}
 		}
 	}
 	return scan.Err()
+}
+
+func forwardAgentRPC(client *http.Client, endpoint, token string, line []byte) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(line))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, errors.New("Videron connection closed")
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, agentReplyLimit+1))
+	resp.Body.Close()
+	if err != nil || len(data) > agentReplyLimit || resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("Videron connection unavailable (%d)", resp.StatusCode)
+	}
+	if resp.StatusCode == http.StatusAccepted {
+		return nil, nil
+	}
+	if !json.Valid(data) {
+		return nil, errors.New("invalid Videron response")
+	}
+	return data, nil
 }

@@ -27,7 +27,7 @@ On Windows, run the desktop EXE. On macOS, open the DMG and drag Videron into Ap
 - **Work with data.** Open JSON, CSV, or TSV in a data note. For CSV and TSV, switch to the table view to sort by a column or remove duplicates using the fields you choose.
 - **Work offline.** Create, edit and search your notes locally. You can sync a space when you want to use it on another computer.
 
-In the development build, **AI → Copy for AI** copies a note with its drawings and table formulas. Connect an existing agent to one idea or launch an installed agent to create linked tasks and track their progress on the map. [AI agents and notes](docs/guide.md#ai-agents-and-notes)
+In the development build, **AI → Copy for AI** copies a note with its drawings and table formulas. Register a local MCP client once in **Settings → External agents**, then choose which idea it may read or manage tasks for. You can also launch an installed ACP agent from the note and track its tasks on the map. [AI agents and notes](docs/guide.md#ai-agents-and-notes)
 
 On first launch, choose **English** from the language selector at the bottom of the sidebar. Select **Explore the demo** to open the example map in its own space. To use another language, install a translation through **Extensions** or create one from the bundled template. [Language packs](docs/guide.md#language-packs)
 

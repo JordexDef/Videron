@@ -66,6 +66,7 @@ func (a *App) ConsumeSessionLock() bool {
 }
 
 func (a *App) shutdown(context.Context) {
+	// Revoke immediately even if a storage operation holds the library mutex.
 	a.ResetAgentConnections()
 	a.sessionLockListening.Store(false)
 	a.mu.Lock()

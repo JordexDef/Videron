@@ -16,8 +16,15 @@ import (
 var files embed.FS
 
 func main() {
-	if len(os.Args) == 2 && os.Args[1] == "--agent-mcp" {
-		if err := serveAgentStdio(os.Stdin, os.Stdout, os.Getenv("VIDERON_AGENT_ENDPOINT"), os.Getenv("VIDERON_AGENT_TOKEN")); err != nil {
+	if len(os.Args) == 2 && (os.Args[1] == "--agent-mcp" || os.Args[1] == "--agent-mcp-paired") {
+		var err error
+		if os.Args[1] == "--agent-mcp-paired" {
+			client := agentClient{agentClientInfo: agentClientInfo{ID: os.Getenv("VIDERON_AGENT_CLIENT")}, Key: os.Getenv("VIDERON_AGENT_KEY")}
+			err = servePairedAgentStdio(os.Stdin, os.Stdout, client)
+		} else {
+			err = serveAgentStdio(os.Stdin, os.Stdout, os.Getenv("VIDERON_AGENT_ENDPOINT"), os.Getenv("VIDERON_AGENT_TOKEN"))
+		}
+		if err != nil {
 			log.Print(err)
 			os.Exit(1)
 		}

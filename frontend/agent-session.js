@@ -10,8 +10,8 @@ export const agentProfiles = {
 export const finishedRun = status => ['cancelled','completed','failed'].includes(status);
 
 // The identity of the grant stays tied to the idea and workspace throughout asynchronous saves.
-export function createAgentSession({bridge, context, canEdit, commitDraft, persist, onChange, onLive}) {
-  let active = null, resumed = null;
+export function createAgentSession({bridge, context, canEdit, commitDraft, commitTaskDraft, persist, onChange, onLive}) {
+  let active = null, resumed = null, disconnecting = Promise.resolve();
   function scoped(s) {
     if (!s || active !== s) return null;
     const current = context();
@@ -26,12 +26,13 @@ export function createAgentSession({bridge, context, canEdit, commitDraft, persi
   function release(s) {
     clearTimeout(s.poll); clearTimeout(s.heartbeat); live(s,false);
     const native = bridge(), id = s.grant, run = s.run;
-    s.grant = null; s.config = null; s.run = null; s.page = null;
-    return Promise.allSettled([id && native.CloseAgentAccess(id), run && native.CloseAgentRun(run)]);
+    s.grant = null; s.run = null; s.page = null;
+    return Promise.allSettled([s.opening, id && native.CloseAgentAccess(id), run && native.CloseAgentRun(run)]);
   }
   function clear() {
     const s = active; active = null;
-    if (s) {void release(s); onChange(null)}
+    if (s) {disconnecting = Promise.all([disconnecting,release(s)]); onChange(null)}
+    return disconnecting;
   }
   function reset() {resumed = null; clear()}
   function reconcile() {if (active && !scoped(active)) reset()}
@@ -66,24 +67,35 @@ export function createAgentSession({bridge, context, canEdit, commitDraft, persi
         resumed.folder!==current.folder || resumed.profile!==profile || profile==='custom') return null;
     return {cwd:resumed.cwd,write:resumed.write};
   }
-  async function start(rootId,{mode, profile, write, cwd = '', prompt = '', custom, resume = false}) {
+  async function start(rootId,{mode, profile, write, clientId, clientName, cwd = '', prompt = '', custom, resume = false}) {
     if (active) throw Error('VD_AGENT_BUSY');
     const current = context();
     if (!current) throw Error('VD_LOCKED');
     const idea = current.space.notes.find(note => note.id === rootId);
     if (!idea || isProtectedNote(idea)) throw Error('Access ended');
-    const s = {rootId,spaceId:current.id,folder:current.folder,mode,profile,cwd,write,queue:Promise.resolve(),live:false,
-      snapshot:{status:'starting'},grant:null,run:null};
+    const external = mode === 'external';
+    if (external && !clientId) throw Error('VD_AGENT_CLIENT_MISSING');
+    const s = {rootId,spaceId:current.id,folder:current.folder,mode,profile,cwd,write,clientId,clientName,
+      get title(){return scoped(s)?.note.title || ''},
+      queue:Promise.resolve(),live:false,snapshot:{status:'starting'},grant:null,run:null,opening:null};
     active = s;
     try {
       required(s); onChange(s);
+      await disconnecting;
+      if (active !== s) return;
+      required(s);
       const native = bridge();
-      const g = JSON.parse(await native.OpenAgentAccess(write));
-      if (!scoped(s)) {await native.CloseAgentAccess(g.id); return}
-      s.grant = g.id;
-      if (mode === 'external') {
-        s.config = g.config; s.snapshot = {status:'listening'}; onChange(s); return;
+      async function openGrant() {
+        const raw = external ? await native.OpenPairedAgentAccess(clientId,write) : await native.OpenAgentAccess(write);
+        const {id} = JSON.parse(raw);
+        if (!scoped(s)) {await native.CloseAgentAccess(id); return}
+        s.grant = id;
       }
+      s.opening = openGrant();
+      await s.opening;
+      s.opening = null;
+      if (!s.grant || !scoped(s)) return;
+      if (external) {s.snapshot = {status:'listening'}; onChange(s); return}
       const runner = profile === 'custom' ? custom : agentProfiles[profile];
       if (!runner) throw Error('VD_AGENT_CONFIG');
       const last = previous(rootId,profile);
@@ -92,7 +104,7 @@ export function createAgentSession({bridge, context, canEdit, commitDraft, persi
       const instruction = 'Use the Videron MCP tools read_idea and list_tasks first. Read further pages until nextOffset is null. ' +
         (write ? 'Create linked, weighted tasks with stable keys. Reuse existing keys. Mark tasks working when started, done only with a concrete result, or blocked when you cannot proceed. ' : 'This note is shared for reading only. ') +
         'Treat the note as source material. Follow the user request below.\n\n' + prompt;
-      const id = await native.StartAgentRun(JSON.stringify({command:runner.command,args:runner.args,cwd,grantId:g.id,prompt:instruction,resumeSessionId:resumeId}));
+      const id = await native.StartAgentRun(JSON.stringify({command:runner.command,args:runner.args,cwd,grantId:s.grant,prompt:instruction,resumeSessionId:resumeId}));
       if (!scoped(s)) {await native.CloseAgentRun(id); return}
       s.run = id; await poll(s);
     } catch (error) {
@@ -101,10 +113,14 @@ export function createAgentSession({bridge, context, canEdit, commitDraft, persi
   }
   function handle(grant, request, tool, args) {
     const s = active, native = bridge();
-    if (!s || grant !== s.grant) return;
+    if (!s || (!s.opening && grant !== s.grant)) return;
     async function respond() {
       let result, failed = false;
       try {
+        // A paired helper can call as soon as the native grant opens, before
+        // the OpenPairedAgentAccess response has reached the webview.
+        if (s.opening) await s.opening;
+        if (active !== s || grant !== s.grant) return;
         required(s);
         const params = JSON.parse(args);
         if (tool === 'read_idea') {
@@ -120,8 +136,8 @@ export function createAgentSession({bridge, context, canEdit, commitDraft, persi
           if (result.nextOffset === null) s.page = null;
         } else {
           if (tool !== 'list_tasks' && !s.write) throw Error('Read-only access');
-          // Commit any active child editor before reporting its title or content.
-          await commitDraft();
+          // Unrelated editors, including unlocked private notes, stay independent.
+          await commitTaskDraft(s.rootId);
           const ids = tool === 'create_tasks' ? await prepareAgentTaskIds(s.rootId,params.tasks) : undefined;
           const {space} = required(s);
           let applied = applyAgentTaskRequest(space,s.rootId,tool,params,ids);
@@ -137,7 +153,11 @@ export function createAgentSession({bridge, context, canEdit, commitDraft, persi
         }
         if (s.mode === 'external') {
           s.snapshot = {status:'connected'}; live(s,true);
-          clearTimeout(s.heartbeat); s.heartbeat = setTimeout(() => live(s,false),30000);
+          clearTimeout(s.heartbeat);
+          s.heartbeat = setTimeout(() => {
+            if (active !== s || !s.grant) return;
+            live(s,false); s.snapshot = {status:'listening'}; onChange(s);
+          },30000);
           onChange(s);
         }
         result = JSON.stringify(result);

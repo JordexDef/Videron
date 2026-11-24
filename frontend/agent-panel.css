@@ -17,3 +17,46 @@
 .ai-body [role=alert]{color:var(--text)}
 .ai-body .ai-resume{display:flex;align-items:center}.ai-resume input{width:auto}
 .ai-body [hidden]{display:none}
+.ai-status {overflow-wrap:anywhere}
+.ai-body .ai-access {
+  justify-self:start;
+  border:1px solid var(--border);
+  border-radius:5px;
+  padding:3px 8px;
+  color:var(--muted);
+  font-size:12px;
+}
+.agent-clients [hidden] {display:none}
+.agent-client-list {
+  list-style:none;
+  margin:0 0 12px;
+  padding:0;
+  max-height:19rem;
+  overflow:auto;
+}
+.agent-client-list:empty {display:none}
+.agent-client-item {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  align-items:center;
+  gap:5px;
+  min-height:38px;
+  padding:4px 0;
+  border-bottom:1px solid var(--border);
+}
+.agent-client-name {overflow-wrap:anywhere;font-size:13px;font-weight:550}
+.agent-client-item .icon-button {width:28px;height:28px}
+.agent-client-item .ico {width:15px;height:15px}
+.agent-client-item .agent-forget {height:28px;padding:3px 9px;font-size:12px}
+.agent-client-form {display:grid;gap:10px}
+.agent-client-form .vault-field {margin:0}
+.agent-forget-confirm {grid-column:1 / -1;padding-bottom:6px}
+.agent-forget-confirm .vault-hint {margin:0 0 8px}
+.agent-client-result {
+  margin:10px 0 0;
+  font-size:12px;
+  color:var(--fg-success,#a8c9ae);
+  line-height:1.5;
+  overflow-wrap:anywhere;
+}
+.agent-client-result:empty {display:none}

@@ -2,6 +2,7 @@ import {icon} from './art.js'
 import {tr} from './i18n.js'
 import {normalizeIdleMinutes} from './idle-lock.js'
 import {getThemeMode,setTheme} from './theme.js'
+import {agentClientSettings} from './agent-client-settings.js'
 
 const openDialogs = new Set()
 
@@ -323,7 +324,14 @@ function themeSettings() {
   return group
 }
 
-export function openVaultSettings({protected:encrypted = false, available = true, canLock = false, onEnable, onChange, onDisable, onLock, idleMinutes = 0, onIdleMinutesChange}) {
+export function openAgentClientSettings(native, session) {
+  const view = dialog()
+  view.content(tr('Внешние агенты', 'External agents'), () => view.close())
+  view.panel.append(agentClientSettings(view, native, session, true))
+  return view.done
+}
+
+export function openVaultSettings({protected:encrypted = false, available = true, canLock = false, onEnable, onChange, onDisable, onLock, idleMinutes = 0, onIdleMinutesChange, native, agentSession}) {
   const view = dialog()
   function edit(mode) {
     const callbacks = {
@@ -339,6 +347,7 @@ export function openVaultSettings({protected:encrypted = false, available = true
   function show() {
     view.content(tr('Настройки', 'Settings'), () => view.close())
     view.panel.append(themeSettings())
+    if (native?.ListAgentClients) view.panel.append(agentClientSettings(view, native, agentSession))
     const section = el('section', 'vault-settings-section')
     section.append(el('h3', '', tr('Шифрование библиотеки', 'Library encryption')))
     view.panel.append(section)

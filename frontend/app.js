@@ -37,7 +37,7 @@ import { openVaultSettings, openVaultPassword, showVaultUnlock, interruptVaultDi
 import { createIdleLock, normalizeIdleMinutes } from './idle-lock.js';
 import { showLockScreen } from './lock-screen.js';
 import { createAgentSession } from './agent-session.js';
-import { applyAgentTaskRequest } from './agent-tasks.js';
+import { agentTaskInfo, applyAgentTaskRequest } from './agent-tasks.js';
 import { agentStatus, openAgentPanel } from './agent-panel.js';
 
 const $ = id => document.getElementById(id);
@@ -104,22 +104,28 @@ async function persistAgentTasks(changed){
 const agents=createAgentSession({bridge:()=>native,context:agentContext,
   canEdit:()=>!spaceOperation && !reviewing && !editorMerge && !notePrivacyChange && !locking,
   commitDraft:commitAgentDraft,persist:persistAgentTasks,
+  commitTaskDraft(rootId){
+    const id=noteSession?.note.id;
+    if(id && agentTaskInfo(byId(id))?.rootId===rootId)return commitAgentDraft(id);
+  },
   onChange(s){
     const status=$('agent-session');status.hidden=!s;
-    status.querySelector('span').textContent=s?agentStatus(s.snapshot.status):'';
+    const label=s?agentStatus(s.snapshot.status,s.clientName):'';
+    status.querySelector('span').textContent=label;
+    status.title=s?[label,s.title].filter(Boolean).join(' · '):'';
+    editor?.agentControls?.refresh(s);
     if(!s)agentPanel?.close();else agentPanel?.update();
     syncIdle();
   },
   onLive(){graph?.repaint();editor?.refreshAgentTasks?.(workspace().notes)}
 });
 function endAgentAccess(){agentPanel?.close();agents.reset()}
-function showAgent(rootId){
+function showAgent(rootId,mode){
   if(!agentContext() || !native?.OpenAgentAccess)return;
-  // Reopen the existing session rather than silently changing its scope.
   agentPanel?.close();
-  const id=agents.current?.rootId??rootId,record=byId(id);
+  const record=byId(rootId);
   if(!record || isProtectedNote(record))return;
-  const panel=openAgentPanel({rootId:id,title:noteTitle(record),session:agents,native,onClose(){if(agentPanel===panel)agentPanel=null}});
+  const panel=openAgentPanel({rootId,title:noteTitle(record),mode,session:agents,native,onClose(){if(agentPanel===panel)agentPanel=null}});
   agentPanel=panel;
 }
 async function copyForAgent(id,session){
@@ -138,14 +144,35 @@ async function copyForAgent(id,session){
 }
 function agentMenuItems(record,session){
   if(!session && isProtectedNote(record))return [];
-  return [{icon:'copy',name:tr('Скопировать для ИИ','Copy for AI'),run:()=>void copyForAgent(record.id,session)},
-    ...(!isProtectedNote(record) && native?.OpenAgentAccess?[{icon:'agent',name:tr('Работа с агентом…','Work with an agent…'),run:()=>showAgent(record.id)}]:[])];
+  const items=[{icon:'copy',name:tr('Скопировать для ИИ','Copy for AI'),run:()=>void copyForAgent(record.id,session)}];
+  if(!isProtectedNote(record)){
+    if(agents.current?.rootId===record.id){
+      items.push({icon:'agent',name:tr('Текущая сессия агента…','Current agent session…'),run:()=>showAgent(record.id,agents.current?.mode)});
+    }else{
+      if(native?.OpenPairedAgentAccess)items.push({icon:'agent',name:tr('Передать агенту…','Share with agent…'),run:()=>showAgent(record.id,'external')});
+      if(native?.StartAgentRun)items.push({icon:'arrowUpRight',name:tr('Запустить агента…','Run an agent…'),run:()=>showAgent(record.id,'launch')});
+    }
+  }
+  return items;
 }
 function agentEditorButton(record,session){
-  const label=tr('ИИ','AI'),b=element('button','ve-agent-trigger');
-  b.type='button';b.title=tr('Действия с ИИ','AI actions');b.setAttribute('aria-label',b.title);
-  b.setAttribute('aria-haspopup','menu');b.append(iconEl('agent'),document.createTextNode(label));
-  b.onclick=()=>menu(b,agentMenuItems(record,session));return b;
+  const group=element('div','ve-agent-controls'),b=element('button','ve-agent-trigger'),label=element('span');
+  const ai=tr('ИИ','AI'),actions=tr('Действия с ИИ','AI actions');
+  b.type='button';b.setAttribute('aria-haspopup','menu');b.append(iconEl('agent'),label);
+  b.onclick=()=>menu(b,agentMenuItems(record,session));
+  const stop=iconButton('x',tr('Закрыть доступ к заметке','Revoke note access'),()=>{
+    if(agents.current?.rootId===record.id && agents.current.mode==='external'){void agents.stop();b.focus()}
+  });
+  group.append(b,stop);
+  function refresh(s){
+    const shared=!!s?.grant && s.rootId===record.id && s.mode==='external';
+    stop.hidden=!shared;group.classList.toggle('is-shared',shared);
+    label.textContent=shared?(s.write?tr('{name} · ведёт задачи','{name} · manages tasks',{name:s.clientName}):tr('{name} · чтение','{name} · read only',{name:s.clientName})):ai;
+    b.title=shared?label.textContent:actions;
+    b.setAttribute('aria-label',shared?actions+' · '+label.textContent:actions);
+  }
+  refresh(agents.current);
+  return {element:group,refresh};
 }
 async function manualTaskStatus(rootId,key,status){
   try{
@@ -443,6 +470,7 @@ function applyProjectProtection(write,enabled){
 function settings(){
   closeMenu();
   openVaultSettings({
+    native,agentSession:agents,
     available:!!native,protected:projectProtected,canLock:!!folderSession?.encrypted || suspendedSpaceIds.size>0,
     idleMinutes:normalizeIdleMinutes(library.autoLockMinutes),onIdleMinutesChange:setIdleMinutes,
     onEnable:password=>applyProjectProtection(payload=>native.ProtectProject(payload,password),true),
@@ -1466,8 +1494,9 @@ async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
   const saveStatus=createEditorSaveStatus();
   const sameMap=()=>mapVisit && mapVisit.space===library.active && showingMap();
   const source=fromMap && sameMap() && !lockScreen?graph.noteViewportRect(id):null;
+  const agentControls=agentEditorButton(record,session);
   editor=openEditor({note:session.note,notes:workspace().notes,areas:workspace().areas,saveIndicator:saveStatus.element,
-    agentButton:agentEditorButton(record,session),agentTaskActions:{setStatus:manualTaskStatus},
+    agentButton:agentControls.element,agentTaskActions:{setStatus:manualTaskStatus},
     textAreaDefaults:{style:library.view?.textAreaStyle,save(style){
       library.view={...library.view,textAreaStyle:style};dirty({settings:['view']})
     }},
@@ -1503,6 +1532,7 @@ async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
     },
     onOpenNote:target=>edit(target,returnToResults,null,{mapVisit})
   });
+  editor.agentControls=agentControls;
   editor.saveStatus=saveStatus;
   if(storageState==='failed')saveStatus.failed();
   editor.returnToResults=returnToResults;
@@ -2144,7 +2174,7 @@ function bindUI(){
   };
   $('help').onclick=showHelp;$('search').onclick=()=>search();$('settings').onclick=settings;
   $('extensions').onclick=()=>launchExtensions();
-  $('agent-session').onclick=()=>showAgent(agents.current?.rootId);
+  $('agent-session').onclick=()=>{const s=agents.current;if(s)showAgent(s.rootId,s.mode)};
   document.addEventListener('keydown',e=>{
     const find=e.code==='KeyF' && e.shiftKey, save=e.code==='KeyS' && !e.shiftKey && editor && !editor.element.inert;
     if(!(find||save)||!primaryCommand(e)||e.isComposing||e.keyCode===229||e.defaultPrevented)return;

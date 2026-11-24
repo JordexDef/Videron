@@ -294,6 +294,9 @@ func (a *App) cacheNoteKey(id string, key *vaultKey) {
 }
 
 func (a *App) dropKeys() {
+	// Every grant belongs to the current library session, including during
+	// a reload that fails or discovers an externally replaced catalog.
+	a.ResetAgentConnections()
 	a.clearCatalogIndex()
 	// A pending connection carries a verified server credential. Expire it
 	// together with the vault session, including verifications still in flight.

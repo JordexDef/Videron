@@ -11,11 +11,17 @@ function harness(t) {
   const sealed = {id:'vault', sealed:'opaque', get title() {throw Error('Read locked title');}};
   const space = {notes:[root,other,sealed], areas:[]};
   const state = {context:{id:'project',folder:{},space}, canEdit:true, hooks:{}, closed:[], runs:[], rights:[],
-    saves:[], commits:[], replies:new Map(), poll:{status:'running'}};
+    clients:[],saves:[], commits:[],taskDrafts:[], replies:new Map(), poll:{status:'running'}};
   const native = {
     OpenAgentAccess:async write => {
       const grant = 'grant-' + state.rights.push(write);
       return JSON.stringify({id:grant,config:{mcpServers:{videron:{env:{VIDERON_AGENT_TOKEN:'temporary'}}}}});
+    },
+    OpenPairedAgentAccess:async (id,write) => {
+      state.clients.push(id);
+      const grant='grant-'+state.rights.push(write);
+      await state.hooks.openGrant?.(grant);
+      return JSON.stringify({id:grant});
     },
     CloseAgentAccess:async id => {state.closed.push(['grant',id]);},
     CloseAgentRun:async id => {state.closed.push(['run',id]);},
@@ -26,6 +32,7 @@ function harness(t) {
   };
   const session = createAgentSession({bridge:() => native,context:() => state.context,canEdit:() => state.canEdit,
     commitDraft:async id => {state.commits.push(id); await state.hooks.commit?.(id);},
+    commitTaskDraft:async rootId => {state.taskDrafts.push(rootId);await state.hooks.taskDraft?.(rootId);},
     persist:async changes => {state.saves.push(changes); await state.hooks.persist?.(changes);},
     onChange:() => {},onLive:() => {}});
   t.after(() => session.reset());
@@ -35,7 +42,7 @@ function harness(t) {
     await session.handle(grant,id,tool,JSON.stringify(args));
     return state.replies.get(id);
   }
-  const share = (write = false) => session.start(root.id,{mode:'external',write});
+  const share = (write = false) => session.start(root.id,{mode:'external',clientId:'client-a',clientName:'Desktop agent',write});
   return {state, native, session, space, root, other, sealed, share, call};
 }
 
@@ -51,7 +58,8 @@ test('external read-only grant reads a committed draft and only its own task lis
   const read = await call('read_idea',{id:other.id});
   assert.deepEqual(read.data,{text:'# Idea\n\nSaved from editor',nextOffset:null});
   assert.deepEqual((await call('list_tasks')).data,{tasks:[],total:0,nextOffset:null});
-  assert.deepEqual(state.commits,[root.id,undefined]);
+  assert.deepEqual(state.commits,[root.id]);
+  assert.deepEqual(state.taskDrafts,[root.id]);
   const denied = await call('create_tasks',{tasks:[{key:'one',title:'Write'}]});
   assert.equal(denied.failed,true);
   assert.deepEqual(state.saves,[]);
@@ -59,7 +67,7 @@ test('external read-only grant reads a committed draft and only its own task lis
   assert.equal(isAgentPlanLive(root.id),true);
   const previous = session.current;
   await session.stop();
-  assert.equal(previous.config,null);
+  assert.ok(!Object.hasOwn(previous,'config'));
   assert.equal(previous.grant,null);
   assert.deepEqual(state.closed,[['grant',grant]]);
   assert.equal(isAgentPlanLive(root.id),false);
@@ -152,12 +160,60 @@ test('locking or switching same-ID folder while a draft is flushing prevents a q
     assert.equal(await pendingWrite, undefined);
     assert.equal(session.current,null);
     assert.equal(old.grant,null);
-    assert.equal(old.config,null);
+    assert.ok(!Object.hasOwn(old,'config'));
     assert.equal(old.page,null);
     assert.equal(space.notes.length,3);
     assert.equal(state.saves.length,0);
     assert.deepEqual(state.closed,[['grant','grant-1']]);
   }
+});
+
+test('an already paired client needs a fresh grant and navigating to another note does not change it', async t => {
+  const {state,session,root,other,share,call} = harness(t);
+  await assert.rejects(session.start(root.id,{mode:'external',write:true}),/CLIENT_MISSING/);
+  await share();
+  const old=session.current.grant;
+  assert.deepEqual(state.clients,['client-a']);
+  assert.equal(session.current.clientName,'Desktop agent');
+  root.title='Updated idea title';
+  assert.equal(session.current.title,root.title);
+  // The same workspace is showing a different editor. Its draft never participates in read_idea.
+  state.hooks.commit=id=>assert.equal(id,root.id);
+  assert.match((await call('read_idea')).data.text,/Updated idea title/);
+  await assert.rejects(session.start(other.id,{mode:'external',clientId:'client-a',write:true}),/BUSY/);
+  session.reset(); delete state.hooks.commit;
+  assert.equal(await call('read_idea',{},old),undefined);
+  await session.start(other.id,{mode:'external',clientId:'client-a',clientName:'Desktop agent',write:true});
+  assert.deepEqual(state.clients,['client-a','client-a']);
+  assert.notEqual(session.current.grant,old);
+  assert.match((await call('read_idea')).data.text,/Private unrelated text/);
+  assert.equal(await call('create_tasks',{tasks:[{key:'late',title:'Old work'}]},old),undefined);
+});
+
+test('a helper can call before the grant response reaches the UI', async t => {
+  const {state,share,call} = harness(t);
+  const entered=Promise.withResolvers(),ready=Promise.withResolvers();
+  state.hooks.openGrant=grant=>{entered.resolve(grant);return ready.promise};
+  const opening=share(),grant=await entered.promise;
+  const early=call('read_idea',{},grant);
+  ready.resolve();await opening;
+  assert.match((await early).data.text,/Draft/);
+});
+
+test('a new share waits for an in-flight revoked grant to close', async t => {
+  const {state,session,share,other} = harness(t);
+  const entered=Promise.withResolvers(),ready=Promise.withResolvers();
+  state.hooks.openGrant=()=>{entered.resolve();return ready.promise};
+  const first=share();await entered.promise;
+  const stop=session.stop();
+  const next=session.start(other.id,{mode:'external',clientId:'client-b',clientName:'Local',write:false});
+  delete state.hooks.openGrant;
+  await Promise.resolve();
+  assert.deepEqual(state.clients,['client-a']);
+  ready.resolve();await Promise.all([stop,first,next]);
+  assert.deepEqual(state.clients,['client-a','client-b']);
+  assert.deepEqual(state.closed,[['grant','grant-1']]);
+  assert.equal(session.current.rootId,other.id);
 });
 
 test('completed ACP session closes its grant; resuming requires an explicit choice and matching rights, folder and profile', async t => {

@@ -278,7 +278,6 @@ func (a *App) LockProject() error {
 	if !a.protected {
 		return errInvalid
 	}
-	a.ResetAgentConnections()
 	a.dropKeys()
 	a.loaded = false
 	return nil
@@ -290,7 +289,6 @@ func (a *App) LockProject() error {
 func (a *App) LockSession(noteID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.ResetAgentConnections()
 	a.dropKeys()
 	a.loaded = false
 	a.resumeNote = noteID
