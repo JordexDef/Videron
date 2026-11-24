@@ -212,6 +212,13 @@ export function mountTableControls(v, { interactive, select, anchor, contextAxes
     window.addEventListener('blur', closeMenu, { signal: stopMenu.signal });
     menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
   }
+  menu.addEventListener('mousedown', e => {
+    const item = e.target.closest('button:enabled');
+    if (e.button !== 0 || !item) return;
+    // WebKit can focus the table and dismiss the menu before the item's click.
+    e.preventDefault();
+    item.focus({ preventScroll: true });
+  });
   menu.addEventListener('keydown', e => {
     e.stopPropagation();
     if (e.key === 'Escape') { e.preventDefault(); closeMenu(); root.focus({ preventScroll: true }); return; }
