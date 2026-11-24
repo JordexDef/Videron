@@ -4,7 +4,7 @@ import { Graph } from '../frontend/graph.js';
 import { drawSlotGrid } from '../frontend/map-slots.js';
 import { deleteAreaWithHistory, undoMapAction } from '../frontend/map-history.js';
 
-function setup({stages=['Idea','Review','Done'],zoom=1}={}){
+function setup({name='Track',stages=['Idea','Review','Done'],zoom=1}={}){
   const width=800,height=600,calls={moves:[],sizes:[],edits:[],seats:[],opens:[]};
   const graph=Object.assign(Object.create(Graph.prototype),{
     width,height,camera:{x:0,y:0,zoom},tool:'select',
@@ -18,18 +18,34 @@ function setup({stages=['Idea','Review','Done'],zoom=1}={}){
     }
   });
   const grid={x:-96,y:0,rows:2,cols:3,spacing:96,stages};
-  graph.setData([{id:'n',areaId:'g',slot:0}],[{id:'g',name:'Track',grid}]);
+  graph.setData([{id:'n',areaId:'g',slot:0}],[{id:'g',name,grid}]);
   const group=graph.groups[0],ctx={save(){},restore(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},
     rect(){},fill(){},arc(){},fillText(){},measureText(text){return {width:text.length*7}}};
   const label=drawSlotGrid(ctx,group,{ox:width/2,oy:height/2,zoom,width,height});
   if(label?.stageHeader)graph.stageHeaders.push(label.stageHeader);
-  graph.ctx={...ctx,strokeText(){}};
+  graph.ctx={...ctx,strokeText(){},fillRect(){}};
   graph.drawLabels([{...label,grid:group}],new Map(),{});
   const point=(x,y,mods={})=>({clientX:20+width/2+x*zoom,clientY:30+height/2+y*zoom,
     pointerId:1,pointerType:'mouse',button:0,preventDefault(){},...mods});
   const title=point((label.x-width/2)/zoom,(label.y-height/2)/zoom);
   return {graph,point,title,calls,group};
 }
+
+test('unnamed grids and tracks keep a draggable handle without painting a title',()=>{
+  for(const stages of [null,['Idea','Review','Done']]){
+    const {graph,group,title,calls}=setup({stages,name:''});
+    assert.equal(graph.gridSurface(graph.local(title)).move,group);
+    const destination={...title,clientX:title.clientX+48,clientY:title.clientY+28};
+    graph.pointerDown(title);
+    graph.pointerMove(destination);
+    graph.pointerUp(destination);
+    assert.deepEqual(calls.moves,[['g',-48,28]]);
+    const view={ox:400,oy:300,zoom:1,width:800,height:600};
+    const hover=drawSlotGrid(graph.ctx,group,view,{hoverSlot:1});
+    assert.equal(hover.titleLabel.text,'');
+    assert.ok(hover.text && !hover.text.endsWith(' · '));
+  }
+});
 
 test('clicking a grid title or vacant cell selects the entire grid, while notes and background take their own selection',()=>{
   for(const stages of [null,['Idea','Review','Done']]){

@@ -322,7 +322,7 @@ export function drawSlotGrid(ctx, group, view, {selected=false, active=false, sl
   const row = Math.floor(addressed/grid.cols)+1, col = addressed%grid.cols+1;
   const address = grid.stages?.[col-1] ?? tr('Ряд {row} · место {seat}','Row {row} · seat {seat}',{row,seat:col});
   label.text = blocked ? (grid.stages?tr('На этапе недостаточно мест','Not enough seats in this stage'):tr('Недостаточно мест','Not enough seats'))
-    : swapping ? tr('Обмен местами','Swap seats')+' · '+address : address+' · '+name;
+    : swapping ? tr('Обмен местами','Swap seats')+' · '+address : name ? address+' · '+name : address;
   label.x = Math.max(52,Math.min(width-52, firstX+(hoverSlot%grid.cols)*pitchX));
   label.y = Math.max(12,Math.min(height-12, firstY+Math.floor(hoverSlot/grid.cols)*pitchY + (active ? 32 : 17)));
   label.rank = active ? 6 : 3;

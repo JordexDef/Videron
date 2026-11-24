@@ -13,7 +13,7 @@ import { dragPaintLayer, releaseDragPaint } from './map-drag-paint.js';
 import { MapZoomPreview } from './map-zoom-preview.js';
 import { areaContactFamilies, measureAreaHulls, separateAreaSiblings } from './area-physics.js';
 import { intersectsNote, mapAreaButton, selectionRect } from './map-selection.js';
-import { appearanceOf, contact, containsPoint, edgeRadius, geometryFor, lockSticker } from './icons/node-art.js';
+import { appearanceOf, badgeRadius, contact, containsPoint, contentRadius, edgeRadius, geometryFor, lockSticker, maxNoteRadius } from './icons/node-art.js';
 
 const NEUTRAL = '#b3b3b3';
 const TAU = Math.PI * 2;
@@ -33,19 +33,14 @@ const rgba = (color, alpha) => `rgba(${color},${alpha})`;
 const tethered = (node, drag) => node.pinned || node.seated || !!drag?.held?.has(node.id);
 const noteGap = (a, b) => 6 + 0.14 * Math.min(a.r, b.r);
 
-function radius(note) {
-  const length = Math.max(0, note.weight || 0, note.plain?.length || 0, note.type==='data' ? note.dataText?.length || 0 : 0);
-  return 16 + 62 * (1 - Math.exp(-Math.sqrt(length / 4200)));
-}
-
 function seatedRadius(natural, grid) {
   // Compress only notes approaching the room available in the smaller axis.
   // Smaller notes keep their visual size while their seats move closer.
   const largest = (Math.min(gridSpacing(grid),gridRowSpacing(grid))-6)/2.14;
-  if (largest >= 78) return natural;
+  if (largest >= maxNoteRadius) return natural;
   const threshold = largest*.75;
   if (natural <= threshold) return natural;
-  return threshold + (natural-threshold)*(largest-threshold)/(78-threshold);
+  return threshold + (natural-threshold)*(largest-threshold)/(maxNoteRadius-threshold);
 }
 
 function spatialCell(grid, x, y) {
@@ -374,7 +369,7 @@ export class Graph {
       const links = [...new Set(note.links || [])];
       const appearance = appearanceOf(note);
       const protectedNote = Object.hasOwn(note,'sealed');
-      const naturalRadius = radius(note), r = seated ? seatedRadius(naturalRadius,group.grid) : naturalRadius;
+      const naturalRadius = appearance.radius ?? contentRadius(note), r = seated ? seatedRadius(naturalRadius,group.grid) : naturalRadius;
       const layoutKey = JSON.stringify([tags, links, !!note.pinned, note.areaId, seated, r, appearance.shape]);
       const heatTarget = 1 - Math.exp(-Math.max(0, Number(note.opens) || 0) / 10);
       const title = note.title || tr('Без названия', 'Untitled');
@@ -384,7 +379,8 @@ export class Graph {
         taskRoot:task?.rootId, taskStatus:task?.status,
         r, naturalRadius, pinned: !!note.pinned, areaId:note.areaId ?? null, slot:note.slot, seated, tags, links, layoutKey,
         geometry: geometryFor(appearance.shape), icon: appearance.icon || (protectedNote ? lockSticker : null), customColor: !!appearance.color,
-        lockBadge: protectedNote && !!appearance.icon && appearance.icon !== lockSticker,
+        lockBadge: protectedNote && !!appearance.icon && appearance.icon !== lockSticker, badgeSize: appearance.badgeSize,
+        leftIcon: appearance.leftIcon, rightIcon: appearance.rightIcon,
         tint: appearance.color ? rgb(appearance.color) : group?.tint || rgb(note.color),
         heatTarget, heat: node?.heat ?? heatTarget
       };
@@ -1267,9 +1263,11 @@ export class Graph {
   }
 
   fit({readable=false}={}) {
-    if (!this.nodes.size && !this.groups.length) { this.center(); return; }
+    const ink = this.callbacks?.inkBounds?.();
+    if (!this.nodes.size && !this.groups.length && !ink) { this.center(); return; }
     this.measureGroups();
-    let l = Infinity, r = -Infinity, t = Infinity, b = -Infinity;
+    let l = ink?.left ?? Infinity, r = ink?.right ?? -Infinity;
+    let t = ink?.top ?? Infinity, b = ink?.bottom ?? -Infinity;
     for (const n of this.nodes.values()) {
       l = Math.min(l, n.x - n.r); r = Math.max(r, n.x + n.r);
       t = Math.min(t, n.y - n.r); b = Math.max(b, n.y + n.r + 20);
@@ -1439,6 +1437,7 @@ export class Graph {
     c.fillRect(0, 0, w, h);
     const ox = w / 2 - this.camera.x * z, oy = h / 2 - this.camera.y * z;
     if (this.view.grid) drawMapBackgroundDots(c, ox, oy, z, w, h, this.dpr, palette);
+    this.callbacks.onDrawInk?.(c,{ox,oy,zoom:z,width:w,height:h});
 
     const labels = [], labelObstacles = new Map();
     if (this.measuredGroups !== this.groups) this.measureGroups();
@@ -1461,7 +1460,7 @@ export class Graph {
           if(label.stageHeader)this.stageHeaders.push(label.stageHeader);
           if (active || hover) labels.push(label);
           const title = active || hover ? label.titleLabel : label;
-          if (title) labels.push({...title,grid:g,concealed:!selected && !this.view.labels && this.hoverGridArea!==g && this.drag?.grid!==g});
+          if (title) labels.push({...title,grid:g,concealed:!selected && (!title.text || !this.view.labels) && this.hoverGridArea!==g && this.drag?.grid!==g});
         }
         this.callbacks.onDrawAreaMetric?.(c,g,{ox,oy,zoom:z});
         continue;
@@ -1563,7 +1562,8 @@ export class Graph {
         c.drawImage(layer.canvas,0,0,layer.canvas.width/this.dpr,layer.canvas.height/this.dpr);
       }
       if (this.view.labels && ((lead ? n===lead : select) || hover || z >= 0.58)) labels.push({
-        text: n.title, note:n, x, y: y + r + (select ? 16 : 13),
+        text: n.title, note:n, x, y: y + (n.leftIcon && n.taskStatus==='done'
+          ? Math.max(r,edgeRadius(n,0,1)*z+badgeRadius(r,n.badgeSize,n.geometry,true)) : r) + (select ? 16 : 13),
         tint: select ? palette.ink : hover ? palette.hover : palette.caption,
         rank: select ? 4 : hover ? 3 : 1
       });
@@ -1601,10 +1601,11 @@ export class Graph {
     c.textBaseline = 'middle'; c.textAlign = 'center';
     labels.sort((a, b) => b.rank - a.rank);
     for (const item of labels) {
-      if (!item.text) continue;
+      const grip = item.grid && !item.text;
+      if (!item.text && !grip) continue;
       c.font = item.group ? '600 12px "Segoe UI", sans-serif' : '11px "Segoe UI", sans-serif';
       const owner = item.note || item.area || item.grid;
-      const {label,width} = measureMapLabel(c,item.text,owner);
+      const {label,width} = grip ? {width:20} : measureMapLabel(c,item.text,owner);
       const positions = item.area ? contourLabelPositions(item.area,siblings.get(item.area),view,width) : [item];
       for (const {x,y} of positions) {
         const l=x-width/2-4, r=x+width/2+4, t=y-8, b=y+8;
@@ -1626,6 +1627,11 @@ export class Graph {
         // Even with map labels hidden, hovering or tapping the title can reach this grid.
         if (item.concealed) break;
         for (const cell of buckets) cell.push(box);
+        if (grip) {
+          c.fillStyle=item.tint;
+          for (const dx of [-5,0,5]) for (const dy of [-2,2]) c.fillRect(x+dx-1,y+dy-1,2,2);
+          break;
+        }
         c.lineWidth=3.2; c.lineJoin='round'; c.strokeStyle=palette.canvas;
         c.strokeText(label,x,y);
         c.fillStyle=item.tint; c.fillText(label,x,y);

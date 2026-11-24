@@ -135,7 +135,7 @@ export function mergeWorkspace(base,local,remote,choices={}){
     }
     return results;
   }
-  const kinds={notes:'note',areas:'area',routes:'route'},properties=[];
+  const kinds={notes:'note',areas:'area',routes:'route',mapInk:'ink'},properties=[];
   for(const key of keysOf(base,local,remote)){
     const args=[base,local,remote].map(side=>value(side,key));
     let result=threeWay(...args);

@@ -119,6 +119,7 @@ h1{font-size:clamp(23px,2vw,29px);font-weight:540;line-height:1.25;letter-spacin
 .empty .text-button{margin-top:10px}
 .dock{position:absolute;bottom:20px;gap:2px;padding:4px;border:1px solid var(--control-line,#3e3e3e);border-radius:8px;background:var(--control-bg,#252525);box-shadow:0 2px 10px var(--shadow-subtle,#0003)}
 .dock.tools{left:23px}.dock.scale{right:23px}
+.drawing-on-map .stage-controls{visibility:hidden}
 .dock>span{width:1px;height:17px;background:var(--control-line,#454545);margin:0 3px}
 .dock .icon-button{width:29px;height:29px}.dock .ico{width:15px;height:15px}
 .dock .active{background:var(--control-selected,#3f3f3f);color:var(--accent)}

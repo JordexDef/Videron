@@ -181,6 +181,19 @@ func TestFolderAndLibraryPatchHaveSameRecordSemantics(t *testing.T) {
 	}
 }
 
+func TestMapInkPatchesOnLegacyWorkspace(t *testing.T) {
+	initial := []byte(`{"notes":[],"areas":[]}`)
+	created, err := applyWorkspacePatch(initial, `{"mapInk":{"put":[{"id":"pen","type":"pen","points":[[1,2]]},{"id":"box","type":"rect"}]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited, err := applyWorkspacePatch(created, `{"mapInk":{"edit":[{"id":"pen","set":{"glow":true}}],"remove":["box"]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameTestJSON(t, edited, []byte(`{"notes":[],"areas":[],"mapInk":[{"id":"pen","type":"pen","points":[[1,2]],"glow":true}]}`))
+}
+
 func TestCatalogPatchRetryAndCompetingWriters(t *testing.T) {
 	a, path := testStore(t)
 	first := libraryPrefix + originalNote + librarySuffix

@@ -102,8 +102,9 @@ func (e rowEdit) apply(raw json.RawMessage, note bool) (json.RawMessage, error) 
 
 type spaceEdits struct {
 	objectEdits
-	Notes *recordEdits `json:"notes"`
-	Areas *recordEdits `json:"areas"`
+	Notes  *recordEdits `json:"notes"`
+	Areas  *recordEdits `json:"areas"`
+	MapInk *recordEdits `json:"mapInk"`
 }
 type catalogSpaceEdits struct {
 	spaceEdits
@@ -130,9 +131,9 @@ type recordList struct {
 }
 
 type indexedSpace struct {
-	fields       jsonFields
-	notes, areas *recordList
-	folder       bool
+	fields               jsonFields
+	notes, areas, mapInk *recordList
+	folder               bool
 }
 
 type indexedCatalog struct {
@@ -292,7 +293,7 @@ func indexSpace(raw json.RawMessage) (*indexedSpace, error) {
 	for _, pair := range []struct {
 		key  string
 		list **recordList
-	}{{"notes", &space.notes}, {"areas", &space.areas}} {
+	}{{"notes", &space.notes}, {"areas", &space.areas}, {"mapInk", &space.mapInk}} {
 		if fields[pair.key] == nil {
 			continue
 		}
@@ -311,7 +312,7 @@ func (e spaceEdits) apply(space *indexedSpace) (*indexedSpace, error) {
 	}
 	next := *space
 	var err error
-	next.fields, err = e.objectEdits.apply(space.fields, "notes", "areas", "folder", syncProperty)
+	next.fields, err = e.objectEdits.apply(space.fields, "notes", "areas", "mapInk", "folder", syncProperty)
 	if err != nil {
 		return nil, err
 	}
@@ -322,6 +323,15 @@ func (e spaceEdits) apply(space *indexedSpace) (*indexedSpace, error) {
 	next.areas, err = e.Areas.apply(space.areas, false)
 	if err != nil {
 		return nil, err
+	}
+	if e.MapInk != nil {
+		if next.mapInk == nil {
+			next.mapInk = &recordList{items: make(map[string]json.RawMessage)}
+		}
+		next.mapInk, err = e.MapInk.apply(next.mapInk, false)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &next, nil
 }
@@ -358,7 +368,7 @@ func (e catalogEdits) apply(old *indexedCatalog) (*indexedCatalog, error) {
 			return nil, errInvalid
 		}
 		if op.Remove || op.Replace != nil {
-			if len(op.Set)+len(op.Unset) != 0 || op.Notes != nil || op.Areas != nil {
+			if len(op.Set)+len(op.Unset) != 0 || op.Notes != nil || op.Areas != nil || op.MapInk != nil {
 				return nil, errInvalid
 			}
 			if op.Remove {
@@ -437,7 +447,7 @@ func (s *indexedSpace) write(dst *bytes.Buffer) {
 	for _, pair := range []struct {
 		key  string
 		list *recordList
-	}{{"notes", s.notes}, {"areas", s.areas}} {
+	}{{"notes", s.notes}, {"areas", s.areas}, {"mapInk", s.mapInk}} {
 		if pair.list == nil {
 			continue
 		}
@@ -602,7 +612,7 @@ func (old *indexedCatalog) discardSuperseded(keep *indexedCatalog) {
 			next = &indexedSpace{}
 		}
 		wipeRetired(space.fields, next.fields)
-		for _, lists := range [][2]*recordList{{space.notes, next.notes}, {space.areas, next.areas}} {
+		for _, lists := range [][2]*recordList{{space.notes, next.notes}, {space.areas, next.areas}, {space.mapInk, next.mapInk}} {
 			if lists[0] == nil || lists[0] == lists[1] {
 				continue
 			}

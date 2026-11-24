@@ -396,6 +396,8 @@ func mergeCollectionKind(key string) string {
 		return "area"
 	case "routes":
 		return "route"
+	case "mapInk":
+		return "ink"
 	}
 	return ""
 }

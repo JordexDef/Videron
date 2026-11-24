@@ -24,11 +24,22 @@ var mapColor = regexp.MustCompile(`^#[a-fA-F0-9]{6}$`)
 
 func validateSealedAppearance(raw json.RawMessage) error {
 	return readVaultObject(raw, func(field string, decoder *json.Decoder) error {
+		if field == "radius" {
+			var radius int
+			if decoder.Decode(&radius) == nil && radius >= 16 && radius <= 78 {
+				return nil
+			}
+			return errInvalid
+		}
 		var value *string
 		if err := decoder.Decode(&value); err != nil {
 			return errInvalid
 		}
 		switch field {
+		case "badgeSize":
+			if value != nil && (*value == "small" || *value == "large" || *value == "hidden") {
+				return nil
+			}
 		case "shape":
 			if value != nil {
 				switch *value {
@@ -38,6 +49,10 @@ func validateSealedAppearance(raw json.RawMessage) error {
 			}
 		case "icon":
 			if value == nil || publicMapIcons()[*value] {
+				return nil
+			}
+		case "leftIcon", "rightIcon":
+			if value != nil && publicMapIcons()[*value] {
 				return nil
 			}
 		case "color":

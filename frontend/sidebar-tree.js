@@ -1,4 +1,4 @@
-import { areaTreeRows } from './areas.js';
+import { areaDisplayName, areaTreeRows } from './areas.js';
 
 // Folders precede the notes in their branch. Reuse the area's traversal so
 // imported orphans and cycles get the same parentage as the rest of the UI.
@@ -26,7 +26,7 @@ export function sidebarRows(areas, notes, collapsed, describeNote) {
     finishTo(depth);
     const branch=folders[i+1]?.depth>depth || members.has(area.id);
     const expanded=branch && !collapsed.has(area.id);
-    rows.push({kind:'area',id:area.id,depth,parentId:ancestors.at(-1)?.id??null,title:area.name,
+    rows.push({kind:'area',id:area.id,depth,parentId:ancestors.at(-1)?.id??null,title:areaDisplayName(area),
       path:pathLabel,color:area.color,icon:area.grid?.stages?'track':area.grid?'slots':'folder',
       gridSize:area.grid?area.grid.cols+' × '+area.grid.rows:'',branch,expanded});
     if(branch && !expanded){

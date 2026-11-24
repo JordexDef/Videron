@@ -360,7 +360,7 @@ func (s *folderSpaceSession) manifest(data string, parents []string) (spaceRevis
 	}
 	for k, v := range fields {
 		var cells []json.RawMessage
-		if (k == "notes" || k == "areas" || k == "routes") && json.Unmarshal(v, &cells) == nil && cells != nil {
+		if mergeCollectionKind(k) != "" && json.Unmarshal(v, &cells) == nil && cells != nil {
 			ids := make([]string, 0, len(cells))
 			for _, cell := range cells {
 				id, err := s.storeValue(cell)

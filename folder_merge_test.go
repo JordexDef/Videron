@@ -197,6 +197,8 @@ func TestFolderNativeMergeAcrossDevices(t *testing.T) {
 			l, r := cloneMergeWorkspace(base), cloneMergeWorkspace(base)
 			mergeMap(mergeArray(l["notes"])[0])["title"] = "A locally"
 			mergeMap(mergeArray(r["notes"])[1])["title"] = "B remotely"
+			l["mapInk"] = []any{mergeObject{"id": "left-frame", "type": "rect", "glow": true}}
+			r["mapInk"] = []any{mergeObject{"id": "right-pen", "type": "pen"}}
 			if err := a.SaveFolderBranch(one, mergeTestJSON(t, l)); err != nil {
 				t.Fatal(err)
 			}
@@ -237,6 +239,10 @@ func TestFolderNativeMergeAcrossDevices(t *testing.T) {
 			if n := mergeMap(patch.Lists["notes"].Upsert[0]); n["id"] != "b" || n["title"] != "B remotely" {
 				t.Fatal(n)
 			}
+			ink := patch.Lists["mapInk"]
+			if len(ink.Upsert) != 1 || mergeMap(ink.Upsert[0])["id"] != "right-pen" {
+				t.Fatal(ink)
+			}
 			a.CloseFolderSpace(one)
 			opened, err := a.OpenFolderSpace(one, pw)
 			if err != nil {
@@ -244,6 +250,9 @@ func TestFolderNativeMergeAcrossDevices(t *testing.T) {
 			}
 			if !strings.Contains(opened, "A typed while preparing") || !strings.Contains(opened, "B remotely") {
 				t.Fatal("lost concurrent editing")
+			}
+			if !strings.Contains(opened, "left-frame") || !strings.Contains(opened, "right-pen") {
+				t.Fatal("lost a map drawing")
 			}
 			deliver(t, one, two, false)
 			proposal, err = b.PrepareFolderMerge(two, true, "")
@@ -307,6 +316,21 @@ func TestMergePatchPreservesNullAndUnknownFields(t *testing.T) {
 	p := buildMergePatch(l, r)
 	if !slices.Equal(p.Unset, []string{"obsolete"}) || len(p.Set) != 2 || p.Set["extension"] != nil {
 		t.Fatal(p)
+	}
+}
+
+func TestConcurrentFirstMapDrawingsMergePerStroke(t *testing.T) {
+	base := mergeTestSpace()
+	left, right := maps.Clone(base), maps.Clone(base)
+	left["mapInk"] = []any{mergeObject{"id": "a", "type": "pen"}}
+	right["mapInk"] = []any{mergeObject{"id": "b", "type": "rect"}}
+	merged, err := newWorkspaceMergePlan("", base, left, right).resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch := buildMergePatch(left, merged)
+	if len(mergeArray(merged["mapInk"])) != 2 || len(patch.Lists["mapInk"].Upsert) != 1 {
+		t.Fatal(patch)
 	}
 }
 func TestNativeMergeWireVolume(t *testing.T) {

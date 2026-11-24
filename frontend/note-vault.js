@@ -25,7 +25,15 @@ function mapFields(record) {
 function noteWithMapFields(note, record) {
   const fields = mapFields(record)
   // An extension's private data in the original appearance object stays inside the envelope.
-  if (fields.appearance) fields.appearance = {...note.appearance, ...fields.appearance}
+  if (fields.appearance) {
+    const original = {...note.appearance}
+    // These optional overrides disappear from the public style when reset on a locked note.
+    delete original.radius
+    delete original.badgeSize
+    delete original.leftIcon
+    delete original.rightIcon
+    fields.appearance = {...original, ...fields.appearance}
+  }
   return {...note, ...fields}
 }
 

@@ -27,6 +27,7 @@ function printed(value) {
 }
 
 function labelFor(conflict) {
+  if (conflict.kind === 'ink') return tr('Рисунок на карте','Map drawing')
   if (conflict.kind === 'note') {
     const note = [conflict.local, conflict.remote].find(n => n && !sealed(n))
     return note ? note.title || tr('Без названия', 'Untitled') : protectedNoteTitle(conflict.local || conflict.remote)
@@ -276,6 +277,12 @@ export function openWorkspaceConflicts({conflicts, spaceName, previewSealed}) {
             body.append(unlock)
           }
         } else if (conflict.kind==='note') noteContent(body,value,other)
+        else if (conflict.kind==='ink' && ['pen','rect','ellipse'].includes(value.type)) {
+          boardContent(body,{version:1,elements:[value]})
+          if (Number.isFinite(value.x) && Number.isFinite(value.y))
+            body.append(el('p','',tr('Положение на карте · {x}, {y}', 'Map position · {x}, {y}', {x:Math.round(value.x),y:Math.round(value.y)})))
+          if (value.glow) body.append(el('p','',tr('Свечение','Glow')))
+        }
         else {
           const part=el('pre')
           appendText(part,printed(value),other==null?undefined:printed(other))

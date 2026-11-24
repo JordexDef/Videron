@@ -2,6 +2,7 @@ import { moveArea, moveAreaGrid, removeArea, reorderAreaStage, resizeAreaGrid, r
 import { gridRowSpacing, gridSpacing, setGridSpacing } from './area-grid.js';
 import { deleteAreaStage, insertAreaStage, undoStageStructure } from './stage-structure.js';
 import { undoNotesDeletion } from './note-deletion.js';
+import { sameWorkspaceValue } from './workspace-merge.js';
 
 const histories = new WeakMap();
 export function rememberMapAction(space, action) {
@@ -11,6 +12,26 @@ export function rememberMapAction(space, action) {
   if (history.length > 20) history.shift();
 }
 export function lastMapAction(space) { return histories.get(space)?.at(-1); }
+
+// Ink items are replaced on edit. Keep only the affected stroke and its paint order.
+function replaceInk(space, id, expected, replacement, insertAt) {
+  const items = space.mapInk ?? [], index = items.findIndex(item => item.id === id);
+  if (!sameWorkspaceValue(items[index] ?? null, expected) || (replacement && replacement.id !== id)) return false;
+  if (replacement) {
+    if (index >= 0) items[index] = replacement;
+    else items.splice(Math.min(insertAt, items.length), 0, replacement);
+  } else if (index >= 0) items.splice(index, 1);
+  space.mapInk = items;
+  return true;
+}
+
+export function editMapInk(space, id, before, after) {
+  if (sameWorkspaceValue(before, after)) return false;
+  const index = before ? space.mapInk?.findIndex(item => item.id === id) : space.mapInk?.length;
+  if (!replaceInk(space, id, before, after, index ?? 0)) return false;
+  rememberMapAction(space, {kind:'ink', id, index:index ?? 0, before, after});
+  return true;
+}
 
 export function deleteAreaWithHistory(space, id) {
   return removeArea(space,id,change => rememberMapAction(space,{kind:'area-delete',...change}));
@@ -95,6 +116,7 @@ export function undoMapAction(space) {
   const action = histories.get(space)?.pop();
   if (!action) return null;
   switch (action.kind) {
+    case 'ink': return replaceInk(space,action.id,action.after,action.before,action.index) ? action : null;
     case 'deletion':
       return undoNotesDeletion(space,action.ids??[action.id]) ? action : null;
     case 'area-delete': return restoreRemovedArea(space,action) ? action : null;

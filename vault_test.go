@@ -527,7 +527,9 @@ func TestSealedMapAppearanceAcceptsOnlyPublicStyles(t *testing.T) {
 	for _, raw := range []string{
 		`{"shape":"circle","color":null,"icon":null}`,
 		`{"shape":"hexagon","color":"#ab12FF","icon":"phosphor/lock-key"}`,
+		`{"radius":16,"badgeSize":"small"}`, `{"radius":78,"badgeSize":"hidden"}`, `{"badgeSize":"large"}`,
 		`{"icon":"lucide/briefcase-business"}`, `{"icon":"lucide/bookmark"}`,
+		`{"leftIcon":"lucide/bookmark","rightIcon":"phosphor/house"}`,
 	} {
 		if err := validateSealedAppearance([]byte(raw)); err != nil {
 			t.Fatal(raw, err)
@@ -537,6 +539,9 @@ func TestSealedMapAppearanceAcceptsOnlyPublicStyles(t *testing.T) {
 		`null`, `[]`, `{"shape":"PRIVATE"}`, `{"icon":"lucide/unpublished-title"}`,
 		`{"color":"private"}`, `{"color":"#abcdef","Color":"private"}`,
 		`{"shape":"square","shape":"circle"}`, `{"icon":{"svg":"private"}}`,
+		`{"radius":15}`, `{"radius":79}`, `{"radius":17.5}`, `{"radius":"18"}`, `{"radius":null}`,
+		`{"badgeSize":"private"}`, `{"badgeSize":null}`,
+		`{"leftIcon":"private"}`, `{"rightIcon":"lucide/private"}`, `{"leftIcon":null}`,
 	} {
 		if validateSealedAppearance([]byte(raw)) == nil {
 			t.Fatalf("accepted %s", raw)

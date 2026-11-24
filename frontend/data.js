@@ -93,6 +93,9 @@ export function readLibrary(raw){
 }
 export function checkWorkspace(space){
   if(!Array.isArray(space?.notes)||!Array.isArray(space.areas))throw new Error(tr('Структура пространства повреждена.', 'The workspace structure is invalid.'));
+  if(space.mapInk!==undefined && (!Array.isArray(space.mapInk) || space.mapInk.some(item=>typeof item?.id!=='string'||!item.id)
+      || new Set(space.mapInk.map(item=>item.id)).size!==space.mapInk.length))
+    throw new Error(tr('Структура пространства повреждена.', 'The workspace structure is invalid.'));
   const ids=new Set(), sealedIds=new Set();
   for(const note of space.notes){
     checkNote(note);

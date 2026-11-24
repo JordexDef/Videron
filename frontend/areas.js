@@ -1,4 +1,5 @@
 import { reparentDeletedNotes, restoreDeletedNotesArea } from './note-deletion.js';
+import { tr } from './i18n.js';
 export { stageRemovalOptions } from './stage-structure.js';
 import { DEFAULT_GRID_SPACING, gridReservations, planGridSlots, setGridSpacing, settleAreaNotes, slotPoint, validGridSize, validGridSpacing, validSlot, validStages } from './area-grid.js';
 
@@ -12,10 +13,16 @@ function childrenByParent(areas) {
   return children;
 }
 
+export function areaDisplayName(area) {
+  if (area.name) return area.name;
+  if (area.grid?.stages) return tr('Дорожка этапов','Stage track');
+  return area.grid ? tr('Сетка','Grid') : tr('Область','Area');
+}
+
 export function areaTreeRows(areas) {
   const children = childrenByParent(areas), seen = new Set(), rows = [];
   function visit(root) {
-    const pending = [{area:root, depth:0, pathLabel:root.name}];
+    const pending = [{area:root, depth:0, pathLabel:areaDisplayName(root)}];
     while (pending.length) {
       const row = pending.pop(), {area, depth, pathLabel} = row;
       if (seen.has(area.id)) continue;
@@ -23,7 +30,7 @@ export function areaTreeRows(areas) {
       rows.push(row);
       const nested = children.get(area.id);
       for (let i = (nested?.length || 0) - 1; i >= 0; i--) {
-        pending.push({area:nested[i], depth:depth + 1, pathLabel:pathLabel + ' / ' + nested[i].name});
+        pending.push({area:nested[i], depth:depth + 1, pathLabel:pathLabel + ' / ' + areaDisplayName(nested[i])});
       }
     }
   }
@@ -69,9 +76,10 @@ export function canMoveArea(areas, id, parentId) {
   return parentId === null || !descendantAreaIds(areas, id).has(parentId);
 }
 
-export function createArea(space, {name, color, parentId = null, grid}) {
-  const title = typeof name === 'string' ? name.trim() : '';
-  if (!title || !/^#[\da-f]{6}$/i.test(color) || !hasDestination(space.areas, parentId)) return null;
+export function createArea(space, {name = '', color, parentId = null, grid}) {
+  if (typeof name !== 'string') return null;
+  const title = name.trim();
+  if ((!title && !grid) || !/^#[\da-f]{6}$/i.test(color) || !hasDestination(space.areas, parentId)) return null;
   const area = {id:crypto.randomUUID(), name:title, color, parentId};
   if (grid) {
     const {rows,cols,x,y,spacing=DEFAULT_GRID_SPACING,rowSpacing} = grid;

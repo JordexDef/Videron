@@ -2,12 +2,34 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { areaTreeRows, areaPath, descendantAreaIds, canMoveArea, createArea, moveArea, assignNotesToArea, removeArea } from '../frontend/areas.js';
 import { newLibrary, readLibrary, serializeLibrary } from '../frontend/data.js';
+import { resizeGridWithHistory, undoMapAction } from '../frontend/map-history.js';
+import { tr } from '../frontend/i18n.js';
 import { deleteNote, undoNoteDeletion } from '../frontend/note-deletion.js';
 import { openNoteSession } from '../frontend/note-vault.js';
 import { findNotes } from '../frontend/search-worker.js';
 
 const area = (id, parentId) => ({id, name:id, color:'#aabbcc', parentId});
 const note = (id, areaId) => ({id, areaId, title:id, plain:id, body:[], links:[], tags:[]});
+
+test('unnamed grids and stage tracks keep empty names through saving, navigation and undo', () => {
+  const library=newLibrary(), space=library.spaces.personal;
+  const grid={rows:2,cols:2,x:0,y:0},color='#aabbcc';
+  const parent=createArea(space,{grid,color});
+  const child=createArea(space,{name:'  ',parentId:parent.id,grid:{...grid,stages:['One','Two']},color});
+  assert.equal(createArea(space,{name:'  ',color}),null);
+  const restored=readLibrary(serializeLibrary(library)).spaces.personal;
+  assert.deepEqual(restored.areas.map(area=>area.name),['','']);
+  const path=tr('Сетка','Grid')+' / '+tr('Дорожка этапов','Stage track');
+  assert.equal(areaTreeRows(restored.areas).at(-1).pathLabel,path);
+  assert.ok(resizeGridWithHistory(space,child.id,2,2,undefined,undefined,{name:'Roadmap',color}));
+  assert.equal(child.name,'Roadmap');
+  assert.ok(resizeGridWithHistory(space,child.id,2,2,undefined,undefined,{name:'',color}));
+  assert.equal(child.name,'');
+  assert.ok(undoMapAction(space));
+  assert.equal(child.name,'Roadmap');
+  assert.ok(undoMapAction(space));
+  assert.equal(child.name,'');
+});
 
 test('load flat areas, orphans and cycles as a connected forest without losing notes', () => {
   const lib = newLibrary(), space = lib.spaces.personal;

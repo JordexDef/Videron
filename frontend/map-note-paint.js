@@ -1,4 +1,4 @@
-import { drawIcon, edgeRadius, lockSticker, traceOutline } from './icons/node-art.js';
+import { badgeRadius, drawIcon, edgeRadius, lockSticker, sideBadgeX, sideBadgeY, traceOutline } from './icons/node-art.js';
 import { lightMap, mapInk, mapPalette } from './map-palette.js';
 
 const rgba = (tint, alpha) => `rgba(${tint},${alpha})`;
@@ -74,8 +74,17 @@ export function paintNoteBody(ctx, node, x, y, r, selected, hovered, dpr, overvi
   ctx.stroke();
 }
 
+function paintIconBadge(c,n,id,x,y,dx,dy,z,badge,palette) {
+  const edge = edgeRadius(n,dx,dy)*z;
+  const cx=x+edge*dx, cy=y+edge*dy;
+  c.beginPath(); c.arc(cx,cy,badge,0,2*Math.PI); c.fillStyle=palette.badge; c.fill();
+  c.strokeStyle=rgba(mapInk(n,palette),0.5); c.lineWidth=1; c.stroke();
+  drawIcon(c,id,cx,cy,badge*1.52,palette.icon);
+}
+
 export function paintMapNote(c,n,x,y,r,z,select,hover,seated,dpr,overview,palette=mapPalette()) {
   paintNoteBody(c,n,x,y,r,select,hover,dpr,overview,palette);
+  const badge = badgeRadius(r,n.badgeSize,n.geometry,!!(n.leftIcon || n.rightIcon));
   if (n.taskStatus && n.taskStatus !== 'pending') {
     const light = palette === lightMap;
     c.save();
@@ -91,10 +100,12 @@ export function paintMapNote(c,n,x,y,r,z,select,hover,seated,dpr,overview,palett
     }
     c.lineWidth = 1.7;
     c.stroke();
-    if (n.taskStatus === 'done' && r > 12) {
+    if (n.taskStatus === 'done' && badge) {
       // Leave the centre free for the user's icon and the upper right for a pin.
-      const offset = edgeRadius(n,-Math.SQRT1_2,Math.SQRT1_2)*z*Math.SQRT1_2;
-      c.translate(x-offset,y+offset);
+      const dx=n.leftIcon ? 0 : -Math.SQRT1_2, dy=n.leftIcon ? 1 : Math.SQRT1_2;
+      const edge = edgeRadius(n,dx,dy)*z;
+      c.translate(x+edge*dx,y+edge*dy);
+      c.scale(badge/5.5,badge/5.5);
       c.beginPath(); c.arc(0,0,5.5,0,Math.PI*2); c.fillStyle = palette.badge; c.fill();
       c.beginPath(); c.moveTo(-2.7,0); c.lineTo(-.7,2); c.lineTo(2.9,-2.3);
       c.lineCap = c.lineJoin = 'round'; c.stroke();
@@ -110,21 +121,19 @@ export function paintMapNote(c,n,x,y,r,z,select,hover,seated,dpr,overview,palett
     const apothem = n.geometry?.apothem || 1;
     drawIcon(c,n.icon,x,y,Math.min(r*1.05, r*apothem*1.68),palette.icon);
   }
-  if (n.lockBadge && r > 14) {
-    const offset = edgeRadius(n,-Math.SQRT1_2,-Math.SQRT1_2)*z*Math.SQRT1_2;
-    const left = x-offset, top = y-offset;
-    c.beginPath(); c.arc(left,top,6,0,2*Math.PI); c.fillStyle=palette.badge; c.fill();
-    c.strokeStyle=rgba(mapInk(n,palette),0.5); c.lineWidth=1; c.stroke();
-    drawIcon(c,lockSticker,left,top,9,palette.icon);
+  if (badge) {
+    if (n.leftIcon) paintIconBadge(c,n,n.leftIcon,x,y,-sideBadgeX,sideBadgeY,z,badge,palette);
+    if (n.rightIcon) paintIconBadge(c,n,n.rightIcon,x,y,sideBadgeX,sideBadgeY,z,badge,palette);
+    if (n.lockBadge) paintIconBadge(c,n,lockSticker,x,y,-Math.SQRT1_2,-Math.SQRT1_2,z,badge,palette);
   }
-  if ((n.pinned || seated) && r > 7 && (!n.icon || r > 14)) {
+  if ((n.pinned || seated) && r > 7 && (!n.icon || badge)) {
     c.save();
     // Give a decorated note a separate pin badge on the upper-right edge.
     const offset = n.icon ? edgeRadius(n,Math.SQRT1_2,-Math.SQRT1_2)*z*Math.SQRT1_2 : 0;
     c.translate(x+offset, y-offset);
     if (n.icon) {
-      c.beginPath(); c.arc(0,0,6,0,2*Math.PI); c.fillStyle=palette.badge; c.fill();
-      c.strokeStyle=rgba(mapInk(n,palette),0.5); c.lineWidth=1; c.stroke(); c.scale(0.73,0.73);
+      c.beginPath(); c.arc(0,0,badge,0,2*Math.PI); c.fillStyle=palette.badge; c.fill();
+      c.strokeStyle=rgba(mapInk(n,palette),0.5); c.lineWidth=1; c.stroke(); c.scale(badge/6.4,badge/6.4);
     }
     c.rotate(Math.PI * 0.19);
     c.strokeStyle = rgba(mapInk(n,palette), 0.87); c.lineWidth = 1.35; c.lineJoin = 'round';

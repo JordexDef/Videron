@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { moveAreaGrid, placeAreaNotes, releaseGridNotes } from '../frontend/areas.js';
 import { deleteNote } from '../frontend/note-deletion.js';
-import { deleteAreaWithHistory, lastMapAction, rememberMapAction, resizeGridWithHistory, undoMapAction } from '../frontend/map-history.js';
+import { deleteAreaWithHistory, editMapInk, lastMapAction, rememberMapAction, resizeGridWithHistory, undoMapAction } from '../frontend/map-history.js';
 
 const note = (id, areaId, x) => ({id,areaId,x,y:24,title:id,links:[]});
 
@@ -241,3 +241,14 @@ test('changing only row spacing preserves column centres, stage membership and t
   assert.ok(undoMapAction(space));assert.deepEqual([member.x,member.y],[143,284]);
   assert.equal(Object.hasOwn(grid.grid,'rowSpacing'),false);
 });
+test('map drawing undo restores paint order and preserves concurrent strokes',()=>{
+  const space={}, a={id:'a',type:'pen'}, b={id:'b',type:'rect'};
+  assert.ok(editMapInk(space,'a',null,a));assert.ok(editMapInk(space,'b',null,b));
+  assert.ok(editMapInk(space,'a',a,null));
+  space.mapInk.push({id:'remote'});
+  assert.equal(undoMapAction(space).kind,'ink');
+  assert.deepEqual(space.mapInk.map(item=>item.id),['a','b','remote']);
+  space.mapInk[1]={...b,glow:true};
+  assert.equal(undoMapAction(space),null);
+  assert.equal(space.mapInk[1].glow,true);
+})

@@ -7,10 +7,11 @@ import { mountMapRoutes } from './map-routes.js';
 import { mountStageControls } from './stage-controls.js';
 import { openStageRemoval } from './stage-removal.js';
 import { resolveMapMetrics, openMetricPicker, drawAreaMetric, drawNoteMetric } from './map-metrics.js';
-import { areaPath, createArea, moveArea, descendantAreaIds, placeAreaNotes, releaseGridNotes, moveAreaGrid } from './areas.js';
+import { areaDisplayName, areaPath, createArea, moveArea, descendantAreaIds, placeAreaNotes, releaseGridNotes, moveAreaGrid } from './areas.js';
 import { suggestGrid, slotAt } from './map-slots.js';
 import { DEFAULT_GRID_SPACING, MAX_GRID_SPACING, MIN_GRID_SPACING, fullGridIds, gridRowSpacing, gridSpacing, inSlot, isPinned } from './area-grid.js';
-import { rememberMapAction, lastMapAction, resizeGridWithHistory, reorderStageWithHistory, insertStageWithHistory, deleteStageWithHistory, deleteAreaWithHistory, undoMapAction } from './map-history.js';
+import { rememberMapAction, lastMapAction, resizeGridWithHistory, reorderStageWithHistory, insertStageWithHistory, deleteStageWithHistory, deleteAreaWithHistory, editMapInk, undoMapAction } from './map-history.js';
+import { mountMapInk } from './map-ink.js';
 import { areaPicker } from './area-picker.js';
 import { mountAreaDrag } from './area-drag.js';
 import { mountSidebarTree, sidebarRows } from './sidebar-tree.js';
@@ -64,7 +65,7 @@ function button(text,action,style='secondary'){
 const noteTitle=n=>isProtectedNote(n)?protectedNoteTitle(n):n.title.trim()||tr('Без названия','Untitled');
 let library=newLibrary(), page='map', currentArea=null, selected=null, editor=null, tool='select';
 let graph, areaDrag, native, ready=false, revision=0, saved=0, pending=null, timer, dirtySince=0, toastTimer, popover=null;
-let reading,routes,mapMetrics,routeCamera,stageControls;
+let reading,routes,mapMetrics,routeCamera,stageControls,ink;
 let noteSession=null, openingNote=null, projectProtected=false, policyWrite=null;
 // Only IDs and native expiry times are kept here. Native code checks the key on every reopen.
 let rememberedNotes=new Map(), expiringNote=null;
@@ -185,6 +186,7 @@ async function manualTaskStatus(rootId,key,status){
   }catch(error){notify(storageErrorMessage(error))}
 }
 function syncMapVisibility(){
+  if(ink?.active && (editor || lockScreen || !showingMap()))chooseTool('select');
   graph?.setVisible(showingMap() && !document.hidden && !editor && !lockScreen);
 }
 function rememberMapView(){
@@ -661,9 +663,9 @@ function gridSpacingField(grid,columns,rows){
 function areaDialog(area=null,{parentId=null,point=null,startAsGrid=false,startAsTrack=false,focusSpacing=false,anchor=null,stageIndex=null}={}){
   const parent=areaById(parentId);
   const d=anchor && area?.grid?gridSettingsPanel(anchor,!!area.grid.stages):
-    dialog(area?tr('Изменить область','Edit area'):parent?tr('Подобласть в «{name}»','New area in “{name}”',{name:parent.name}):tr('Новая область','New area'));
+    dialog(area?tr('Изменить область','Edit area'):parent?tr('Подобласть в «{name}»','New area in “{name}”',{name:areaDisplayName(parent)}):tr('Новая область','New area'));
   const form=element('form'),field=element('label','field',tr('Название','Name')),input=element('input');
-  input.required=true;input.maxLength=80;input.value=area?.name||'';input.placeholder=tr('Например, Исследования','For example, Research');field.append(input);
+  input.maxLength=80;input.value=area?.name||'';field.append(input);
   const palette=element('div','palette');let color=area?.color||colors[workspace().areas.length%colors.length];
   for(const [i,value] of colors.entries()){
     const b=element('button','swatch');b.type='button';b.style.setProperty('--dot',value);
@@ -708,6 +710,8 @@ function areaDialog(area=null,{parentId=null,point=null,startAsGrid=false,startA
     else if(areaType==='grid')gridCols=columns.value;
     areaType=type;
     const grid=type!=='free',track=type==='track';
+    input.required=!grid;
+    input.placeholder=grid?tr('Необязательно','Optional'):tr('Например, Исследования','For example, Research');
     if(track)columns.value=trackCols;else columns.value=gridCols;
     dimensions.hidden=!grid;
     rows.disabled=columns.disabled=!grid;
@@ -734,7 +738,7 @@ function areaDialog(area=null,{parentId=null,point=null,startAsGrid=false,startA
   form.append(field);if(!area)form.append(types);
   form.append(dimensions,stageField,spacing.field,element('div','nav-label',tr('Цвет','Color')),palette,message,actions);d.box.append(form);
   form.onsubmit=e=>{
-    e.preventDefault();if(!input.value.trim()){input.focus();return}
+    e.preventDefault();if(input.required&&!input.value.trim()){input.focus();return}
     const space=workspace(),r=rows.valueAsNumber,c=columns.valueAsNumber,pitch=spacing.value();
     const stages=areaType==='track'?[...stageInputs.querySelectorAll('input')].map(i=>i.value.trim()):undefined;
     if(stages?.includes('')){message.textContent=tr('Укажите название для каждого этапа.','Give each stage a name.');return}
@@ -790,9 +794,9 @@ function placeNotes(ids,id,created=false,slot=null,positions=[]){
   else render();
   if(showingMap())$('graph').focus({preventScroll:true});
   if(area?.grid && ids.length===1 && count===2)notify(tr('Заметки поменялись местами','Notes swapped places'),undoButton());
-  else if(count && area?.grid?.stages && Number.isInteger(slot))notify(area.name+' → '+area.grid.stages[slot%area.grid.cols]+' · '+count,undoButton());
+  else if(count && area?.grid?.stages && Number.isInteger(slot))notify(areaDisplayName(area)+' → '+area.grid.stages[slot%area.grid.cols]+' · '+count,undoButton());
   else if(count)notify(area
-    ?tr('В области «{name}» · {count}','Moved to “{name}” · {count}',{name:area.name,count})
+    ?tr('В области «{name}» · {count}','Moved to “{name}” · {count}',{name:areaDisplayName(area),count})
     :tr('Перемещено на верхний уровень · {count}','Moved to the top level · {count}',{count}),undoButton());
   return true;
 }
@@ -819,7 +823,7 @@ function pickForNotes(ids,anchor){
   popover=areaPicker({anchor,title:tr('Поместить в область','Move notes to area'),areas:space.areas,
     full:fullGridIds(space,wanted),
     rootLabel:records.some(note=>note.areaId)?tr('Без области','No area'):null,currentId:common,
-    createIn:parentId?areaPath(space.areas,parentId).map(a=>a.name).join(' / '):'',
+    createIn:parentId?areaPath(space.areas,parentId).map(areaDisplayName).join(' / '):'',
     choose:id=>complete(id),create:name=>{
       const area=createArea(space,{name,parentId,color:colors[space.areas.length%colors.length]});
       if(area){
@@ -860,8 +864,8 @@ function deleteFolder(area){
   if(area.grid){remove();return}
   const d=dialog(tr('Удалить область «{name}»?','Delete area “{name}”?',{name:area.name}));
   const detail=parent?.grid
-    ?tr('Заметки займут свободные места в «{name}». Остальные поднимутся выше по дереву. Вложенные области перейдут в «{name}».','Notes will take available slots in “{name}”. Any remaining notes move up the tree. Child areas will move into “{name}”.',{name:parent.name})
-    :parent ?tr('Заметки и вложенные области останутся в «{name}».','Notes and child areas will move into “{name}”.',{name:parent.name})
+    ?tr('Заметки займут свободные места в «{name}». Остальные поднимутся выше по дереву. Вложенные области перейдут в «{name}».','Notes will take available slots in “{name}”. Any remaining notes move up the tree. Child areas will move into “{name}”.',{name:areaDisplayName(parent)})
+    :parent ?tr('Заметки и вложенные области останутся в «{name}».','Notes and child areas will move into “{name}”.',{name:areaDisplayName(parent)})
     :tr('Заметки и вложенные области останутся на верхнем уровне пространства.','Notes and child areas will move to the top level of this workspace.');
   d.box.append(element('p','',detail));
   const actions=element('div','dialog-actions');
@@ -899,6 +903,7 @@ function showHelp(){
     [tr('Удалить этап','Delete a stage'),tr('Правый щелчок по названию этапа','Right-click its heading')],
     [tr('Изменить шаг сетки','Change grid spacing'),tr('Потянуть правый нижний угол','Drag the bottom-right corner')],
     [tr('Выбор / перемещение','Select / pan'),'V / H'],
+    [tr('Рисовать на карте','Draw on the map'),'P'],
     [tr('Связать две заметки','Link two notes'),'L'],
     [tr('Масштаб','Zoom'),tr('+ / − или колесо','+ / − or wheel')],
     [tr('Масштаб 100% / уместить карту','Actual size / fit map'),'0 / F'],
@@ -906,7 +911,7 @@ function showHelp(){
   ]){
     const row=element('div');row.append(element('span','',label),element('kbd','',shortcutLabel(key)));rows.append(row);
   }
-  d.box.append(element('p','',tr('Размер фигуры зависит от наполнения заметки. Частые открытия добавляют мягкое свечение. Закрепление удерживает заметку на выбранном месте.','A shape grows with its note. Opening a note more often gives it a soft glow. Pin it to keep it in place.')),rows);
+  d.box.append(element('p','',tr('В разделе «Внешний вид» можно задать размер фигуры или оставить его зависимым от содержимого. Частые открытия добавляют мягкое свечение.','In Appearance, choose a fixed shape size or let it grow with the note. Frequently opened notes have a soft glow.')),rows);
 }
 function changeSpace(work,message){
   if(spaceOperation || !ready || lockScreen || editor || openingNote)return Promise.reject(new Error('VD_LOCKED'));
@@ -1070,7 +1075,7 @@ function queueSync(delay=5000){
   },delay);
 }
 function blockedForMerge(){
-  return editor || openingNote || spaceOperation || lockScreen || closingApp || policyWrite || graph?.drag ||
+  return editor || openingNote || spaceOperation || lockScreen || closingApp || policyWrite || graph?.drag || ink?.busy ||
     routes?.isEditing() || popover || document.querySelector('.shade:not(.vs-shade),dialog[open],[role="dialog"]:not(.vs-panel):not([hidden])');
 }
 function branchSaved(session){
@@ -1227,7 +1232,7 @@ function pollFolder(force){
   const session=folderSession;
   if(folderPoll)return folderPoll;
   if(!session || !ready || lockScreen || closingApp || policyWrite || spaceOperation)return Promise.resolve();
-  if(graph?.drag || graph?.pinch){session.pollAfterGesture=true;return Promise.resolve()}
+  if(graph?.drag || graph?.pinch || ink?.busy){session.pollAfterGesture=true;return Promise.resolve()}
   session.pollAfterGesture=false;
   folderPoll=(async()=>{
     let update=await checkFolderUpdate(session,force?'':session.incoming?.token||session.deferred,force);
@@ -1236,7 +1241,7 @@ function pollFolder(force){
       if(!update.token){session.incoming=null;return}
       if(!force && session.deferred===update.token)return;
       // The native read can finish after the user has started moving a note.
-      if(graph?.drag || graph?.pinch){session.pollAfterGesture=true;return}
+      if(graph?.drag || graph?.pinch || ink?.busy){session.pollAfterGesture=true;return}
       if(!blockedForMerge()){
         // A search can follow conflict-free changes. Leave conflicts for after dismissal.
         const previous=session.incoming;
@@ -1639,6 +1644,7 @@ function noteTypeItems(pos,seat=null){
 }
 function chooseTool(next){
   if(next!=='select')routes?.reset();
+  if(next==='ink' && (!library.active || lockScreen || editor || spaceOperation || !showingMap()))return;
   if(next==='link'&&workspace().notes.length<2){notify(tr('Для связи нужны две заметки.','Create at least two notes to link them.'));return}
   if(next==='link'&&!showingMap()){
     const source=selected;
@@ -1648,7 +1654,13 @@ function chooseTool(next){
     graph.fit();
   }
   tool=next;graph?.setTool(next==='hand'?'hand':'select');graph?.setLinkMode(next==='link',selected);
-  $('map-stage').querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active',b.dataset.tool===next));
+  if(next==='ink'){reading?.hide();selected=null;graph?.select(null)}
+  ink?.setActive(next==='ink');
+  $('map-stage').classList.toggle('drawing-on-map',next==='ink');
+  $('map-stage').querySelectorAll('[data-tool]').forEach(b=>{
+    b.classList.toggle('active',b.dataset.tool===next);b.setAttribute('aria-pressed',String(b.dataset.tool===next));
+  });
+  updateEmptyMap();
   renderLinkHint();
   renderSelection();
 }
@@ -1708,6 +1720,10 @@ function undoWorkspaceChange(){
   if(!change){
     notify(tr('Прежнее место больше недоступно.','The previous location is no longer available.'),undoButton());return;
   }
+  if(change.kind==='ink'){
+    dirty(change.before ? {mapInk:change.after?[change.before]:true} : {removedInk:change.id});graph.repaint();updateEmptyMap();
+    notify(tr('Изменение рисунка отменено','Drawing change undone'),undoButton());return;
+  }
   let ids=[];
   if(['stage-order','stage-insert','stage-delete'].includes(change.kind))ids=[...graph.selectedIds];
   else if(change.kind==='deletion')ids=change.ids??[change.id];
@@ -1725,7 +1741,7 @@ function undoWorkspaceChange(){
     if(change.kind==='deletion' && ids.length===1)graph.focus(ids[0]);
     $('graph').focus({preventScroll:true});
   }else (listNoteRow(ids[0])||$('new-note')).focus({preventScroll:true});
-  const msg=change.kind==='area-delete'?tr('Восстановлена «{name}»','Restored “{name}”',{name:change.area.name}):
+  const msg=change.kind==='area-delete'?tr('Восстановлена «{name}»','Restored “{name}”',{name:areaDisplayName(change.area)}):
     change.kind==='deletion'?(ids.length===1?tr('Заметка восстановлена','Note restored'):tr('Восстановлено заметок · ','Notes restored · ')+ids.length):
     change.kind==='stage-insert' && change.releasedCount?tr('Вставка отменена. Новые заметки на карте · {count}',
       'Insertion undone. New notes moved onto the map · {count}',{count:change.releasedCount}):
@@ -1961,7 +1977,7 @@ function renderList(){
     if(area){
       const coords=area.grid&&Number.isInteger(n.slot)?(Math.floor(n.slot/area.grid.cols)+1)+', '+(n.slot%area.grid.cols+1):'';
       const stage=area.grid?.stages?.[n.slot%area.grid.cols];
-      const label=area.name+(stage?' · '+stage:coords?' · '+coords:'');
+      const label=areaDisplayName(area)+(stage?' · '+stage:coords?' · '+coords:'');
       const pill=element('span','area-pill');
       pill.title=label+(coords?' ('+tr('Строка, столбец','Row, column')+' · '+coords+')':'');
       pill.append(areaMarker(area),element('span','area-pill-label',label));row.append(pill);
@@ -2046,6 +2062,10 @@ function renderAreas(areas){
   sidebarTree.update(rows,tr('Области и заметки','Areas and notes'));
 }
 const mapNote=n=>isProtectedNote(n)?{...n,title:protectedNoteTitle(n)}:n;
+function updateEmptyMap(){
+  const space=workspace();
+  $('empty').hidden=!showingMap() || tool==='ink' || !!(space.notes.length || space.areas.length || space.mapInk?.length);
+}
 function renderMapPlacement(states){
   const {notes,areas}=workspace();
   if(states.some(state=>Object.hasOwn(state,'areaId')) && notes.some(n=>n.agentTask))mapMetrics=resolveMapMetrics(workspace());
@@ -2060,7 +2080,7 @@ function render(){
   syncMapVisibility();
   const {notes,areas}=workspace(),map=showingMap(),area=areaById(currentArea);
   const views={map:tr('Карта заметок','Note map'),list:tr('Все заметки','All notes'),pinned:tr('Закреплённые','Pinned notes')};
-  const title=views[page]||area?.name||tr('Область','Area');
+  const title=views[page]||(area?areaDisplayName(area):tr('Область','Area'));
   $('crumb-page').textContent=page==='map'?tr('Карта','Map'):title;
   const hasSpace=!!library.active;
   $('space-name').textContent=$('crumb-space').textContent=hasSpace?spaceTitle(library.active,folderSession?.link??workspace()):tr('Выберите пространство','Choose a space');
@@ -2087,7 +2107,7 @@ function render(){
   if(tool==='link')renderLinkHint();
   reading?.invalidate();routes?.refresh();
   if(selected || (!graph.selectedGridId && graph.selectedIds.size<2))graph.select(selected);
-  $('empty').hidden=!map||notes.length>0||areas.length>0;$('try-demo').hidden=library.active==='demo'||!!library.demoHidden;
+  updateEmptyMap();$('try-demo').hidden=library.active==='demo'||!!library.demoHidden;
   $('view').hidden=!map&&page!=='area';
   $('view').replaceChildren(iconEl(map?'sliders':'folder'),document.createTextNode(map?tr('Вид','View'):tr('Область','Area')));
   if(!map)renderList();else $('list-selection').hidden=true;
@@ -2177,6 +2197,7 @@ function loadLibraryLanguages(){
 }
 function refreshLanguage(){
   stageControls?.reset();
+  ink?.refreshLanguage();
   translateStatic();closeMenu();$('toast').hidden=true;
   $('language-select').value=getLanguage();
   if(translateDemoSamples(library.spaces.demo))dirty({spaceId:'demo',all:true});
@@ -2255,7 +2276,7 @@ function bindUI(){
   $('cancel-link').onclick=()=>chooseTool('select');
   $('plus').onclick=()=>graph.zoomBy(1.2);$('minus').onclick=()=>graph.zoomBy(1/1.2);
   $('actual-size').onclick=()=>graph.zoomBy(1/graph.zoom);$('fit').onclick=()=>graph.fit();
-  $('map-stage').querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{chooseTool(tool==='link'&&b.dataset.tool==='link'?'select':b.dataset.tool);renderSelection()});
+  $('map-stage').querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>chooseTool(tool===b.dataset.tool && (tool==='link'||tool==='ink')?'select':b.dataset.tool));
   $('view').onclick=e=>{
     if(page==='area'){areaActions(areaById(currentArea),e.currentTarget);return}
     menu(e.currentTarget,[
@@ -2286,6 +2307,11 @@ function bindUI(){
         document.querySelector('.shade,[role="dialog"],dialog[open]'))return;
     if(e.target.isContentEditable || e.target.closest?.('input:not([type=checkbox]),textarea,select'))return;
     const mapFocused=showingMap() && (e.target===document.body || e.target.closest?.('.page'));
+    if(mapFocused && ink?.active){
+      if(!command && e.key==='Escape' && ink.cancel()){e.preventDefault();return}
+      if(!command && isDeleteKey(e)){e.preventDefault();if(!e.repeat)ink.deleteSelection();return}
+      if(ink.busy)return;
+    }
     if(mapFocused && routes.keydown(e))return;
     if(!command && !e.shiftKey && e.key==='Escape'){
       if(e.repeat)return;
@@ -2336,7 +2362,7 @@ function bindUI(){
     }
     if(e.shiftKey || e.repeat)return;
     if(e.code==='KeyF'){e.preventDefault();graph.fit();return}
-    const nextTool={KeyV:'select',KeyH:'hand',KeyL:'link'}[e.code];
+    const nextTool={KeyV:'select',KeyH:'hand',KeyL:'link',KeyP:'ink'}[e.code];
     if(nextTool){e.preventDefault();chooseTool(nextTool);return}
     if(e.key==='Enter'&&e.target===$('graph')&&selected){e.preventDefault();editFromMap(selected)}
   });
@@ -2454,7 +2480,7 @@ async function init(){
     onExpand:id=>{if(collapsedAreas.delete(id))renderAreas(workspace().areas)}
   });
   const stage=$('map-stage');
-  reading=mountMapReading({stage,getNote:byId,getMetric:id=>mapMetrics?.notes.get(id),isActive:()=>ready && showingMap() && !lockScreen && !editor && !openingNote && !routes?.isEditing(),
+  reading=mountMapReading({stage,getNote:byId,getMetric:id=>mapMetrics?.notes.get(id),isActive:()=>ready && showingMap() && tool!=='ink' && !lockScreen && !editor && !openingNote && !routes?.isEditing(),
     onChange:note=>dirty({notes:[note]}),onOpen:editFromMap});
   routes=mountMapRoutes({stage,getSpace:workspace,getFragments:readingFragments,onChange:()=>dirty({meta:true}),
     onVisit:(id,fragment)=>{
@@ -2474,6 +2500,7 @@ async function init(){
   };
   stageControls=mountStageControls({canvas:$('graph'),onEdit:editMapGrid,onInsert:insertMapStage});
   graph=new Graph($('graph'),{onSelect:id=>{selected=id;renderSelection()},onAreaAction:pickForNotes,onOpen:editFromMap,onLink:linkClick,
+    onDrawInk:(ctx,view)=>ink?.draw(ctx,view),inkBounds:()=>ink?.bounds(),
     onContext:(id,x,y,gridId)=>context(id,x,y,gridId,editFromMap),
     onEditStage:(id,col,anchor)=>editMapGrid(id,anchor,col),
     onStageContext:stageContext,
@@ -2531,6 +2558,12 @@ async function init(){
       }
       if(moved.length)dirty({notes:moved});
     },onZoom:scale=>$('actual-size').textContent=Math.round(scale*100)+'%'});
+  ink=mountMapInk({graph,getItems:()=>workspace().mapInk ?? [],onExit:()=>chooseTool('select'),
+    onChange:(id,before,after)=>{
+      if(!ready || editor || openingNote || lockScreen || reviewing || spaceOperation || !library.active || !showingMap())return false;
+      if(!editMapInk(workspace(),id,before,after))return false;
+      dirty(after ? {mapInk:[after]} : {removedInk:id});graph.repaint();updateEmptyMap();return true;
+    }});
   ready=true;bindUI();render();status();syncIdle();
   queueSync(200);
   if(catalogRecords)dirty({catalogOnly:true});

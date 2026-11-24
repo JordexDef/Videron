@@ -1,6 +1,6 @@
 // Keep the persisted representation separate from the mutable records held by editors.
 // An IPC write acknowledges its own snapshot even if typing continued while it ran.
-const collections = ['notes', 'areas'];
+const collections = ['notes', 'areas', 'mapInk'];
 const collectionKeys = new Set(collections);
 
 function fieldSnapshot(object, excluded) {
@@ -91,6 +91,7 @@ function editRow(before, after, isNote) {
 function diffRows(previous, rows, touched, isNote) {
   const put = [], edit = [], remove = [], updates = new Map();
   for (const row of touched ? touched.values() : rows) {
+    if (!row) continue;
     const next = snapshotRow(row), before = previous.get(row.id);
     if (before) {
       const changes = editRow(before, next, isNote);
@@ -102,7 +103,9 @@ function diffRows(previous, rows, touched, isNote) {
     updates.set(row.id, next);
   }
   let order;
-  if (!touched) {
+  if (touched) {
+    for (const [id,row] of touched) if (row === null && previous.has(id)) remove.push(id);
+  } else {
     const ids = new Set(rows.map(row => row.id));
     for (const id of previous.keys()) if (!ids.has(id)) remove.push(id);
     // New records append in put order. Send an order only for insertion or reordering.
@@ -129,7 +132,7 @@ function diffRows(previous, rows, touched, isNote) {
 export class WorkspaceRecords {
   constructor(space) {
     this.fields = fieldSnapshot(space, collectionKeys);
-    this.rows = Object.fromEntries(collections.map(key => [key, new Map(space[key].map(row => [row.id, snapshotRow(row)]))]));
+    this.rows = Object.fromEntries(collections.map(key => [key, new Map((space[key] ?? []).map(row => [row.id, snapshotRow(row)]))]));
     this.sealed = new Set(space.notes.filter(n => Object.hasOwn(n, 'sealed')).map(n => n.id));
     this.generation = 0;
     this.clearMarks();
@@ -137,15 +140,17 @@ export class WorkspaceRecords {
   clearMarks() {
     this.all = false;
     this.meta = false;
-    this.touched = {notes: new Map(), areas: new Map()};
+    this.touched = {notes: new Map(), areas: new Map(), mapInk: new Map()};
   }
   mark(scope) {
     this.generation++;
     if (!scope || scope.all) this.all = true;
     else if (!this.all) {
       if (scope.meta) this.meta = true;
+      if (scope.removedInk) this.touched.mapInk?.set(scope.removedInk, null);
       for (const key of collections) {
-        if (scope[key]) for (const row of scope[key]) this.touched[key].set(row.id, row);
+        if (scope[key] === true) this.touched[key] = null;
+        else if (scope[key] && this.touched[key]) for (const row of scope[key]) this.touched[key].set(row.id, row);
       }
     }
   }
@@ -157,8 +162,8 @@ export class WorkspaceRecords {
       commits.push(fields.commit);
     }
     for (const key of collections) {
-      if (!this.all && !this.touched[key].size) continue;
-      const result = diffRows(this.rows[key], space[key], this.all ? null : this.touched[key], key === 'notes');
+      if (!this.all && this.touched[key]?.size === 0) continue;
+      const result = diffRows(this.rows[key], space[key] ?? [], this.all ? null : this.touched[key], key === 'notes');
       if (Object.keys(result.patch).length) patch[key] = result.patch;
       commits.push(result.commit);
     }
@@ -184,8 +189,14 @@ export class WorkspaceRecords {
 
   // Advance only the disk baseline. Marks from edits made during a merge survive.
   acceptMerge(delta) {
-    for (const key of delta.unset ?? []) this.fields.delete(key);
-    for (const [key, value] of Object.entries(delta.set ?? {})) this.fields.set(key, JSON.stringify(value));
+    for (const key of delta.unset ?? []) {
+      if (collectionKeys.has(key)) this.rows[key].clear();
+      else this.fields.delete(key);
+    }
+    for (const [key, value] of Object.entries(delta.set ?? {})) {
+      if (collectionKeys.has(key)) this.rows[key] = new Map(value.map(row => [row.id,snapshotRow(row)]));
+      else this.fields.set(key, JSON.stringify(value));
+    }
     for (const [key, changes] of Object.entries(delta.lists ?? {})) {
       const rows = key === 'routes' ? new Map(JSON.parse(this.fields.get('routes') ?? '[]').map(row => [row.id, row])) : this.rows[key];
       for (const id of changes.remove ?? []) {

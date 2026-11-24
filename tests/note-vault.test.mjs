@@ -177,14 +177,14 @@ test('sealing an open task keeps progress reported since the editor opened', asy
 
 test('restyling a closed encrypted note updates only map fields and survives resealing', async () => {
   const f = fixture()
-  f.record.appearance = {shape:'diamond',icon:'lucide/bookmark',color:'#ABCDEF',caption:'private caption'}
+  f.record.appearance = {shape:'diamond',icon:'lucide/bookmark',color:'#ABCDEF',radius:60,badgeSize:'large',leftIcon:'lucide/book-open',rightIcon:'phosphor/house',caption:'private caption'}
   let session = await f.open()
   await session.manageProtection()
   assert.ok(await session.beforeClose())
-  assert.deepEqual(f.record.appearance,{shape:'diamond',icon:'lucide/bookmark',color:'#abcdef'})
+  assert.deepEqual(f.record.appearance,{shape:'diamond',icon:'lucide/bookmark',color:'#abcdef',radius:60,badgeSize:'large',leftIcon:'lucide/book-open',rightIcon:'phosphor/house'})
   assert.doesNotMatch(JSON.stringify(f.record),/private|caption/)
   const space = {notes:[f.record],areas:[]}, records = new WorkspaceRecords(space)
-  const style = {shape:'square',icon:'phosphor/house',color:'#a9c6ed'}
+  const style = {shape:'square',icon:'phosphor/house',rightIcon:'lucide/bookmark',color:'#a9c6ed'}
   f.record.appearance = style
   records.mark({notes:[f.record]})
   assert.deepEqual({...records.prepare(space).patch.notes.edit[0].set},{appearance:style})

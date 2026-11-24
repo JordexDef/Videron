@@ -1,4 +1,4 @@
-import { areaTreeRows } from './areas.js';
+import { areaDisplayName, areaTreeRows } from './areas.js';
 import { icon } from './art.js';
 import { tr } from './i18n.js';
 
@@ -16,8 +16,9 @@ export function areaPicker({anchor, title, areas, allowed = () => true, rootLabe
   box.append(input, list);
   const paths = [], entries = [];
   for (const {area, depth, pathLabel} of areaTreeRows(areas)) {
-    if (allowed(area.id)) entries.push({id:area.id, name:area.name,
-      parent:depth ? paths[depth-1] : '', color:area.color, grid:!!area.grid});
+    if (allowed(area.id)) entries.push({id:area.id, name:areaDisplayName(area),
+      parent:depth ? paths[depth-1] : '', color:area.color, grid:area.grid,
+      size:!area.name && area.grid ? area.grid.cols+' × '+area.grid.rows : ''});
     paths[depth] = pathLabel;
   }
   if (rootLabel && allowed(null)) entries.unshift({id:null, name:rootLabel, parent:''});
@@ -43,8 +44,8 @@ export function areaPicker({anchor, title, areas, allowed = () => true, rootLabe
     list.replaceChildren();
     for (const entry of found) {
       const unavailable=full?.has(entry.id);
-      const detail=[entry.parent,unavailable && tr('Недостаточно мест','Not enough slots')].filter(Boolean).join(' · ');
-      const b = row(entry.id === null ? 'layers' : entry.grid ? 'slots' : 'folder', entry.name, detail, () => choose(entry.id));
+      const detail=[entry.parent,entry.size,unavailable && tr('Недостаточно мест','Not enough slots')].filter(Boolean).join(' · ');
+      const b = row(entry.id === null ? 'layers' : entry.grid?.stages ? 'track' : entry.grid ? 'slots' : 'folder', entry.name, detail, () => choose(entry.id));
       b.disabled=!!unavailable;
       if (entry.color) b.firstElementChild.style.color = entry.color;
       if (entry.id === currentId) b.insertAdjacentHTML('beforeend',icon('check'));

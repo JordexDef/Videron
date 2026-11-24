@@ -4,6 +4,41 @@ import { phosphorExtra } from './phosphor-extra.js';
 
 const namespace = 'http://www.w3.org/2000/svg';
 export const lockSticker = 'phosphor/lock-key';
+export const minNoteRadius = 16;
+export const maxNoteRadius = 78;
+const badgeSizes = new Set(['small', 'large', 'hidden']);
+// Four and eight o'clock leave the upper corners free for lock and pin status.
+export const sideBadgeX = Math.sqrt(3) / 2;
+export const sideBadgeY = 0.5;
+const crowdedBadgeLimits = new Map();
+
+export function contentRadius(note) {
+  const length = Math.max(0, note.weight || 0, note.plain?.length || 0, note.type === 'data' ? note.dataText?.length || 0 : 0);
+  return minNoteRadius + (maxNoteRadius - minNoteRadius) * (1 - Math.exp(-Math.sqrt(length / 4200)));
+}
+
+// Screen-space radius. At overview zoom the markers disappear before they can obscure their node.
+export function badgeRadius(r, size, geometry = null, withSideIcons = false) {
+  if (size === 'hidden' || r <= 12) return 0;
+  const scale = size === 'small' ? 0.75 : size === 'large' ? 1.35 : 1;
+  let limit = 0.6;
+  if (withSideIcons) {
+    // Fit all five possible markers along this silhouette. Cache the unit-size clearance per shape.
+    if (!crowdedBadgeLimits.has(geometry)) {
+      const anchors = [[-Math.SQRT1_2,-Math.SQRT1_2],[Math.SQRT1_2,-Math.SQRT1_2],[-sideBadgeX,sideBadgeY],[sideBadgeX,sideBadgeY],[0,1]];
+      const centres = [];
+      for (const [dx,dy] of anchors) {
+        const edge = edgeRadius({r:1,geometry},dx,dy);
+        const x=edge*dx, y=edge*dy;
+        for (const point of centres) limit=Math.min(limit,Math.hypot(x-point.x,y-point.y)*0.47);
+        centres.push({x,y});
+      }
+      crowdedBadgeLimits.set(geometry,limit);
+    } else limit=crowdedBadgeLimits.get(geometry);
+  }
+  const regular = Math.max(8, Math.min(18, r * 0.2));
+  return withSideIcons ? Math.min(r * limit / 1.35, regular) * scale : Math.min(r * limit, regular * scale);
+}
 export const shapeNames = ['circle', 'square', 'diamond', 'triangle', 'pentagon', 'hexagon'];
 export const iconChoices = new Map(
   [...vectors, ...lucideExtra, ...phosphorExtra].map(([id, ru, en, layers]) => [
@@ -43,7 +78,7 @@ const geometries = new Map([
 
 export function appearanceOf(note) {
   const source = note.appearance || {};
-  return {
+  const style = {
     shape: geometries.has(source.shape) ? source.shape : 'circle',
     icon: iconChoices.has(source.icon) ? source.icon : null,
     color:
@@ -51,6 +86,11 @@ export function appearanceOf(note) {
         ? source.color.toLowerCase()
         : null
   };
+  if (Number.isInteger(source.radius) && source.radius >= minNoteRadius && source.radius <= maxNoteRadius) style.radius = source.radius;
+  if (badgeSizes.has(source.badgeSize)) style.badgeSize = source.badgeSize;
+  if (iconChoices.has(source.leftIcon)) style.leftIcon = source.leftIcon;
+  if (iconChoices.has(source.rightIcon)) style.rightIcon = source.rightIcon;
+  return style;
 }
 
 export function validMapAppearance(value) {

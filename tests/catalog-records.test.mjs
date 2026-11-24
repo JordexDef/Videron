@@ -8,6 +8,22 @@ const note=id=>({id,title:id,body:[],plain:'',tags:[],links:[]})
 const library=()=>({...newLibrary(),spaces:{personal:{notes:[note('a'),note('b')],areas:[]}}})
 const draftValue=tx=>JSON.parse(JSON.stringify(tx.patch))
 
+test('one map stroke autosaves independently, including erasing while a write is in flight',()=>{
+  const space={notes:[],areas:[]}, tracker=new WorkspaceRecords(space);
+  const frame={id:'frame',type:'rect',x:10}, pen={id:'pen',type:'pen',points:[[10,20]]};
+  space.mapInk=[frame,pen];tracker.mark({mapInk:[frame,pen]});
+  const first=tracker.prepare(space);
+  assert.deepEqual(draftValue(first),{mapInk:{put:[frame,pen]}});
+  space.mapInk.pop();tracker.mark({removedInk:pen.id});first.commit();
+  const erase=tracker.prepare(space);
+  assert.deepEqual(draftValue(erase),{mapInk:{remove:['pen']}});erase.commit();
+  const incoming={...frame,x:25};
+  space.mapInk=[incoming];tracker.acceptMerge({lists:{mapInk:{upsert:[incoming]}}});
+  tracker.mark();assert.equal(tracker.prepare(space).patch,null);
+  space.mapInk[0]={...incoming,glow:true};tracker.mark({mapInk:space.mapInk});
+  assert.deepEqual(draftValue(tracker.prepare(space)),{mapInk:{edit:[{id:'frame',set:{glow:true}}]}});
+})
+
 test('editing one title neither reads nor transfers another note or plugin',()=>{
   const live=library(), [a,b]=live.spaces.personal.notes;
   live.plugins=[{html:'large plugin'}];

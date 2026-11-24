@@ -1,4 +1,4 @@
-import { canMoveArea, descendantAreaIds } from './areas.js';
+import { areaDisplayName, canMoveArea, descendantAreaIds } from './areas.js';
 import { fullGridIds } from './area-grid.js';
 import { icon } from './art.js';
 import { tr } from './i18n.js';
@@ -57,7 +57,7 @@ export function mountAreaDrag({sidebar, tree, list, getWorkspace, getListSelecti
     const excluded = descendantAreaIds(space.areas,id);
     const parentId = folder.parentId ?? null;
     excluded.add(parentId);
-    begin({kind:'folder', id, parentId, space, excluded, name:folder.name});
+    begin({kind:'folder', id, parentId, space, excluded, name:areaDisplayName(folder)});
     return true;
   }
   function expandAfterHover(row) {

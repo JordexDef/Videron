@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Graph } from '../frontend/graph.js';
-import { contact } from '../frontend/icons/node-art.js';
+import { badgeRadius, contact, contentRadius, edgeRadius, geometryFor, shapeNames, sideBadgeX, sideBadgeY, validMapAppearance } from '../frontend/icons/node-art.js';
 
 function graphWith(notes, areas) {
   const graph = Object.assign(Object.create(Graph.prototype), {
@@ -17,6 +17,70 @@ function settle(graph) {
 
 const note = (id,x,y,extra={}) => ({id,x,y,areaId:'a',...extra});
 const gap = (a,b) => Math.hypot(a.x-b.x,a.y-b.y)-a.r-b.r;
+
+test('manual size drives collisions, fits a compact seat, and returns to the content size on reset',()=>{
+  const fixed=note('fixed',0,0,{pinned:true,appearance:{radius:70,badgeSize:'large'}});
+  const other=note('other',30,0,{links:['fixed']});
+  const graph=graphWith([fixed,other],[]);
+  settle(graph);
+  const a=graph.nodes.get('fixed'), b=graph.nodes.get('other');
+  assert.equal(a.r,70);
+  assert.equal(a.badgeSize,'large');
+  assert.ok(gap(a,b)>4);
+  fixed.plain='x'.repeat(9000);
+  fixed.slot=0;
+  graph.setData([fixed,other],[{id:'a',grid:{x:0,y:0,rows:1,cols:2,spacing:58}}]);
+  assert.equal(a.naturalRadius,70);
+  assert.ok(a.r<29);
+  delete fixed.slot;
+  delete fixed.appearance;
+  graph.setData([fixed,other],[]);
+  assert.equal(a.r,contentRadius(fixed));
+  assert.equal(a.badgeSize,undefined);
+});
+
+test('custom side stickers survive beside the lock and pin, clear separately, and fit each polygon',()=>{
+  const record=note('icons',0,0,{sealed:'opaque',pinned:true,appearance:{
+    icon:'lucide/bookmark', leftIcon:'lucide/book-open', rightIcon:'phosphor/house'
+  }});
+  const graph=graphWith([record],[]), node=graph.nodes.get('icons');
+  assert.deepEqual([node.icon,node.lockBadge,node.leftIcon,node.rightIcon],
+    ['lucide/bookmark',true,'lucide/book-open','phosphor/house']);
+  assert.ok(validMapAppearance(record.appearance));
+  assert.equal(validMapAppearance({rightIcon:'private value'}),false);
+  assert.equal(validMapAppearance({leftIcon:null}),false);
+  delete record.appearance.leftIcon;
+  graph.setData([record],[]);
+  assert.equal(node.leftIcon,undefined);
+  assert.equal(node.rightIcon,'phosphor/house');
+  for(const shape of shapeNames){
+    const geometry=geometryFor(shape), r=16;
+    const badge=badgeRadius(r,'large',geometry,true);
+    assert.ok(badgeRadius(r,'small',geometry,true)<badgeRadius(r,undefined,geometry,true));
+    assert.ok(badgeRadius(r,undefined,geometry,true)<badge);
+    const anchors=[];
+    for(const [dx,dy] of [[-Math.SQRT1_2,-Math.SQRT1_2],[Math.SQRT1_2,-Math.SQRT1_2],[-sideBadgeX,sideBadgeY],[sideBadgeX,sideBadgeY],[0,1]]){
+      const edge=edgeRadius({r,geometry},dx,dy);
+      const x=dx*edge, y=dy*edge;
+      for(const p of anchors)assert.ok(Math.hypot(x-p.x,y-p.y)>2*badge,shape);
+      anchors.push({x,y});
+    }
+  }
+});
+
+test('edge markers scale with the node and preference and disappear at overview scale',()=>{
+  for(const r of [16,30,70,140]){
+    assert.ok(badgeRadius(r,'small')<badgeRadius(r));
+    assert.ok(badgeRadius(r)<badgeRadius(r,'large'));
+    assert.equal(badgeRadius(r,'hidden'),0);
+  }
+  assert.ok(badgeRadius(70)>badgeRadius(30));
+  assert.equal(badgeRadius(6,'large'),0);
+  assert.ok(validMapAppearance({radius:78,badgeSize:'small'}));
+  for(const style of [{radius:8},{radius:'32'},{radius:79},{badgeSize:'other'},{badgeSize:null}]){
+    assert.equal(validMapAppearance(style),false);
+  }
+});
 
 test('an area gently gathers even unlinked notes, leaving room between them',()=>{
   const graph=graphWith([note('one',-200,0),note('two',200,0),note('free',700,350,{areaId:null})],[{id:'a'}]);

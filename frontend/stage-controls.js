@@ -83,9 +83,10 @@ export function mountStageControls({canvas, onEdit, onInsert}) {
       if (!position) continue;
       visible.add(group.id);
       const button = buttons.get(group.id) || add(group.id);
-      const label = group.grid.stages
+      const label = group.name ? (group.grid.stages
         ? tr('Настроить дорожку «{name}»', 'Edit stage track “{name}”',{name:group.name})
-        : tr('Настроить сетку «{name}»', 'Edit grid “{name}”',{name:group.name});
+        : tr('Настроить сетку «{name}»', 'Edit grid “{name}”',{name:group.name}))
+        : group.grid.stages ? tr('Настроить дорожку','Stage track settings') : tr('Настроить сетку','Grid settings');
       if (button.title !== label) {
         button.title = label;
         button.setAttribute('aria-label',label);
@@ -95,7 +96,7 @@ export function mountStageControls({canvas, onEdit, onInsert}) {
       const bounds=titles.get(group.id)||header;
       const bridge=position.x>=bounds.r?'left':position.x+size<=bounds.l?'right':'bottom';
       if(button.dataset.bridge!==bridge)button.dataset.bridge=bridge;
-      button.classList.toggle('is-active', graph.hoverGridArea === group || graph.hoverGrid === group);
+      button.classList.toggle('is-active', graph.hoverGridArea === group || graph.hoverGrid === group || (!group.name && graph.selectedGridId===group.id));
     }
     for (const [id,button] of buttons) {
       if (visible.has(id)) continue;
