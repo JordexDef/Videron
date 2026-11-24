@@ -3,6 +3,8 @@ import { getLanguage, tr } from './i18n.js';
 import { addressOf, formatValue } from './table-engine.js';
 import { noteWorkbooks } from './board-tables.js';
 import { paintMetricPreview } from './map-metrics.js';
+import { taskMarker, taskStateOf } from './note-lists.js';
+import { taskTextContainer } from './task-preview.js';
 
 const textBlocks = new Set(['paragraph', 'heading', 'subheading', 'quote']);
 const raster = /^data:image\/(?:png|jpe?g|gif|webp|bmp|avif);base64,/i;
@@ -33,8 +35,9 @@ export function readingFragments(note) {
     const full = code ? block.text : block.runs?.map(run => run?.text || '').join('');
     if (typeof full !== 'string' || !full.trim()) return;
     const text = clip(full.trim(), excerptLength);
+    const taskState = taskStateOf(block);
     add(base + '/' + fingerprint(text), path, {
-      kind:code ? 'code' : 'text', text, label:labelFor(text), target,
+      kind:code ? 'code' : 'text', text, taskState, label:labelFor(taskState ? taskMarker(taskState) + ' ' + text : text), target,
       heading:block.type === 'heading' || block.type === 'subheading'
     });
   }
@@ -187,7 +190,7 @@ function showFragment(container, fragment) {
     container.append(table);
   } else {
     const text = el(fragment.kind === 'code' ? 'pre' : 'p');
-    text.textContent = fragment.text;
+    taskTextContainer(text, fragment.taskState).textContent = fragment.text;
     container.append(text);
   }
 }

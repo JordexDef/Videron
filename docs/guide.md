@@ -79,6 +79,10 @@ Tags such as `#projects` are highlighted as you type. Click a tag to open anothe
 
 At the start of a paragraph, type `-`, `*` or `+` followed by a space for a bulleted list. For a numbered list, start with `1.` or `1)` and a space. **Enter** starts the next item. **Tab** nests the current item and **Shift+Tab** moves it up one level. Press **Enter** on an empty subitem to return to the parent list or on an empty top-level item to end the list.
 
+For a checklist, choose **Paragraph → Task** or type `[ ]` followed by a space. Click the box to check it off and strike through the text. Choose **Cancellable task** when you also want a **×** beside the box. Click the selected mark again to reopen the task. With the cursor in the task text, **Ctrl+Enter** (**⌘+Enter** on Mac) toggles completion. **Enter** continues the list with an unchecked task. These controls also work in canvas text areas.
+
+In a text note with two or more tasks, the header shows your progress. It counts completed tasks out of the active total and lists cancelled tasks separately.
+
 In a text note, click **Link to folder** and choose a directory. If you select text first, it becomes the link label. You can also enter a full path with **Ctrl+K**. On a canvas use **… → Link to folder…**. Click a folder link to open it in your file manager. On a canvas you can drag the link into position.
 
 ## Code and JSON in text notes

@@ -1,6 +1,7 @@
 import { getLanguage, tr } from './i18n.js'
 import { checkNote } from './data.js'
-import { listMarkers } from './note-lists.js'
+import { listMarkers, taskStateOf } from './note-lists.js'
+import { taskTextContainer } from './task-preview.js'
 import { openVaultPassword } from './vault-ui.js'
 
 const raster = /^data:image\/(?:png|jpe?g|gif|webp|bmp|avif);base64,/i
@@ -86,7 +87,11 @@ function boardContent(node, board) {
     } else if (item.type === 'text' && Array.isArray(item.body)) {
       for (const block of item.body) {
         if (block?.type === 'divider') node.append(el('hr'))
-        else node.append(el('p','',block?.alt || readText(block)))
+        else {
+          const part = el('p')
+          taskTextContainer(part, taskStateOf(block)).textContent = block?.alt || readText(block)
+          node.append(part)
+        }
       }
     } else if (item.type === 'text' || item.label || item.alt) {
       const text = item.text || item.label || item.alt
@@ -147,10 +152,12 @@ function noteContent(node, note, other) {
         continue
       }
       const part = el(block.type==='code'?'pre':block.type==='heading'||block.type==='subheading'?'h4':block.type==='quote'?'blockquote':'p')
+      const state = taskStateOf(block)
+      const text = taskTextContainer(part, state, openOther && taskStateOf(counterpart) !== state ? 'conflict-difference' : '')
       if (block.type === 'code' || !Array.isArray(block.runs) || !block.runs.length) {
-        appendText(part,readText(block),counterpart?readText(counterpart):openOther?.plain)
+        appendText(text,readText(block),counterpart?readText(counterpart):openOther?.plain)
       } else {
-        if (markers[i]) part.append(markers[i]+' ')
+        if (markers[i] && !state) part.append(markers[i]+' ')
         if (block.indent) part.style.paddingInlineStart = Math.min(8, Math.max(0,block.indent))+'em'
         const otherRuns=counterpart?.runs || []
         for (const [j,run] of block.runs.entries()) {
@@ -162,7 +169,7 @@ function noteContent(node, note, other) {
           if (/^#[\da-f]{6}$/i.test(run.color)) span.style.color=run.color
           if (run.href || run.folderPath) {span.style.textDecoration='underline';span.title=run.href || run.folderPath}
           appendText(span,run.text || '',otherRuns[j]?.text ?? (openOther?'':undefined))
-          part.append(span)
+          text.append(span)
         }
       }
       node.append(part)

@@ -47,12 +47,12 @@
 .ve-embedded-editor > .ve-message { order: 1; }
 .ve-embedded-editor > .ve-message:empty { display: none; }
 /* The document may have its own paper color, independent of the app chrome. */
-.vb-rich-frame[data-light="false"] .ve-embedded-editor :is(.ve-text,.ve-rule) {
+.vb-rich-frame[data-light="false"] .ve-embedded-editor :is(.ve-text,.ve-rule,.ve-task-row) {
   --ve-text: #dedede; --ve-accent: #ededed; --ve-secondary: #c2c2c2;
   --ve-muted: #aaa; --ve-placeholder: #aaa; --ve-rule: #858585; --ve-quote-line: #969696;
   --ve-tag: #c6beed; --ve-tag-line: #a79bbd;
 }
-.vb-rich-frame[data-light="true"] .ve-embedded-editor :is(.ve-text,.ve-rule) {
+.vb-rich-frame[data-light="true"] .ve-embedded-editor :is(.ve-text,.ve-rule,.ve-task-row) {
   --ve-text: #242424; --ve-accent: #323d64; --ve-secondary: #41434b;
   --ve-muted: #494949; --ve-placeholder: #62636b; --ve-rule: #898991; --ve-quote-line: #777981;
   --ve-tag: #49346e; --ve-tag-line: #726080;

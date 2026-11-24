@@ -64,9 +64,9 @@ export function textLines(ctx, text, width) {
 }
 
 let measureContext;
-export function wrappedSceneText(item) {
-  if (item.autoResize || typeof document === 'undefined') return item.text;
+export function wrappedSceneText(item, text = item.text) {
+  if (item.autoResize || typeof document === 'undefined') return text;
   measureContext ||= document.createElement('canvas').getContext('2d');
   measureContext.font = item.fontSize + 'px ' + fontStack(item.fontFamily);
-  return textLines(measureContext, item.text, item.w).join('\n');
+  return textLines(measureContext, text, item.w).join('\n');
 }

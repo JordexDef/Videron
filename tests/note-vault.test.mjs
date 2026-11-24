@@ -64,6 +64,31 @@ test('data note language and full document stay inside the envelope across edits
   assert.ok(await session.beforeClose())
 })
 
+test('a task state edit survives local saves, workspace deltas and a note lock', async () => {
+  const f = fixture()
+  const task = {type:'paragraph',listStyle:'task-choice',runs:[{text:'private task'}]}
+  Object.assign(f.record,{body:[task],plain:'private task'})
+  const lib = newLibrary(), space = lib.spaces.demo = {notes:[f.record],areas:[]}
+  const records = new WorkspaceRecords(space)
+  task.taskState = 'done'
+  records.mark({notes:[f.record]})
+  const update = records.prepare(space)
+  assert.deepEqual(update.patch.notes.edit[0].set.body, [task])
+  assert.equal(update.patch.notes.edit[0].set.plain, undefined)
+  update.commit()
+  const restored = readLibrary(serializeLibrary(lib)).spaces.demo
+  assert.deepEqual(restored.notes[0].body, [task])
+  let session = await f.open()
+  await session.manageProtection()
+  const cancelled = {...task,taskState:'cancelled'}
+  session.changed({body:[cancelled]})
+  assert.ok(await session.beforeClose())
+  assert.doesNotMatch(JSON.stringify(f.record), /taskState|private task|cancelled/)
+  session = await f.open()
+  assert.deepEqual(session.note.body, [cancelled])
+  assert.ok(await session.beforeClose())
+})
+
 test('sealing an edit marks the new envelope even after the map record was acknowledged', async () => {
   const f=fixture(), space={notes:[f.record],areas:[]}
   let records

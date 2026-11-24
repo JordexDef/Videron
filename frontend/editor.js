@@ -13,7 +13,8 @@ import { attachTextToolbar } from './canvas-text-toolbar.js'
 import { blockText, textTypes } from './search-location.js'
 import { historyDirection, primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
 import { blockTagText } from './board-rich-text.js'
-import { listStyleForPrefix, isListStyle, listStyleOf, indentOf, listMarkers, atParentLevel } from './note-lists.js'
+import { isListStyle, listStyleOf, indentOf, listMarkers, atParentLevel, isTaskStyle, taskStateOf, taskCounts,
+  withListStyle, toggleTask, listItemForPrefix, continuedListItem } from './note-lists.js'
 import { createSearchReveal, rangeInText } from './search-reveal.js'
 import { isProtectedNote, protectedNoteTitle } from './note-vault.js'
 import { createTagNavigator, noteTags } from './note-tags.js'
@@ -22,6 +23,7 @@ import { canPickFolder, pickFolder, openFolder, isFolderPath, folderLabel, folde
 // Version 1 stores content as text runs and media blocks. DOM nodes are only an editing view.
 const lightPaperInk = ['#303137', '#755841', '#295b86', '#a34340', '#68498e', '#84621a']
 const darkPaperInk = ['#d4d4d4', '#e8dfc8', '#9dc9e2', '#e6aaa0', '#bba6db', '#dbbf79']
+let taskTextId = 0
 const icons = {
   padlock:'M5 10h14v11H5z M8 10V7a4 4 0 0 1 8 0v3',
   openPadlock:'M5 10h14v11H5z M8 10V7a4 4 0 0 1 7.6-1.8',
@@ -547,7 +549,14 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   function indicators(data) {
     if(embed){refreshEmbeddedHistory();return}
     const words=data.plain.trim() ? data.plain.trim().split(/\s+/u).length : 0
-    count.textContent=words.toLocaleString(getLanguage())+tr(' сл.',words===1?' word':' words')
+    const summary=[words.toLocaleString(getLanguage())+tr(' сл.',words===1?' word':' words')]
+    const {pending,done,cancelled}=taskCounts(body)
+    const total=pending+done
+    if(total+cancelled>=2){
+      if(total)summary.push(tr(`Готово ${done} из ${total}`,`${done} of ${total} done`))
+      if(cancelled)summary.push(tr(`Отменено ${cancelled}`,`${cancelled} cancelled`))
+    }
+    count.textContent=summary.join(' · ')
     undoBtn.disabled=!past.length;redoBtn.disabled=!future.length
     details.setTags(data.tags)
     activeInline?.refreshHistory?.()
@@ -688,7 +697,11 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       if(before.length)inserted.push({...b,runs:before})
       inserted.push(...blocks)
       const focus=index+inserted.length
-      if(after.length||appendText)inserted.push({...(listStyleOf(b) ? b : paragraph()),runs:after})
+      if(after.length||appendText){
+        const keepTask=after.length && !before.length
+        if(isTaskStyle(listStyleOf(b)) && !keepTask)inserted.push(continuedListItem(b,after))
+        else inserted.push({...(listStyleOf(b) ? b : paragraph()),runs:after})
+      }
       next.splice(index,1,...inserted)
       applyBody(next,Math.min(focus,next.length-1),0)
     }else{
@@ -743,12 +756,12 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   function autoList(e,i){
     if(e.isComposing || !e.cancelable || e.inputType!=='insertText' || e.data!==' ' || body[i].type!=='paragraph')return
     const mark=currentSelection()
-    if(!mark || mark.start!==mark.end || mark.start>2)return
-    const block=body[i], style=listStyleForPrefix(blockText(block).slice(0,mark.start))
-    if(!style)return
+    if(!mark || mark.start!==mark.end || mark.start>5)return
+    const block=body[i], item=listItemForPrefix(block,blockText(block).slice(0,mark.start))
+    if(!item)return
     e.preventDefault();remember()
     const next=[...body]
-    next[i]={...block,listStyle:style,runs:sliceRuns(block.runs,mark.start)}
+    next[i]={...item,runs:sliceRuns(block.runs,mark.start)}
     applyBody(next,i,0)
   }
   function visualLineEdge(row, direction) {
@@ -804,6 +817,11 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       }
     }
     const block=body[i], style=listStyleOf(block)
+    if(isTaskStyle(style) && primaryCommand(e) && !e.shiftKey && e.key==='Enter'){
+      e.preventDefault();e.stopPropagation()
+      if(!e.repeat)changeTask(i,'done')
+      return
+    }
     if(style && e.key==='Tab' && !e.altKey && !e.ctrlKey && !e.metaKey){
       e.preventDefault();e.stopPropagation();indent(e.shiftKey?-1:1);return
     }
@@ -821,10 +839,10 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       }
       remember()
       const b=body[i],next=[...body]
-      const nextBlock={...paragraph(),runs:sliceRuns(b.runs,mark.end)}
-      if(b.indent)nextBlock.indent=b.indent
-      if(style)nextBlock.listStyle=style
-      next.splice(i,1,{...b,runs:sliceRuns(b.runs,0,mark.start)},nextBlock)
+      const first=sliceRuns(b.runs,0,mark.start), rest=sliceRuns(b.runs,mark.end)
+      if(isTaskStyle(style) && !mark.start && !mark.end && rest.length){
+        next.splice(i,1,continuedListItem(b,first),{...b,runs:rest})
+      }else next.splice(i,1,{...b,runs:first},continuedListItem(b,rest))
       applyBody(next,i+1,0)
     }else if(mark.start===mark.end && ((e.key==='Backspace' && mark.start===0 && i>0)||(e.key==='Delete'&&mark.end===blockText(body[i]).length&&i+1<body.length))){
       e.preventDefault()
@@ -878,7 +896,10 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     else if(!isText)inserted.push(block)
     inserted.push({type:'divider'})
     const focus=index+inserted.length
-    if(after.length)inserted.push({...block,runs:after})
+    if(after.length){
+      const splitTask=before.length && isTaskStyle(listStyleOf(block))
+      inserted.push(splitTask ? continuedListItem(block,after) : {...block,runs:after})
+    }
     else if(!textTypes.has(body[index+1]?.type))inserted.push(paragraph())
     const next=[...body]
     next.splice(index,1,...inserted)
@@ -1051,6 +1072,48 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   }
   root.addEventListener('pointerdown',trackInline,true)
   root.addEventListener('focusin',trackInline,true)
+  function syncTaskRow(wrapper,block){
+    const state=taskStateOf(block)
+    wrapper.dataset.taskState=state
+    for(const control of wrapper.querySelectorAll('.ve-task-control')){
+      const done=control.dataset.outcome==='done', selected=state===control.dataset.outcome
+      control.setAttribute('aria-checked',String(selected))
+      const action=selected ? tr('Вернуть в работу','Reopen task') :
+        done ? tr('Отметить выполненной','Mark complete') : tr('Отменить задачу','Cancel task')
+      control.title=done ? action+' ('+shortcutLabel('Ctrl+Enter')+')' : action
+    }
+  }
+  function changeTask(i,outcome){
+    const next=toggleTask(body[i],outcome)
+    if(next===body[i])return
+    remember()
+    body=[...body];body[i]=next
+    // Keep the native selection, keyboard focus and any adjacent editor intact.
+    syncTaskRow(blockRefs[i].parentNode,next)
+    emit()
+  }
+  function taskRow(row,block,i){
+    const wrapper=el('div','ve-task-row'), controls=el('div','ve-task-controls')
+    wrapper.style.marginInlineStart=indentOf(block)*20+'px'
+    row.id='ve-task-text-'+(++taskTextId)
+    for(const outcome of block.listStyle==='task-choice'?['done','cancelled']:['done']){
+      const done=outcome==='done'
+      const control=el('button','ve-task-control')
+      control.type='button';control.dataset.outcome=outcome
+      control.setAttribute('role','checkbox')
+      control.setAttribute('aria-label',done?tr('Задача выполнена','Task complete'):tr('Задача отменена','Task cancelled'))
+      control.setAttribute('aria-describedby',row.id)
+      control.append(icon(done?'check':'close'))
+      control.onmousedown=e=>{if(e.button===0)e.preventDefault()}
+      control.onfocus=()=>{active=i;syncTools()}
+      control.onclick=()=>changeTask(i,outcome)
+      controls.append(control)
+    }
+    row.setAttribute('aria-keyshortcuts',shortcutAria('Ctrl+Enter'))
+    wrapper.append(controls,row)
+    syncTaskRow(wrapper,block)
+    return wrapper
+  }
   function render() {
     tagNav.clearPaint()
     blockRefs=[]
@@ -1061,16 +1124,18 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     const rows=body.map((b,i)=>{
       if(textTypes.has(b.type)){
         const row=el('div','ve-text ve-'+b.type);row.contentEditable='true'
-        row.style.marginInlineStart=indentOf(b)*20+'px'
+        const task=isTaskStyle(listStyleOf(b))
+        if(!task)row.style.marginInlineStart=indentOf(b)*20+'px'
         row.spellcheck=true;row.setAttribute('role','textbox');row.setAttribute('aria-multiline','true')
         const label=tr('Текст заметки, блок ','Note text, block ')+(i+1)
-        if(markers[i]){
+        if(markers[i] && !task){
           row.classList.add('ve-list-item')
           row.dataset.marker=markers[i]
           row.style.setProperty('--ve-marker-width',Math.max(2,markers[i].length)+'ch')
         }
-        row.setAttribute('aria-label',markers[i]?label+' · '+tr('Пункт списка','List item')+' '+markers[i]:label)
-        row.dataset.placeholder=body.length===1?tr('Начните писать…','Start writing…'):''
+        row.setAttribute('aria-label',task ? tr('Текст задачи, блок ','Task text, block ')+(i+1) :
+          markers[i]?label+' · '+tr('Пункт списка','List item')+' '+markers[i]:label)
+        row.dataset.placeholder=task?tr('Задача…','Task…'):body.length===1?tr('Начните писать…','Start writing…'):''
         appendRuns(row,b.runs)
         tagNav.paint(row)
         row.onfocus=()=>{active=i;syncTools()}
@@ -1082,7 +1147,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
           tagNav.paint(row)
           emit();syncTools()
         }
-        blockRefs.push(row);return row
+        blockRefs.push(row);return task?taskRow(row,b,i):row
       }
       if(b.type==='code'){
         let view=previousCodeViews.get(b)
@@ -1258,6 +1323,8 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   kind.add(option('bullet',tr('• Список','• List')))
   kind.add(option('decimal',tr('1. Список','1. List')))
   kind.add(option('parenthesis',tr('1) Список','1) List')))
+  kind.add(option('task',tr('☐ Задача','☐ Task')))
+  kind.add(option('task-choice',tr('☐ Задача с отменой','☐ Cancellable task')))
   const insertGroup=el('optgroup');insertGroup.label=tr('Вставить','Insert')
   insertGroup.append(option('divider',tr('Горизонтальная линия','Horizontal rule')));kind.append(insertGroup)
   let typeMark
@@ -1272,10 +1339,9 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   kind.onchange=()=>{
     const type=kind.value,mark=typeMark||position();typeMark=null
     if(type==='divider'){insertDivider(mark);return}
-    ensureText();remember();const next=[...body], block={...body[active]}
-    if(isListStyle(type)){block.type='paragraph';block.listStyle=type}
-    else{block.type=type;delete block.listStyle}
-    next[active]=block;applyBody(next,active,mark.start,mark.end)
+    ensureText();remember();const next=[...body]
+    next[active]=isListStyle(type)?withListStyle(body[active],type):{...withListStyle(body[active],null),type}
+    applyBody(next,active,mark.start,mark.end)
   }
   const boldBtn=button(shortcutLabel(tr('Полужирный (Ctrl+B)','Bold (Ctrl+B)')),'bold',()=>format('bold')),italicBtn=button(shortcutLabel(tr('Курсив (Ctrl+I)','Italic (Ctrl+I)')),'italic',()=>format('italic'))
   function indent(delta){

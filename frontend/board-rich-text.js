@@ -1,3 +1,5 @@
+import {taskMarker, taskStateOf} from './note-lists.js';
+
 const paragraphs = new Set(['paragraph', 'heading', 'subheading', 'quote']);
 const raster = /^data:image\/(?:png|jpe?g|gif|webp|bmp|avif);base64,/i;
 
@@ -45,6 +47,12 @@ export function richBlockText(block) {
 
 export function richPlain(body) {
   return body.map(richBlockText).join('\n');
+}
+
+export function richDisplayText(block) {
+  const marker = taskMarker(taskStateOf(block));
+  const text = richBlockText(block);
+  return marker ? marker + ' ' + text : text;
 }
 
 export function blockTagText(block, fallback = '') {

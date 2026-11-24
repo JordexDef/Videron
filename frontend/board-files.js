@@ -10,7 +10,7 @@ import {
 } from './board-fonts.js';
 import { pressureSamples } from './freehand.js';
 import { layoutShapeLabel } from './shape-label.js';
-import { richBlocks, richFrameStyle, richPlain } from './board-rich-text.js';
+import { richBlocks, richDisplayText, richFrameStyle } from './board-rich-text.js';
 import { magnets } from './board-connectors.js';
 import { connectorSegments, segmentPoint } from './connector-path.js';
 import { createWorkbook, normalizeTable } from './table-engine.js';
@@ -180,7 +180,7 @@ export function importScene(scene) {
       if (rich?.version === 1 && Array.isArray(rich.body)) {
         const body = richBlocks(rich.body, { localFolders: false });
         // Edits made to the plain text in Excalidraw take precedence over an old snapshot.
-        if (richPlain(body) === item.text) Object.assign(item, {body}, richFrameStyle(rich));
+        if (body.map(richDisplayText).join('\n') === item.text) Object.assign(item, {body}, richFrameStyle(rich));
       }
       item.fontSize = Number.isFinite(source.fontSize) ? source.fontSize : 20;
       item.fontFamily =
@@ -374,12 +374,15 @@ export function exportScene(doc, workbook) {
           lastCommittedPoint: null
         });
     } else if (type === 'text') {
+      let text = item.text;
       if (Array.isArray(item.body)) {
-        e.customData = { videronRichText: { version: 1, body: richBlocks(item.body, { localFolders: false }), ...richFrameStyle(item) } };
+        const body = richBlocks(item.body, { localFolders: false });
+        e.customData = { videronRichText: { version: 1, body, ...richFrameStyle(item) } };
+        text = body.map(richDisplayText).join('\n');
       }
       Object.assign(e, {
-        text: wrappedSceneText(item),
-        originalText: item.text,
+        text: wrappedSceneText(item, text),
+        originalText: text,
         fontSize: item.fontSize,
         fontFamily: item.fontFamily || sansFont,
         textAlign: item.textAlign || 'left',

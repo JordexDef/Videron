@@ -20,6 +20,8 @@ import {
 import { freehandPath, pressureSamples } from './freehand.js';
 import { alignDrag } from './board-alignment.js';
 import { richBlocks, richBlockText, richFrameStyle, richPlain } from './board-rich-text.js';
+import { taskMarker, taskStateOf } from './note-lists.js';
+import { taskTextContainer } from './task-preview.js';
 import { boardShapes as shapes } from './board-summary.js';
 export { boardSummary } from './board-summary.js';
 import { normalizeTable, tableNameAllocator, uniqueTableName, createWorkbook } from './table-engine.js';
@@ -582,16 +584,34 @@ export async function renderBoardPreview(canvas, input) {
       const baseline = (lineHeight + metrics.fontBoundingBoxAscent - metrics.fontBoundingBoxDescent) / 2;
       const width = e.body ? Math.max(1, e.w - 24) : e.w;
       const wrap = text => e.autoResize ? text.split('\n') : textLines(ctx, text, width);
-      const lines = e.body ? e.body.flatMap(block => block.type === 'divider' ? [null] : wrap(richBlockText(block))) : wrap(e.text);
-      lines.forEach((line, i) => {
-        if (line !== null) ctx.fillText(line, x, baseline + i * lineHeight);
-        else {
-          ctx.save();
-          ctx.globalAlpha *= .45;
-          ctx.fillRect(0, (i + .5) * lineHeight, width, 1);
-          ctx.restore();
+      if (e.body) {
+        let y = baseline;
+        for (const block of e.body) {
+          if (block.type === 'divider') {
+            ctx.save();
+            ctx.globalAlpha *= .45;
+            ctx.fillRect(0, y - baseline + .5 * lineHeight, width, 1);
+            ctx.restore();
+            y += lineHeight;
+            continue;
+          }
+          const state = taskStateOf(block);
+          let prefix = state ? taskMarker(state) + ' ' : '';
+          for (const line of wrap(prefix + richBlockText(block))) {
+            ctx.fillText(line, x, y);
+            if (state === 'done' || state === 'cancelled') {
+              const span = ctx.measureText(line).width;
+              const skip = prefix ? Math.min(span, ctx.measureText(prefix).width) : 0;
+              const left = e.textAlign === 'center' ? x - span / 2 : e.textAlign === 'right' ? x - span : x;
+              ctx.fillRect(left + skip, y - e.fontSize * .3, span - skip, Math.max(1, e.fontSize / 16));
+            }
+            prefix = '';
+            y += lineHeight;
+          }
         }
-      });
+      } else {
+        wrap(e.text).forEach((line, i) => ctx.fillText(line, x, baseline + i * lineHeight));
+      }
     } else {
       for (const layer of paintLayers(e)) {
         const path = new Path2D(layer.d);
@@ -1673,7 +1693,8 @@ export function mountBoard(container, options = {}) {
       const fragment = document.createDocumentFragment();
       for (const block of item.body) {
         if (fragment.hasChildNodes()) fragment.append('\n');
-        fragment.append(block.type === 'divider' ? document.createElement('hr') : richBlockText(block));
+        if (block.type === 'divider') fragment.append(document.createElement('hr'));
+        else taskTextContainer(fragment, taskStateOf(block)).append(richBlockText(block));
       }
       view.content.replaceChildren(fragment);
       return;

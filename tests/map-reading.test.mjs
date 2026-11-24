@@ -4,6 +4,21 @@ import { preferredFragment, readingCandidate, readingFragments } from '../fronte
 
 const paragraph = text => ({type:'paragraph', runs:[{text}]});
 
+test('a checkbox changes its reading marker without moving the anchored text', () => {
+  const task = {...paragraph('Ship the release'), listStyle:'task-choice'};
+  const note = {body:[task]};
+  const first = readingFragments(note)[0];
+  for (const [state, mark] of [['pending','☐'],['done','☑'],['cancelled','☒']]) {
+    if (state !== 'pending') task.taskState = state;
+    const fragment = readingFragments(note)[0];
+    assert.equal(fragment.taskState, state);
+    assert.equal(fragment.label, mark + ' Ship the release');
+    assert.equal(fragment.text, 'Ship the release');
+    assert.equal(fragment.key, first.key);
+    assert.deepEqual(fragment.target, {kind:'body', ranges:[{index:0, start:0, end:1}]});
+  }
+});
+
 test('the automatic excerpt skips a heading and a tag-only line, and old text-only notes work', () => {
   const fragments = readingFragments({body:[{...paragraph('Setup'),type:'heading'}, paragraph('#work #soon'), paragraph('Compile the project')]});
   assert.equal(preferredFragment(fragments)?.text, 'Compile the project');

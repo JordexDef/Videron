@@ -82,6 +82,23 @@ test('canvas text areas keep editable note blocks and publish a portable scene f
   assert.equal(normalizeBoard({elements:[item('legacy', 'text', {text:'Existing label'})]}).elements[0].body, undefined);
 });
 
+test('canvas task markers survive scene exchange while the searchable text stays unchanged', () => {
+  const body = [
+    {type:'paragraph', listStyle:'task', runs:[{text:'Plan'}]},
+    {type:'paragraph', listStyle:'task', taskState:'done', runs:[{text:'Build', bold:true}]},
+    {type:'paragraph', listStyle:'task-choice', taskState:'cancelled', runs:[{text:'Ship'}]}
+  ];
+  const doc = normalizeBoard({elements:[item('checklist','text',{body})]});
+  assert.equal(boardSummary(doc).plain, 'Plan\nBuild\nShip');
+  const scene = exportScene(doc);
+  assert.equal(scene.elements[0].originalText,'☐ Plan\n☑ Build\n☒ Ship');
+  const restored = normalizeBoard(importScene(scene)).elements[0];
+  assert.deepEqual(restored.body, body);
+  assert.equal(restored.text, 'Plan\nBuild\nShip');
+  scene.elements[0].originalText = '☑ Plan\n☑ Build\n☒ Ship';
+  assert.equal(normalizeBoard(importScene(scene)).elements[0].body, undefined);
+});
+
 test('text area background and border survive saving and scene exchange independently', () => {
   const body = [{type:'paragraph',runs:[{text:'Frame'}]}];
   for (const frame of [
