@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { newLibrary, readLibrary, serializeLibrary } from '../frontend/data.js'
-import { folderEntry, localFallback, readSpaceFolder, saveSpaceFolder } from '../frontend/workspace-storage.js'
+import { CatalogRecords } from '../frontend/catalog-records.js'
+import { catalogWithStartupFolder, folderEntry, localFallback, readSpaceFolder, saveSpaceFolder } from '../frontend/workspace-storage.js'
 
 const link={name:'Studio',folder:'D:/Cloud/Studio',encrypted:true}
 const data={name:'Studio',notes:[],areas:[],routes:[]}
@@ -39,6 +40,38 @@ test('catalog writes only the folder link and supports a library with no open sp
   assert.deepEqual(empty.spaces,{})
   assert.throws(()=>readLibrary(JSON.stringify({...catalog,active:'missing'})))
   assert.throws(()=>readLibrary(JSON.stringify({...catalog,spaces:{s:{...link,notes:[]}}})))
+})
+
+test('temporary fallback saves local edits and restores the chosen folder on restart',()=>{
+  const original={...newLibrary(),version:3,active:'work'}
+  original.spaces.work=link
+  const visible=localFallback(original), startupFolder=original.active
+  assert.equal(visible.active,'personal')
+  const records=new CatalogRecords(original,original)
+  const persist=()=>records.prepare(catalogWithStartupFolder(visible,startupFolder),visible)
+  let update=persist()
+  assert.equal(update.patch,null)
+  update.commit()
+  const note={id:'n',title:'Edited offline',tags:[],links:[],body:[]}
+  visible.spaces.personal.notes.push(note)
+  records.markSpace('personal',{notes:[note]})
+  update=persist()
+  assert.ok(update.patch.spaces.personal)
+  assert.equal(update.patch.set?.active,undefined)
+  update.commit()
+  const reopened=readLibrary(serializeLibrary(catalogWithStartupFolder(visible,startupFolder)))
+  assert.equal(reopened.active,'work')
+  assert.equal(reopened.spaces.personal.notes[0].title,note.title)
+  for(const active of ['personal','work']){
+    const chosen={...visible,active}
+    const stored=catalogWithStartupFolder(chosen,'')
+    assert.equal(stored,chosen)
+    assert.equal(records.prepare(stored,chosen).patch?.set?.active,active==='personal'?'personal':undefined)
+  }
+  const removed={...visible,spaces:{personal:visible.spaces.personal}}
+  const stored=catalogWithStartupFolder(removed,startupFolder)
+  assert.equal(stored,removed)
+  assert.equal(records.prepare(stored,removed).patch.set.active,'personal')
 })
 
 test('save retries retain the last revision and folder payloads never flow into the catalog',async()=>{

@@ -40,7 +40,8 @@ type serverProfile struct {
 	LastSync                     int64  `json:",omitempty"`
 	ProjectID                    string `json:",omitempty"`
 	ProjectName                  string `json:",omitempty"`
-	ProjectDeleted               bool   `json:"-"` // Only a verified ticket can refer to a deleted project.
+	ManualConnect                bool   `json:",omitempty"` // Absent in older profiles, which reconnect automatically.
+	ProjectDeleted               bool   `json:"-"`          // Only a verified ticket can refer to a deleted project.
 }
 type ServerConnectionInfo struct {
 	Address     string `json:"address"`
@@ -48,6 +49,7 @@ type ServerConnectionInfo struct {
 	LastSync    int64  `json:"lastSync,omitempty"`
 	ProjectID   string `json:"projectId,omitempty"`
 	ProjectName string `json:"projectName,omitempty"`
+	AutoConnect bool   `json:"autoConnect"`
 }
 type serverManifest struct {
 	Cursor      string            `json:"cursor"`
@@ -628,7 +630,32 @@ func (a *App) ServerConnection(folder string) (ServerConnectionInfo, error) {
 	if lineage != p.Lineage {
 		return ServerConnectionInfo{}, nil
 	}
-	return ServerConnectionInfo{Address: p.Address, Transport: p.Transport, LastSync: p.LastSync, ProjectID: p.ProjectID, ProjectName: p.ProjectName}, nil
+	return ServerConnectionInfo{Address: p.Address, Transport: p.Transport, LastSync: p.LastSync, ProjectID: p.ProjectID, ProjectName: p.ProjectName, AutoConnect: !p.ManualConnect}, nil
+}
+
+func (a *App) SetServerAutoConnect(folder string, enabled bool) error {
+	a.serverMu.Lock()
+	defer a.serverMu.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s, err := a.currentSpaceSession(folder)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(s.path)
+	p, err := loadProfile(dir)
+	if err != nil {
+		return err
+	}
+	if p == nil || p.Lineage != s.sync.meta.Lineage {
+		return errChanged
+	}
+	manual := !enabled
+	if manual == p.ManualConnect {
+		return nil
+	}
+	p.ManualConnect = manual
+	return storeProfile(dir, *p)
 }
 
 func (p *serverProfile) saveSuccessfulSync(dir string) error {
@@ -651,7 +678,7 @@ func (a *App) ConnectSpaceServer(folder, code string) error {
 	if err != nil {
 		return err
 	}
-	if err = p.checkFolderProject(dir); err != nil {
+	if err = p.bindWorkingCopy(dir); err != nil {
 		return err
 	}
 	lineage, err := a.FolderSpaceLineage(dir)
@@ -850,7 +877,7 @@ func (a *App) JoinSpaceServer(code, folder string) error {
 	if err != nil {
 		return err
 	}
-	if err = p.checkFolderProject(dir); err != nil {
+	if err = p.bindWorkingCopy(dir); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(dir)

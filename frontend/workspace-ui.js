@@ -24,7 +24,7 @@ function iconButton(symbol,label,action){
   b.title=label;b.setAttribute('aria-label',label);b.append(glyph(symbol));
   return b;
 }
-function checkLabel(label){
+export function checkLabel(label){
   const row=element('label','space-choice'),input=element('input');
   input.type='checkbox';row.append(input,document.createTextNode(label));
   return {row,input};

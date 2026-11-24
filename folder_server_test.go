@@ -604,6 +604,77 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 	}
 }
 
+func TestServerAutoConnectAcrossRestarts(t *testing.T) {
+	a, _ := testStore(t)
+	server := startPasswordTestService(t, "Temporary sync service passphrase")
+	dir := t.TempDir()
+	if err := a.CreateFolderSpace(dir, syncDoc("first", "second"), testPass); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ConnectSpaceServer(dir, server.code); err != nil {
+		t.Fatal(err)
+	}
+	expect := func(app *App, folder string, enabled bool) {
+		t.Helper()
+		info, err := app.ServerConnection(folder)
+		if err != nil || info.Address == "" || info.AutoConnect != enabled {
+			t.Fatalf("expected stored auto-connect=%v, got %v (err %v)", enabled, info.AutoConnect, err)
+		}
+	}
+	// As in profiles created before the preference existed, the default is
+	// serialized without a setting. A paused copy keeps its credentials.
+	expect(a, dir, true)
+	if err := a.SetServerAutoConnect(dir, false); err != nil {
+		t.Fatal(err)
+	}
+	a.FinishClose()
+	b := new(App)
+	if _, err := b.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SetServerAutoConnect(dir, true); !errors.Is(err, errLocked) {
+		t.Fatal("updated a closed encrypted working copy", err)
+	}
+	if _, err := b.OpenFolderSpace(dir, testPass); err != nil {
+		t.Fatal(err)
+	}
+	expect(b, dir, false)
+	if cursor, err := b.SyncSpaceServer(dir); err != nil || cursor == "" {
+		t.Fatal("manual sync after restart", err)
+	}
+	if err := b.JoinSpaceServer(server.code, dir); err != nil {
+		t.Fatal("rejoining the working copy", err)
+	}
+	expect(b, dir, false)
+
+	ticket, err := b.ConnectedServerTicket(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.DiscardSyncServerTicket(ticket.Ticket)
+	other := t.TempDir()
+	if err = b.JoinSpaceServer(ticket.Ticket, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = b.OpenFolderSpace(other, testPass); err != nil {
+		t.Fatal(err)
+	}
+	expect(b, other, true)
+	if err = b.SetServerAutoConnect(dir, true); err != nil {
+		t.Fatal(err)
+	}
+	expect(b, dir, true)
+	if err = b.DisconnectSpaceServer(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err = b.SetServerAutoConnect(dir, true); !errors.Is(err, errChanged) {
+		t.Fatal("stale setting update on a detached working copy", err)
+	}
+	if info, err := b.ServerConnection(dir); err != nil || info.Address != "" {
+		t.Fatal("manual disconnect was lost", err)
+	}
+}
+
 func TestRejoinWorkingFolder(t *testing.T) {
 	for _, tc := range []struct{ name, password string }{{"plain", ""}, {"encrypted", testPass}} {
 		t.Run(tc.name, func(t *testing.T) {

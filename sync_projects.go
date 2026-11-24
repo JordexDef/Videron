@@ -51,17 +51,24 @@ func (p *serverProfile) sameProject(other *serverProfile) bool {
 	return p.Pin == other.Pin && p.ProjectID == other.ProjectID
 }
 
-func (p *serverProfile) checkFolderProject(dir string) error {
+// Connection preferences belong to the working copy. An enrollment ticket can
+// come from a different copy of the same project with its own preference.
+func (p *serverProfile) bindWorkingCopy(dir string) error {
 	existing, err := loadProfile(dir)
 	if err != nil {
 		return err
 	}
-	if existing != nil && !p.sameProject(existing) {
+	if existing == nil {
+		p.ManualConnect = false
+		return nil
+	}
+	if !p.sameProject(existing) {
 		if p.Address == existing.Address && p.Pin != existing.Pin {
 			return errServerCert
 		}
 		return errServerSpace
 	}
+	p.ManualConnect = existing.ManualConnect
 	return nil
 }
 

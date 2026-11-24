@@ -11,6 +11,7 @@ function connectionLabel(state) {
     local: tr('Сервер не подключён', 'No server connected'),
     checking: tr('Проверка подключения…', 'Checking connection…'),
     connecting: tr('Подключение…', 'Connecting…'),
+    paused: tr('Синхронизация на паузе', 'Sync paused'),
     online: tr('Сервер подключён', 'Server connected'),
     syncing: tr('Синхронизация…', 'Syncing…'),
     offline: tr('Сервер недоступен', 'Server unreachable'),
@@ -117,7 +118,8 @@ export function mountWorkspaceStatus({onManage, onRetry, onRetrySave}) {
 
     const focused = document.activeElement
     retrySave.hidden = storageState !== 'failed'
-    retry.hidden = state !== 'offline' && state !== 'error'
+    retry.hidden = state !== 'offline' && state !== 'error' && state !== 'paused'
+    retry.textContent = state === 'paused' ? tr('Подключиться', 'Connect') : tr('Повторить подключение', 'Retry connection')
     manage.hidden = !current.canManage
     manage.disabled = state === 'checking'
     manage.textContent = address ? tr('Настройки сервера', 'Server settings') : tr('Подключить сервер', 'Connect a server')

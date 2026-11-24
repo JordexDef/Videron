@@ -21,7 +21,7 @@ import { openAppearance } from './appearance.js';
 import { paintIcons, icon, drawAtlas } from './art.js';
 import { newLibrary, readLibrary, serializeLibrary, blankWorkspace, isFolderSpace, demoWorkspace, translateDemoSamples, createNote, colors, validSpaceName } from './data.js';
 import { CatalogRecords } from './catalog-records.js';
-import { spaceTitle, localFallback, folderEntry, readSpaceFolder, createSpaceFolder, saveSpaceFolder } from './workspace-storage.js';
+import { spaceTitle, localFallback, catalogWithStartupFolder, folderEntry, readSpaceFolder, createSpaceFolder, saveSpaceFolder } from './workspace-storage.js';
 import { createWorkspaceActivity } from './workspace-activity.js';
 import { openCreateSpace, openSpaceManager } from './workspace-ui.js';
 import { compareIncoming, commitIncoming, commitPreparedMerge, preservesOpenNote } from './workspace-reconcile.js';
@@ -70,6 +70,7 @@ let idle=null, lockScreen=null, locking=null, lockDuringStartup=false;
 const storageKey='videron.library.v1';
 const mapCameraMemory=createMapCameraMemory();
 let folderSession=null,spaceOperation=null,catalogSnapshot=null,startupNotice='';
+let deferredStartupFolder='';
 // Only IDs for the idle timer and lock button. Folder keys stay in the native process.
 const suspendedSpaceIds=new Set();
 let catalogRecords=null,catalogRevision=null,pendingCatalogPatch=null;
@@ -240,7 +241,8 @@ function status(state=storageState){
   let connectionState='local';
   if(error)connectionState=String(error?.message||error).split('|')[0]==='VD_SERVER_OFFLINE'?'offline':'error';
   else if(connection?.address){
-    if(!session.serverOnline)connectionState='connecting';
+    if(session.serverPaused)connectionState='paused';
+    else if(!session.serverOnline)connectionState='connecting';
     else connectionState=session.exchanging?'syncing':'online';
   }else if(session && connection===undefined && native?.ServerConnection)connectionState='checking';
   storageIndicator.update({
@@ -318,15 +320,17 @@ function acknowledgeCatalog(snapshot,catalog){
     pendingCatalogPatch=null;
   }else catalogSnapshot=snapshot;
 }
-async function writeCatalog(catalog){
+async function writeCatalog(catalog,{selectSpace=false}={}){
+  const startupFolder=selectSpace?'':deferredStartupFolder;
   if(catalogRecords){
     for(;;){
       const retry=!!pendingCatalogPatch;
-      const draft=pendingCatalogPatch??catalogRecords.prepare(catalog);
+      const stored=catalogWithStartupFolder(catalog,startupFolder);
+      const draft=pendingCatalogPatch??catalogRecords.prepare(stored,catalog);
       if(!draft.patch){draft.commit();return}
       if(catalogRevision===null)catalogRevision=await native.CatalogRevision();
       if(!catalogRevision){
-        const snapshot=serializeLibrary(catalog);
+        const snapshot=serializeLibrary(catalogWithStartupFolder(catalog,startupFolder));
         await native.Save(snapshot);
         acknowledgeCatalog(snapshot,catalog);
         return;
@@ -338,7 +342,7 @@ async function writeCatalog(catalog){
       if(!retry)return;
     }
   }
-  const json=serializeLibrary(catalog);
+  const json=serializeLibrary(catalogWithStartupFolder(catalog,startupFolder));
   if(json===catalogSnapshot)return;
   if(native)await native.Save(json);else localStorage.setItem(storageKey,json);
   catalogSnapshot=json;
@@ -458,7 +462,7 @@ function applyProjectProtection(write,enabled){
     if(pending)await pending;
     const latest=revision;
     if(await saveSpaceFolder(native,folderSession))branchSaved(folderSession);
-    const snapshot=serializeLibrary(library);
+    const snapshot=serializeLibrary(catalogWithStartupFolder(library,deferredStartupFolder));
     await write(snapshot);acknowledgeCatalog(snapshot,library);
     saved=latest;projectProtected=enabled;status('local');syncIdle();
   })().finally(()=>{
@@ -909,11 +913,12 @@ function showSpace(next,session){
 }
 async function activateSpace(next,session=null){
   const previous=folderSession,previousId=library.active;
-  try{await writeCatalog(next)}
+  try{await writeCatalog(next,{selectSpace:true})}
   catch(error){
     if(session && session!==previous)await native.CloseFolderSpace(session.folder);
     throw error;
   }
+  deferredStartupFolder='';
   showSpace(next,session);
   if(previous && previous!==session){
     if(previous.encrypted && native.SuspendFolderSpace && !lockScreen && !closingApp){
@@ -927,7 +932,7 @@ function promptForSpace(options){
   return openVaultPassword(options);
 }
 function switchSpace(id){
-  if(id===library.active)return;
+  if(id===library.active && !deferredStartupFolder)return;
   changeSpace(async()=>{
     const entry=library.spaces[id];
     if(isFolderSpace(entry)){
@@ -991,6 +996,7 @@ async function deleteSpace(id,deleteFile){
         throw error;
       }
     }
+    if(id===deferredStartupFolder)deferredStartupFolder='';
     if(current){
       showSpace(next,null);
       if(previous && !deleteFile)await native.CloseFolderSpace(previous.folder);
@@ -1032,11 +1038,11 @@ function blockedForMerge(){
 function branchSaved(session){
   if(!session)return;
   session.nextExchange=0;session.sendAgain=true;
-  if(session.connection?.address && !lockScreen && !closingApp)void exchangeServer(true).catch(()=>{});
+  if(session.connection?.address && !session.serverPaused && !lockScreen && !closingApp)void exchangeServer(true).catch(()=>{});
 }
 async function finishServerWrites(){
   const session=folderSession;
-  if(!session?.connection?.address || session.serverError)return;
+  if(!session?.connection?.address || session.serverPaused || session.serverError)return;
   try{
     if(session.serverPoll)await session.serverPoll;
     if(session.sendAgain)await exchangeServer(true,{finalWrite:true});
@@ -1048,7 +1054,11 @@ function clearServerStatus(session){
     serverPoll:null,watching:false,cursor:'',sendAgain:false,nextExchange:0});
 }
 function setServerConnection(session,info){
-  session.connection=info||null;
+  // Read the preference once on opening this working copy. A manual connection
+  // stays active for the rest of this visit, including after network outages.
+  if(!info?.address)session.serverPaused=false;
+  else if(session.serverPaused===undefined)session.serverPaused=info.autoConnect===false;
+  session.connection=info?.address?info:null;
   const name=info?.projectName||session.data.name;
   if(info?.address)session.serverProjectDeleted=false;
   if(session.link.name===name)return;
@@ -1069,12 +1079,15 @@ function serverProjectGone(session){
 }
 function serverLinked(session,info){
   clearServerStatus(session);
+  session.serverPaused=false;
   setServerConnection(session,info);
   if(info?.address){rememberServerAddress(info.address);session.lastSync=info.lastSync||Date.now();session.serverOnline=true}
   if(session===folderSession)status();
 }
 async function syncNow(session){
   if(!session || session!==folderSession || lockScreen || closingApp)return;
+  session.serverPaused=false;
+  status();
   await flush();
   if(session!==folderSession)return;
   await exchangeServer(true);
@@ -1082,7 +1095,7 @@ async function syncNow(session){
 }
 async function watchServer(session,epoch){
   if(session.watching || !native?.WaitSpaceServerChange)return;
-  const current=()=>session===folderSession && session.serverEpoch===epoch && session.connection?.address && !lockScreen && !closingApp;
+  const current=()=>session===folderSession && session.serverEpoch===epoch && session.connection?.address && !session.serverPaused && !lockScreen && !closingApp;
   session.watching=true;
   try{
     while(current()){
@@ -1102,6 +1115,7 @@ async function exchangeServer(force,{finalWrite=false}={}){
   const session=folderSession;
   if(session?.serverPoll)return session.serverPoll;
   if(!session || lockScreen || (closingApp && !finalWrite) || (!force && (spaceOperation || Date.now()<(session.nextExchange||0))))return;
+  if(session.serverPaused && session.connection!==undefined)return;
   const epoch=session.serverEpoch;
   const current=()=>session===folderSession && session.serverEpoch===epoch && !lockScreen;
   session.serverPoll=(async()=>{
@@ -1111,14 +1125,14 @@ async function exchangeServer(force,{finalWrite=false}={}){
       rememberServerAddress(info?.address);
       setServerConnection(session,info);session.serverError=null;status();
     }
-    if(!session.connection?.address || !current())return;
+    if(!session.connection?.address || session.serverPaused || !current())return;
     session.exchanging=true;status();
     do{
       session.sendAgain=false;
       const cursor=await native.SyncSpaceServer(session.folder);
       if(!current())return;
       if(!cursor){
-        session.connection=undefined;clearServerStatus(session);status();return;
+        session.connection=undefined;session.serverPaused=undefined;clearServerStatus(session);status();return;
       }
       session.cursor=cursor;
       session.lastSync=Date.now();
@@ -1290,14 +1304,26 @@ async function serverSettings(){
   try{
     const info=session?await native.ServerConnection(session.folder):null;
     if(!isCurrent())return;
+    if(session && session.connection===undefined){setServerConnection(session,info);status()}
     const name=spaceTitle(id,session?.link??workspace());
     const managesActive=projectId=>!!session && !!info?.address && (info.projectId||'')===projectId;
     openWorkspaceServer({dialog,native,folder:session?.folder,spaceName:name,projectProtected,connection:info?.address?info:null,onError:storageErrorMessage,
+      autoConnect:info?.autoConnect!==false,paused:!!session?.serverPaused,
+      onAutoConnectChange:native.SetServerAutoConnect && (async enabled=>{
+        requireCurrent();
+        await native.SetServerAutoConnect(session.folder,enabled);
+        if(!isCurrent() || !session.connection?.address)return;
+        session.connection={...session.connection,autoConnect:enabled};
+        if(enabled && session.serverPaused){
+          session.serverPaused=false;session.nextExchange=0;
+          status();queueSync(0);
+        }
+      }),
       onRenameServerProject:(ticket,projectId,name,expectedName)=>changeSpace(async()=>{
         requireCurrent();
         const updated=await native.RenameServerProject(ticket,projectId,name,expectedName);
         if(managesActive(projectId) && isCurrent()){
-          serverLinked(session,{...info,projectName:updated.projectName});
+          setServerConnection(session,{...session.connection,projectName:updated.projectName});status();
           queueSync(50);
         }
         return updated;
@@ -1308,6 +1334,7 @@ async function serverSettings(){
         if(managesActive(projectId) && isCurrent()){
           // Let the client verify the tombstone against the saved identity
           // before discarding this folder's credentials.
+          session.serverPaused=false;
           try{await exchangeServer(true)}catch{queueSync(100)}
         }
       }),
@@ -1343,10 +1370,10 @@ async function serverSettings(){
         const snapshot=serializeLibrary(next);
         const moved=await native.MoveFolderSpace(session.folder,link.folder,snapshot);
         acknowledgeCatalog(snapshot,next);
+        const paused=session.serverPaused;
         clearServerStatus(session);
-        session={folder:link.folder,link,encrypted:link.encrypted,raw:session.raw,data:session.data,records:session.records,head:session.head};
+        session={folder:link.folder,link,encrypted:link.encrypted,raw:session.raw,data:session.data,records:session.records,head:session.head,serverPaused:paused};
         showSpace(next,session);
-        await linked(session);
         if(moved.keptSource)notify(tr('Перенос завершён. Часть файлов осталась в прежней папке.','Move complete. Some files remain in the previous folder.'));
         return link.folder;
       }),
@@ -2291,6 +2318,7 @@ async function loadDesktopLibrary(){
       }
       if(folderSession)library.spaces[library.active]=folderSession.link;
       else{
+        deferredStartupFolder=library.active;
         library=localFallback(library);resume='';startupNotice=notice;
       }
     }
@@ -2346,6 +2374,7 @@ async function init(){
     loadLibraryLanguages();
     catalogSnapshot=serializeLibrary(library);
     if(isFolderSpace(library.spaces[library.active])){
+      deferredStartupFolder=library.active;
       library=localFallback(library);startupNotice=tr('Откройте папку пространства в настольном приложении.','Open the space folder in the desktop app.');
     }
   }
@@ -2436,11 +2465,11 @@ async function init(){
   ready=true;bindUI();render();status();syncIdle();
   queueSync(200);
   if(catalogRecords)dirty({catalogOnly:true});
-  else if(demoChanged || catalogSnapshot!==serializeLibrary(library))dirty();
+  else if(demoChanged || catalogSnapshot!==serializeLibrary(catalogWithStartupFolder(library,deferredStartupFolder)))dirty();
   if(startupNotice)notify(startupNotice);
   restoreMapView();
   if(resume && byId(resume))await edit(resume);
-  if(!native)window.addEventListener('pagehide',()=>{editor?.flush?.();graph.flushPositions();if(saved!==revision)localStorage.setItem(storageKey,serializeLibrary(library))});
+  if(!native)window.addEventListener('pagehide',()=>{editor?.flush?.();graph.flushPositions();if(saved!==revision)localStorage.setItem(storageKey,serializeLibrary(catalogWithStartupFolder(library,deferredStartupFolder)))});
 }
 init().catch(error=>{
   ready=false;status('unavailable');

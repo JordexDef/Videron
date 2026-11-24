@@ -1,7 +1,7 @@
 import { icon } from './art.js'
 import { tr } from './i18n.js'
 import { folderLabel } from './folder-links.js'
-import { spaceDialog, spaceEncryptionFields } from './workspace-ui.js'
+import { checkLabel, spaceDialog, spaceEncryptionFields } from './workspace-ui.js'
 import { lastServerAddress, rememberServerAddress } from './server-address.js'
 import { mountServerProjectPicker } from './server-project-picker.js'
 
@@ -52,10 +52,20 @@ export function openWorkspaceServer(options){
     rememberServerAddress(connection.address)
     const address=node('p','server-address',connection.address)
     const projectName=node('p','space-hint',connection.projectName||tr('Основной проект','Main project'))
-    const hint=node('p','space-hint',tr('Отключение остановит синхронизацию этой рабочей копии. Файлы в папке и проект на сервере сохранятся.',
-      'Disconnecting stops sync for this working copy. The files in its folder and the project on the server will remain available.'))
+    const setting=checkLabel(tr('Подключаться при открытии пространства','Connect when this space opens'))
+    setting.input.checked=options.autoConnect!==false
+    const hint=node('p','space-hint',tr('«Отключить на этом компьютере» удалит сохранённое подключение. Локальная копия и проект на сервере сохранятся.',
+      'Disconnect on this computer removes the saved connection. Your local copy and the server project remain available.'))
     const actions=node('div','dialog-actions')
     const projects=node('div','server-projects')
+    const sync=action(options.paused ? tr('Подключиться','Connect') : tr('Синхронизировать','Sync now'),true,()=>
+      perform(onSync,tr('Синхронизируем проект…','Syncing the project…')))
+    setting.input.onchange=()=>run(async()=>{
+      const enabled=setting.input.checked
+      try{await options.onAutoConnectChange(enabled)}
+      catch(error){setting.input.checked=!enabled;throw error}
+      if(enabled && options.paused && box.isConnected)dismiss()
+    },tr('Сохраняем настройку…','Saving preference…'))
     const manage=action(tr('Проекты и папка…','Projects and folder…'),false,()=>run(async()=>{
       const profile=await native.ConnectedServerTicket(folder)
       if(!box.isConnected){discard(profile.ticket);return}
@@ -64,7 +74,7 @@ export function openWorkspaceServer(options){
       if(!box.isConnected)return
       const reset=()=>{
         clearCredentials();clearCredentials=()=>{}
-        actions.hidden=false;hint.hidden=false;projectName.hidden=false;projects.replaceChildren()
+        actions.hidden=false;hint.hidden=false;projectName.hidden=false;setting.row.hidden=false;projects.replaceChildren()
         requestAnimationFrame(()=>{if(box.isConnected && !actions.hidden)manage.focus()})
       }
       projectName.textContent=profile.projectName||tr('Основной проект','Main project')
@@ -78,13 +88,13 @@ export function openWorkspaceServer(options){
       clearCredentials=()=>{picker.clear();discard(profile.ticket)}
       const back=action(tr('Назад','Back'),false,reset)
       picker.actions.prepend(back)
-      actions.hidden=true;hint.hidden=true;projectName.hidden=true
+      actions.hidden=true;hint.hidden=true;projectName.hidden=true;setting.row.hidden=true
       requestAnimationFrame(()=>{if(box.isConnected && actions.hidden)picker.focus()})
     },tr('Получаем список проектов…','Loading the project list…')))
     if(native.ConnectedServerTicket && native.ListServerProjects && options.onNewProject)actions.append(manage)
-    actions.append(action(tr('Отключить на этом компьютере','Disconnect on this computer'),false,()=>perform(onDisconnect,tr('Отключаем рабочую копию…','Disconnecting the working copy…'))),
-      action(tr('Синхронизировать','Sync now'),true,()=>perform(onSync,tr('Синхронизируем проект…','Syncing the project…'))))
+    actions.append(action(tr('Отключить на этом компьютере','Disconnect on this computer'),false,()=>perform(onDisconnect,tr('Отключаем рабочую копию…','Disconnecting the working copy…'))),sync)
     box.append(address,projectName)
+    if(options.onAutoConnectChange)box.append(setting.row)
     box.append(hint,projects,error,actions);actions.lastElementChild.focus()
     return
   }

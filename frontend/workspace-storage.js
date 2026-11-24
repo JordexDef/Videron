@@ -10,6 +10,13 @@ export function localFallback(catalog){
   return {...catalog,version:3,active:key??''};
 }
 
+// Opening a temporary local space may follow a cancelled unlock or an unavailable drive.
+// Keep the last chosen folder in the catalog while still saving edits to the visible space.
+export function catalogWithStartupFolder(catalog,folderId){
+  return folderId && isFolderSpace(catalog.spaces[folderId]) && catalog.active!==folderId
+    ? {...catalog,active:folderId} : catalog;
+}
+
 export function folderEntry(spaces,path){
   // Native inspection resolves aliases. Case is also insignificant for a drive or UNC path.
   const key=p=>/^[a-z]:[\\/]|^\\\\/i.test(p)?p.toLowerCase():p;

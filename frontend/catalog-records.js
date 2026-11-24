@@ -32,8 +32,8 @@ export class CatalogRecords {
     this.generation++;
     for (const saved of this.spaces.values()) saved.records?.mark();
   }
-  prepare(catalog) {
-    const structural = this.live !== catalog, generation = this.generation;
+  prepare(catalog, live = catalog) {
+    const structural = this.live !== live, generation = this.generation;
     const fields = diffFields(this.fields, catalog, structural || this.allSettings ? undefined : this.settings, skip);
     const patch = fields.patch, commits = [fields.commit], spaces = Object.create(null);
     let version3 = catalog.version === 3 || !catalog.spaces.personal || !!catalog.demoHidden;
@@ -74,7 +74,7 @@ export class CatalogRecords {
     if (this.version !== version) (patch.set ??= Object.create(null)).version = version;
     return {patch: Object.keys(patch).length ? patch : null, commit: () => {
       for (const apply of commits) apply();
-      this.live = catalog;
+      this.live = live;
       this.version = version;
       if (this.generation === generation) {
         this.allSettings = false;
