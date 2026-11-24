@@ -5,6 +5,7 @@ import {getThemeMode,setTheme} from './theme.js'
 import {agentClientSettings} from './agent-client-settings.js'
 
 const openDialogs = new Set()
+const noteUnlockDurationKey = 'videron.note-unlock-duration.v1'
 
 // A lock cannot abandon a password change or unlock already submitted to Go.
 // Scrub all fields now, then let the caller wait for those operations to settle.
@@ -164,6 +165,10 @@ function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlai
       duration.add(new Option(tr('{minutes} мин', '{minutes} min', {minutes}), String(minutes)))
     }
     duration.add(new Option(tr('До конца сеанса', 'Until the session ends'), '-1'))
+    try {
+      const saved = localStorage.getItem(noteUnlockDurationKey)
+      if (Array.from(duration.options).some(option => option.value === saved)) duration.value = saved
+    } catch {}
     label.append(el('span', '', tr('Оставить заметку разблокированной', 'Keep this note unlocked')), duration)
     form.append(label)
     hint.setAttribute('aria-live', 'polite')
@@ -225,9 +230,10 @@ function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlai
       change: tr('Меняем пароль…', 'Changing password…'),
       remove: tr('Снимаем пароль…', 'Removing password…')
     }[mode]
+    const selectedDuration = duration?.value
     try {
       const values = {password:password?.value, currentPassword:current?.value}
-      if (duration) values.rememberMinutes = Number(duration.value)
+      if (duration) values.rememberMinutes = Number(selectedDuration)
       await onSubmit(values)
     } catch (error) {
       pending = false
@@ -244,7 +250,11 @@ function passwordForm(view, {mode, scope, onSubmit, onSuccess, onCancel, hasPlai
       }
       return
     }
-    if (view.settled(true)) onSuccess()
+    if (!view.settled(true)) return
+    if (duration) {
+      try { localStorage.setItem(noteUnlockDurationKey, selectedDuration) } catch {}
+    }
+    onSuccess()
   }
 }
 
