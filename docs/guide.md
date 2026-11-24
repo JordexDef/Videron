@@ -79,7 +79,9 @@ Tags such as `#projects` are highlighted as you type. Click a tag to open anothe
 
 At the start of a paragraph, type `-`, `*` or `+` followed by a space for a bulleted list. For a numbered list, start with `1.` or `1)` and a space. **Enter** starts the next item. **Tab** nests the current item and **Shift+Tab** moves it up one level. Press **Enter** on an empty subitem to return to the parent list or on an empty top-level item to end the list.
 
-For a checklist, choose **Paragraph → Task** or type `[ ]` followed by a space. Click the box to check it off and strike through the text. Choose **Cancellable task** when you also want a **×** beside the box. Click the selected mark again to reopen the task. With the cursor in the task text, **Ctrl+Enter** (**⌘+Enter** on Mac) toggles completion. **Enter** continues the list with an unchecked task. These controls also work in canvas text areas.
+Click **Task** on the formatting toolbar to turn the current paragraph into a checkbox. Choose **Cancellable task** for a second option, **×**. The active toolbar button stays highlighted. Click it again to remove the checkbox and keep the text. Canvas text areas have the same buttons on their floating toolbar.
+
+Click the box beside a task to check it off and strike through the text, or click **×** to cancel it. Click the selected mark again to reopen the task. You can also start a task by typing `[ ]` followed by a space. **Enter** continues the list with an unchecked task. With the cursor in the task text, **Ctrl+Enter** (**⌘+Enter** on Mac) toggles completion.
 
 In a text note with two or more tasks, the header shows your progress. It counts completed tasks out of the active total and lists cancelled tasks separately.
 

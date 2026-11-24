@@ -115,7 +115,9 @@
 .ve-toolbar { padding: 6px 0; border-block: 1px solid var(--ve-line); margin-bottom: 23px; flex-wrap: wrap; }
 .ve-main > .ve-toolbar { position: sticky; top: 0; z-index: 2; background: var(--ve-bg); }
 .ve-toolbar .ve-divider { margin: 0 4px; }
+.ve-task-formats { display: inline-flex; align-items: center; gap: 2px; }
 .vd-editor .ve-btn { display: inline-flex; min-width: 31px; height: 32px; align-items: center; justify-content: center; gap: 8px; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 0 7px; margin: 0; color: var(--ve-muted); font: 500 12px/1.1 "Inter","Segoe UI",sans-serif; white-space: nowrap; cursor: pointer; transition: background .12s,color .12s; }
+.ve-task-formats .ve-btn { gap: 5px; }
 .vd-editor .ve-btn:hover:enabled { color: var(--ve-text); background: var(--ve-hover,#2d2d2d); }
 .vd-editor .ve-btn[aria-pressed="true"] { color: var(--ve-accent); background: var(--ve-pressed,#2e2e2e); }
 .vd-editor .ve-details-toggle { border-color: var(--ve-line); padding-inline: 10px; }

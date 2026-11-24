@@ -44,6 +44,8 @@ const icons = {
   details: 'M3 4h18v16H3z M15 4v16',
   trash: 'M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7m4-7v7',
   hash: 'M5 9h15 M4 15h15 M10 3 7 21m10-18-3 18', check: 'm4 12 5 5L20 6',
+  task: 'M6 3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z M7.5 12l3 3 6-6',
+  taskChoice: 'M6 3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z M8.5 8.5l7 7m0-7-7 7',
   indent: 'M4 5h16M12 10h8m-8 5h8M4 20h16M4 9l3 3-3 3',
   outdent: 'M4 5h16M12 10h8m-8 5h8M4 20h16M7 9l-3 3 3 3',
 }
@@ -466,6 +468,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   const titleBox = el('textarea','ve-title')
   titleBox.rows=1; titleBox.placeholder=tr('Без названия','Untitled');titleBox.setAttribute('aria-label',tr('Название заметки','Note title'));titleBox.value=title
   const toolbar=el('div','ve-toolbar'), content=el('div','ve-content'), count=el('span','ve-count'), message=el('span','ve-message')
+  toolbar.setAttribute('role','group')
   toolbar.setAttribute('aria-label',tr('Форматирование текста','Text formatting'))
   message.setAttribute('role','status')
   let blockRefs = [], codeViews = new Map()
@@ -1207,6 +1210,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(scrollTop)scroll.scrollTop=scrollTop
     for(const view of inlineViews.values())view.mount()
     refreshWorkbooks()
+    syncTools()
   }
   function insertLinkAt(mark, link) {
     const block=body[mark.index]
@@ -1336,13 +1340,37 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     const mark=typeMark||position()
     focusBlock(mark.index,mark.start,mark.end)
   }
-  kind.onchange=()=>{
-    const type=kind.value,mark=typeMark||position();typeMark=null
-    if(type==='divider'){insertDivider(mark);return}
-    ensureText();remember();const next=[...body]
-    next[active]=isListStyle(type)?withListStyle(body[active],type):{...withListStyle(body[active],null),type}
-    applyBody(next,active,mark.start,mark.end)
+  function setParagraphStyle(type,mark){
+    const block=body[mark.index]
+    if(!block || block.type==='code')return
+    const isText=textTypes.has(block.type)
+    const base=isText?block:paragraph()
+    const styled=isListStyle(type)?withListStyle(base,type):{...withListStyle(base,null),type}
+    const index=isText?mark.index:mark.index+1
+    remember()
+    const next=[...body]
+    next.splice(index,isText?1:0,styled)
+    applyBody(next,index,isText?mark.start:0,isText?mark.end:0)
   }
+  kind.onchange=()=>{
+    const type=kind.value, mark=typeMark||position();typeMark=null
+    if(type==='divider')insertDivider(mark)
+    else setParagraphStyle(type,mark)
+  }
+  const taskFormats=el('div','ve-task-formats')
+  taskFormats.setAttribute('role','group')
+  taskFormats.setAttribute('aria-label',tr('Формат задачи','Task format'))
+  function taskFormatButton(style,label,symbol){
+    const control=button(label,symbol,()=>{
+      const mark=position()
+      setParagraphStyle(listStyleOf(body[mark.index])===style?'paragraph':style,mark)
+    },true)
+    control.dataset.taskStyle=style
+    return control
+  }
+  const taskBtn=taskFormatButton('task',tr('Задача','Task'),'task')
+  const taskChoiceBtn=taskFormatButton('task-choice',tr('Задача с отменой','Cancellable task'),'taskChoice')
+  taskFormats.append(taskBtn,taskChoiceBtn)
   const boldBtn=button(shortcutLabel(tr('Полужирный (Ctrl+B)','Bold (Ctrl+B)')),'bold',()=>format('bold')),italicBtn=button(shortcutLabel(tr('Курсив (Ctrl+I)','Italic (Ctrl+I)')),'italic',()=>format('italic'))
   function indent(delta){
     ensureText()
@@ -1363,13 +1391,20 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   for(const [control,key] of [[boldBtn,'Ctrl+B'],[italicBtn,'Ctrl+I'],[linkBtn,'Ctrl+K']])control.setAttribute('aria-keyshortcuts',shortcutAria(key))
   const folderBtn=button(tr('Ссылка на папку','Link to folder'),'folder',insertFolder)
   const outdentBtn=button(tr('Уменьшить отступ','Decrease indent'),'outdent',()=>indent(-1)),indentBtn=button(tr('Увеличить отступ','Increase indent'),'indent',()=>indent(1))
-  toolbar.append(kind,el('span','ve-divider'),boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,el('span','ve-divider'),outdentBtn,indentBtn,el('span','ve-divider'),imageBtn,...(embed?[]:[sketchBtn,tableBtn]),codeBtn,el('span','ve-spacer'),undoBtn,redoBtn)
+  toolbar.append(kind,el('span','ve-divider'),taskFormats,el('span','ve-divider'),boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,el('span','ve-divider'),outdentBtn,indentBtn,el('span','ve-divider'),imageBtn,...(embed?[]:[sketchBtn,tableBtn]),codeBtn,el('span','ve-spacer'),undoBtn,redoBtn)
   toolbar.addEventListener('mousedown',e=>{if(e.target.closest('button'))e.preventDefault()})
   function syncTools(){
     const b=body[active]
     if(!b)return
-    kind.value=listStyleOf(b) || (textTypes.has(b.type)?b.type:'paragraph')
-    for(const control of [kind,boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,outdentBtn,indentBtn])control.disabled=b.type==='code'
+    const style=listStyleOf(b)
+    kind.value=style || (textTypes.has(b.type)?b.type:'paragraph')
+    for(const control of [kind,taskBtn,taskChoiceBtn,boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,outdentBtn,indentBtn])control.disabled=b.type==='code'
+    for(const control of [taskBtn,taskChoiceBtn]){
+      const pressed=style===control.dataset.taskStyle
+      control.setAttribute('aria-pressed',String(pressed))
+      control.title=pressed?tr('Убрать чекбокс и оставить текст','Remove the checkbox and keep the text'):
+        control===taskBtn?tr('Добавить чекбокс для выполнения','Add a checkbox for completion'):tr('Добавить задачу с галочкой и крестиком','Add a task with complete and cancel options')
+    }
     // May be called before toolbar insertion on initial render.
     for(const [btn,cmd] of [[boldBtn,'bold'],[italicBtn,'italic']])btn.setAttribute('aria-pressed',String(!!currentSelection()&&document.queryCommandState(cmd)))
   }
