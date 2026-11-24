@@ -26,6 +26,7 @@ export function createCredentialBlock({block, onChange, onRemove}) {
   row.tabIndex = -1
   const heading = tr('Учётные данные', 'Credentials')
   row.setAttribute('aria-label', heading)
+  const tools = element('div', 've-credential-tools')
   const bar = element('header', 've-credential-bar')
   const title = element('strong', 've-credential-title')
   title.innerHTML = icon('lock')
@@ -51,7 +52,8 @@ export function createCredentialBlock({block, onChange, onRemove}) {
     fields.lastElementChild.querySelector('input').focus()
   }, true)
   bar.append(title,searchWrap,add,action(tr('Удалить блок учётных данных', 'Remove credentials block'), 'trash', onRemove))
-  row.append(bar,fields,empty,status)
+  tools.append(bar)
+  row.append(tools,fields,empty,status)
 
   function update(next, group) {
     entries = next
@@ -91,8 +93,8 @@ export function createCredentialBlock({block, onChange, onRemove}) {
     const top = Math.max(0, scroll?.top ?? 0, toolbar?.getBoundingClientRect().bottom ?? 0)
     const bottom = Math.min(window.innerHeight, scroll?.bottom ?? window.innerHeight)
     const height = bar.offsetHeight
-    row.dataset.toolsEdge = bounds.top - top >= height ? 'above'
-      : bottom - bounds.bottom >= height ? 'below' : 'inside'
+    row.style.setProperty('--ve-credential-tools-inset', (height + (toolbar?.offsetHeight ?? 0)) + 'px')
+    row.dataset.toolsEdge = bounds.top - top < height && bottom - bounds.bottom >= height ? 'below' : 'above'
   }
   row.addEventListener('pointerenter', placeTools)
   row.addEventListener('focusin', placeTools)
