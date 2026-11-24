@@ -3,9 +3,9 @@ import { checkNote } from './data.js'
 import { listMarkers, taskStateOf } from './note-lists.js'
 import { taskTextContainer } from './task-preview.js'
 import { openVaultPassword } from './vault-ui.js'
+import { isProtectedNote as sealed, protectedNoteTitle } from './note-vault.js'
 
 const raster = /^data:image\/(?:png|jpe?g|gif|webp|bmp|avif);base64,/i
-const sealed = value => value && Object.hasOwn(value, 'sealed')
 let dismissCurrent = null
 
 function el(tag, className, text) {
@@ -29,7 +29,7 @@ function printed(value) {
 function labelFor(conflict) {
   if (conflict.kind === 'note') {
     const note = [conflict.local, conflict.remote].find(n => n && !sealed(n))
-    return note ? note.title || tr('Без названия', 'Untitled') : tr('Зашифрованная заметка', 'Encrypted note')
+    return note ? note.title || tr('Без названия', 'Untitled') : protectedNoteTitle(conflict.local || conflict.remote)
   }
   if (conflict.kind === 'setting') return conflict.id === 'name' ? tr('Название пространства', 'Space name') : conflict.id
   return conflict.local?.name || conflict.remote?.name || conflict.id
@@ -253,6 +253,11 @@ export function openWorkspaceConflicts({conflicts, spaceName, previewSealed}) {
         body.tabIndex=0;body.setAttribute('role','region');body.setAttribute('aria-label',caption)
         if (value==null) body.append(el('p','conflict-empty',tr('Удалено','Deleted')))
         else if (conflict.kind==='note' && sealed(value)) {
+          if (value.mapLabel || (sealed(other) && other.mapLabel)) {
+            const label=el('h3','conflict-note-title')
+            appendText(label,protectedNoteTitle(value),sealed(other)?protectedNoteTitle(other):undefined)
+            body.append(label)
+          }
           body.append(el('p','conflict-empty',tr('Заметка защищена отдельным паролем.','This note has its own password.')))
           if (previewSealed) {
             const unlock=button(tr('Показать содержимое','Show contents'),'secondary',async()=>{

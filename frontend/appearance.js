@@ -1,6 +1,7 @@
 import { tr } from './i18n.js';
 import { icon } from './art.js';
 import { appearanceOf, iconChoices, iconSvg, lockSticker, shapeNames, shapeSvg } from './icons/node-art.js';
+import { mapLabelLimit, normalizeMapLabel } from './note-label.js';
 
 const forms = [
   ['Круг', 'Circle'],
@@ -46,7 +47,7 @@ function searchText(value) {
   return value.toLowerCase().replaceAll('ё', 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
-export function openAppearance({ note, areaColor, onChange }) {
+export function openAppearance({ note, areaColor, onChange, onLabelChange, focusLabel = false }) {
   let value = appearanceOf(note);
   const secured = Object.hasOwn(note,'sealed');
   let pack = value.icon?.split('/')[0] || 'all';
@@ -62,7 +63,44 @@ export function openAppearance({ note, areaColor, onChange }) {
 
   const preview = element('div', 'ap-preview'),
     emblem = element('div', 'ap-emblem');
-  preview.append(emblem, element('strong', '', note.title?.trim() || tr('Без названия', 'Untitled')));
+  preview.append(emblem);
+  const genericLabel = tr('Зашифрованная заметка', 'Encrypted note');
+  const initialLabel = secured ? normalizeMapLabel(note.mapLabel) : '';
+  let labelInput;
+  if (secured && onLabelChange) {
+    const field = element('div', 'ap-map-label');
+    const caption = element('label', '', tr('Имя на карте', 'Map label'));
+    labelInput = element('input');
+    labelInput.type = 'text';
+    labelInput.autocomplete = 'off';
+    labelInput.placeholder = genericLabel;
+    labelInput.value = initialLabel;
+    labelInput.id = 'ap-map-label';
+    caption.htmlFor = labelInput.id;
+    const hint = element('small', '', tr('Это имя видно без пароля.', 'This name is visible without a password.'));
+    hint.id = 'ap-map-label-hint';
+    labelInput.setAttribute('aria-describedby', hint.id);
+    // HTML maxlength counts UTF-16 code units. Allow a full field of emoji.
+    labelInput.maxLength = mapLabelLimit * 2;
+    function limitLabel() {
+      const chars = Array.from(labelInput.value);
+      if (chars.length > mapLabelLimit) labelInput.value = chars.slice(0, mapLabelLimit).join('');
+    }
+    labelInput.oninput = event => { if (!event.isComposing) limitLabel(); };
+    labelInput.oncompositionend = limitLabel;
+    labelInput.onkeydown = event => {
+      if (event.key === 'Enter' && !event.isComposing && event.keyCode !== 229) {
+        event.preventDefault();
+        event.stopPropagation();
+        finish();
+      }
+    };
+    field.append(caption, labelInput, hint);
+    preview.append(field);
+  } else {
+    const name = secured ? initialLabel || genericLabel : note.title?.trim() || tr('Без названия', 'Untitled');
+    preview.append(element('strong', '', name));
+  }
   const controls = [];
 
   function addChoice(group, key, choice, name, cls, contents) {
@@ -252,7 +290,14 @@ export function openAppearance({ note, areaColor, onChange }) {
     renderIcons();
   });
   reset.textContent = reset.title;
-  const done = button(tr('Готово', 'Done'), 'button primary', () => dialog.close());
+  function finish() {
+    if (labelInput) {
+      const label = normalizeMapLabel(labelInput.value);
+      if (label !== initialLabel) onLabelChange(label);
+    }
+    dialog.close();
+  }
+  const done = button(tr('Готово', 'Done'), 'button primary', finish);
   done.textContent = done.title;
   footer.append(reset, done);
   const body = element('div', 'ap-body');
@@ -282,7 +327,10 @@ export function openAppearance({ note, areaColor, onChange }) {
   );
   dialog.showModal();
   revealSelected();
-  search.focus({ preventScroll:true });
+  if (focusLabel && labelInput) {
+    labelInput.focus({ preventScroll:true });
+    labelInput.select();
+  } else search.focus({ preventScroll:true });
   return () => {
     if (dialog.open) dialog.close();
   };

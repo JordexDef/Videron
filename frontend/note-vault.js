@@ -7,8 +7,8 @@ export function isProtectedNote(record) {
   return !!record && Object.hasOwn(record, 'sealed')
 }
 
-export function protectedNoteTitle() {
-  return tr('Зашифрованная заметка', 'Encrypted note')
+export function protectedNoteTitle(record) {
+  return (isProtectedNote(record) && record.mapLabel) || tr('Зашифрованная заметка', 'Encrypted note')
 }
 
 // Only these map fields belong outside the individual note's envelope.
@@ -148,6 +148,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
     await persist()
     await bridge.UnlockNote(id, record.sealed, currentPassword)
     const previous = record.sealed
+    const publicLabel = record.mapLabel
     const hadMapAppearance = Object.hasOwn(record, 'appearance')
     const previousRevision = sealedRevision
     replaceRecord(record, currentNote())
@@ -157,6 +158,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
       // An older note may have a private style that was never visible on its map.
       if (!hadMapAppearance) delete record.appearance
       replaceRecord(record, lockedRecord(record, previous))
+      if (publicLabel) record.mapLabel = publicLabel
       sealedRevision = previousRevision
       policyChanged()
       throw error

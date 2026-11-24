@@ -61,7 +61,7 @@ function iconButton(name,label,action){
 function button(text,action,style='secondary'){
   const b=element('button','button '+style,text);b.onclick=action;return b;
 }
-const noteTitle=n=>isProtectedNote(n)?protectedNoteTitle():n.title.trim()||tr('Без названия','Untitled');
+const noteTitle=n=>isProtectedNote(n)?protectedNoteTitle(n):n.title.trim()||tr('Без названия','Untitled');
 let library=newLibrary(), page='map', currentArea=null, selected=null, editor=null, tool='select';
 let graph, areaDrag, native, ready=false, revision=0, saved=0, pending=null, timer, dirtySince=0, toastTimer, popover=null;
 let reading,routes,mapMetrics,routeCamera,stageControls;
@@ -1682,12 +1682,19 @@ function pin(n){
   }
   n.pinned=!n.pinned;dirty({notes:[n]});render();
 }
-function appearance(n){
+function appearance(n,focusLabel=false){
   const spaceId=library.active;
-  openAppearance({note:mapNote(n),areaColor:areaById(n.areaId)?.color,onChange:value=>{
-    const current=byId(n.id);
-    if(!current||spaceId!==library.active||lockScreen||closingApp)return;
+  const currentNote=()=>spaceId===library.active && !lockScreen && !closingApp && byId(n.id);
+  openAppearance({note:mapNote(n),areaColor:areaById(n.areaId)?.color,focusLabel,onChange:value=>{
+    const current=currentNote();
+    if(!current)return;
     current.appearance=value;dirty({notes:[current]});render();
+  },onLabelChange:label=>{
+    const current=currentNote();
+    if(!isProtectedNote(current) || (current.mapLabel||'')===label)return;
+    if(label)current.mapLabel=label;
+    else delete current.mapLabel;
+    dirty({notes:[current]});render();
   }});
 }
 function undoButton(){
@@ -1836,6 +1843,7 @@ function context(id,x,y,gridId=null,openNote=edit){
   }
   selected=id;graph.select(id);renderSelection();
   menu({x,y},[{icon:isProtectedNote(n)?'lock':'edit',name:tr('Открыть заметку','Open note'),run:()=>openNote(id)},
+    ...(isProtectedNote(n)?[{icon:'edit',name:tr('Переименовать на карте…','Rename on map…'),run:()=>appearance(n,true)}]:[]),
     {icon:'appearance',name:tr('Внешний вид','Appearance'),run:()=>appearance(n)},
     ...(isProtectedNote(n)?[]:[metricAction(n,'note',{x,y})]),{icon:inSlot(n)?'slots':'pin',name:pinLabel(n),run:()=>pin(n)},
     {icon:'link',name:tr('Связать с заметкой','Link to another note'),run:()=>chooseTool('link')},...(sizeAction?[sizeAction]:[]),
@@ -2036,7 +2044,7 @@ function renderAreas(areas){
   if(!rows.length)rows.push({kind:'add',depth:0,parentId:null,icon:'folder',title:tr('Создать область','Create area')});
   sidebarTree.update(rows,tr('Области и заметки','Areas and notes'));
 }
-const mapNote=n=>isProtectedNote(n)?{...n,title:protectedNoteTitle()}:n;
+const mapNote=n=>isProtectedNote(n)?{...n,title:protectedNoteTitle(n)}:n;
 function renderMapPlacement(states){
   const {notes,areas}=workspace();
   if(states.some(state=>Object.hasOwn(state,'areaId')) && notes.some(n=>n.agentTask))mapMetrics=resolveMapMetrics(workspace());

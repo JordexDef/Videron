@@ -402,6 +402,7 @@ func TestMixedProtectedRecordsCannotReachStorage(t *testing.T) {
 	}
 	ok := map[string]any{"id": "note-a", "sealed": encoded, "pinned": true, "links": []string{"b"}, "slot": nil, "x": 3, "title": "", "plain": "", "body": []any{}, "weight": 0, "tags": []string{}}
 	ok["appearance"] = map[string]any{"shape": "diamond", "color": "#a9c6ed", "icon": "lucide/bookmark"}
+	ok["mapLabel"] = "Проект 🔒"
 	record, err := json.Marshal(ok)
 	if err != nil {
 		t.Fatal(err)
@@ -478,6 +479,50 @@ func TestSealedMapAppearanceAcceptsOnlyPublicStyles(t *testing.T) {
 	} {
 		if validateSealedAppearance([]byte(raw)) == nil {
 			t.Fatalf("accepted %s", raw)
+		}
+	}
+}
+
+func TestSealedMapLabelStorage(t *testing.T) {
+	a, path := testStore(t)
+	sealed, err := a.ProtectNote("note-a", originalNote, testPass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.LockNote("note-a")
+	record := map[string]any{"id": "note-a", "sealed": sealed, "title": ""}
+	encode := func() string {
+		t.Helper()
+		b, err := json.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	folderAccepts := func(row string) bool {
+		return validSpacePayload([]byte(`{"name":"Notes","notes":[` + row + `],"areas":[]}`))
+	}
+	for _, label := range []string{strings.Repeat("🌳", 120), "Проект №2", ""} {
+		if label == "" {
+			delete(record, "mapLabel")
+		} else {
+			record["mapLabel"] = label
+		}
+		row := encode()
+		snapshot := libraryPrefix + row + librarySuffix
+		if err := a.Save(snapshot); err != nil || !folderAccepts(row) {
+			t.Fatal("could not rename or clear a locked note", err)
+		}
+		if string(stored(t, path)) != snapshot || strings.Contains(snapshot, "PRIVATE-TITLE") {
+			t.Fatal("changing the map label modified the protected title or ciphertext")
+		}
+	}
+	for _, invalid := range []any{nil, 17, []string{"x"}, "", " name", "name\u00a0", "\ufeffname",
+		"a\tb", "a\u0000b", "a\nb", "a\u007fb", "a\u009fb", "a\u2028b", "a\u2029b", strings.Repeat("🌳", 121)} {
+		record["mapLabel"] = invalid
+		row := encode()
+		if err := a.Save(libraryPrefix + row + librarySuffix); !errors.Is(err, errInvalid) || folderAccepts(row) {
+			t.Fatalf("accepted invalid map label %#v", invalid)
 		}
 	}
 }

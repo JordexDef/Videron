@@ -39,6 +39,21 @@ test('opaque note payloads conflict, while passive views and drift merge with re
   assert.equal(result.conflicts[0].remote.sealed,'second');
 });
 
+test('renaming or clearing a locked note merges with synced style and ciphertext changes',()=>{
+  const base=workspace({...note('n',''),sealed:'first',mapLabel:'Plan'}), [local,remote]=copies(base);
+  remote.notes[0].sealed='second';
+  remote.notes[0].appearance={shape:'diamond'};
+  for(const label of ['Work',undefined]){
+    if(label)local.notes[0].mapLabel=label;
+    else delete local.notes[0].mapLabel;
+    const merged=mergeWorkspace(base,local,remote);
+    assert.deepEqual(merged.conflicts,[]);
+    assert.deepEqual(merged.data.notes[0],{...local.notes[0],sealed:'second',appearance:{shape:'diamond'}});
+  }
+  remote.notes[0].mapLabel='Travel';
+  assert.equal(mergeWorkspace(base,local,remote).conflicts[0].key,'note:n');
+});
+
 test('edited versus deleted shows both versions and restoring also repairs incoming links',()=>{
   const base=workspace(note('a'),note('b'));base.notes[0].links=['b'];
   const [local,remote]=copies(base);local.notes.pop();local.notes[0].links=[];remote.notes[1].title='keep';

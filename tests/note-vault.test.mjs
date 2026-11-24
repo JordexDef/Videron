@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { openNoteSession, isProtectedNote } from '../frontend/note-vault.js'
+import { openNoteSession, isProtectedNote, protectedNoteTitle } from '../frontend/note-vault.js'
+import { normalizeMapLabel, validMapLabel } from '../frontend/note-label.js'
 import { newLibrary, readLibrary, serializeLibrary } from '../frontend/data.js'
 import { WorkspaceRecords } from '../frontend/workspace-records.js'
 
@@ -175,6 +176,76 @@ test('restyling a closed encrypted note updates only map fields and survives res
   await session.manageProtection()
   assert.deepEqual(f.record.appearance,{...style,caption:'private caption'})
   assert.ok(await session.beforeClose())
+})
+
+test('a public label is opt-in and never replaces or exposes the private note title', async () => {
+  const f = fixture()
+  // An older extension could already have used this property inside a plain note.
+  f.record.mapLabel = 'private extension field'
+  let session = await f.open()
+  await session.manageProtection()
+  await session.beforeClose()
+  assert.equal(Object.hasOwn(f.record,'mapLabel'), false)
+  assert.equal(protectedNoteTitle(f.record), protectedNoteTitle())
+  const sealed = f.record.sealed, space = {notes:[f.record],areas:[]}
+  const records = new WorkspaceRecords(space)
+  f.record.mapLabel = 'Работа 📁'
+  records.mark({notes:[f.record]})
+  const rename = records.prepare(space)
+  assert.deepEqual({...rename.patch.notes.edit[0].set}, {mapLabel:'Работа 📁'})
+  rename.commit()
+  assert.equal(f.record.sealed, sealed)
+  assert.equal(protectedNoteTitle(f.record), 'Работа 📁')
+  session = await f.open()
+  assert.equal(session.note.title, 'private title')
+  assert.equal(session.note.mapLabel, 'private extension field')
+  session.changed({title:'private new title'})
+  await session.beforeClose()
+  assert.equal(f.record.title, '')
+  assert.equal(protectedNoteTitle(f.record), 'Работа 📁')
+  assert.doesNotMatch(JSON.stringify(f.record), /private/)
+  delete f.record.mapLabel
+  session = await f.open()
+  session.changed({plain:'another edit'})
+  await session.beforeClose()
+  assert.equal(Object.hasOwn(f.record,'mapLabel'), false)
+  assert.equal(protectedNoteTitle(f.record), protectedNoteTitle())
+  session = await f.open()
+  await session.manageProtection()
+  assert.equal(f.record.title, 'private new title')
+  assert.equal(f.record.mapLabel, 'private extension field')
+  await session.beforeClose()
+})
+
+test('failed removal of protection restores the public label with the envelope', async () => {
+  const f = fixture()
+  let session = await f.open()
+  await session.manageProtection()
+  await session.beforeClose()
+  f.record.mapLabel = 'My map label'
+  session = await f.open()
+  const unlock = f.bridge.UnlockNote
+  f.bridge.UnlockNote = async (...args) => { const plain = await unlock(...args); f.failWrite = true; return plain }
+  await assert.rejects(session.manageProtection(), /VD_WRITE/)
+  assert.equal(protectedNoteTitle(f.record), 'My map label')
+  assert.doesNotMatch(JSON.stringify(f.record), /private/)
+  f.failWrite = false
+  assert.ok(await session.beforeClose())
+})
+
+test('stored map labels are single-line Unicode strings of up to 120 code points', () => {
+  const label = '📁'.repeat(120)
+  assert.equal(normalizeMapLabel('  Карта\n📁  '), 'Карта 📁')
+  assert.equal(normalizeMapLabel(label + 'x'), label)
+  const lib = newLibrary(), note = {id:'a',title:'',plain:'',links:[],tags:[],body:[],sealed:'opaque'}
+  lib.spaces.personal.notes.push(note)
+  for (const invalid of ['', null, {}, ' surrounded ', 'a\u007fb', 'a\u2028b', label+'x']) {
+    assert.equal(validMapLabel(invalid), false)
+    note.mapLabel = invalid
+    assert.throws(() => readLibrary(serializeLibrary(lib)))
+  }
+  note.mapLabel = label
+  assert.equal(readLibrary(serializeLibrary(lib)).spaces.personal.notes[0].mapLabel, label)
 })
 
 test('previously private legacy appearance stays private across edits and failed protection removal', async () => {

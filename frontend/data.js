@@ -2,6 +2,7 @@ import { getLanguage, tr } from './i18n.js';
 import { normalizeAreaTree } from './areas.js';
 import { readExtensionManifests } from './extension-manifest.js';
 import { validMapAppearance } from './icons/node-art.js';
+import { validMapLabel } from './note-label.js';
 
 export function blankWorkspace(){return {notes:[],areas:[]}}
 export const defaultMapView = Object.freeze({labels:true, links:true, grid:true, reading:true, manualLayout:false});
@@ -33,7 +34,8 @@ export function checkNote(note){
     throw new Error(tr('Некорректная запись заметки.', 'The workspace contains an invalid note.'));
   if(Object.hasOwn(note,'sealed') && (typeof note.sealed!=='string'||!note.sealed||note.title||note.plain||
     note.body.length||note.tags.length||note.board||['dataText','dataLanguage','dataHasHeader','agentTask'].some(key=>Object.hasOwn(note,key))||
-    (Object.hasOwn(note,'appearance') && !validMapAppearance(note.appearance))))
+    (Object.hasOwn(note,'appearance') && !validMapAppearance(note.appearance)) ||
+    (Object.hasOwn(note,'mapLabel') && !validMapLabel(note.mapLabel))))
     throw new Error(tr('Повреждена запись зашифрованной заметки.','The encrypted note record is damaged.'));
   if(note.type==='data' && (typeof note.dataText!=='string' || (note.dataLanguage!==undefined && typeof note.dataLanguage!=='string') || (note.dataHasHeader!==undefined && typeof note.dataHasHeader!=='boolean')))
     throw new Error(tr('Повреждено содержимое заметки с данными.','This data note contains invalid content.'));

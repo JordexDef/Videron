@@ -279,7 +279,7 @@ function noteDetails({root,note,notes,areas,current,update,openNote,openTag}) {
     choices.append(option('',tr('Добавить связь…','Add a link…')))
     for(const other of notes){
       if(other.id===note.id)continue
-      const name=isProtectedNote(other)?protectedNoteTitle():other.title||tr('Без названия','Untitled')
+      const name=isProtectedNote(other)?protectedNoteTitle(other):other.title||tr('Без названия','Untitled')
       if(links.includes(other.id)){
         const row=connectionRow(other,name)
         row.append(button(tr('Убрать связь с «{name}»','Remove link to “{name}”',{name}),'close',()=>{

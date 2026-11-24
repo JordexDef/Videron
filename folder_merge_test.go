@@ -144,6 +144,38 @@ func TestRestyledEncryptedNoteMergesWithRemoteCiphertext(t *testing.T) {
 		t.Fatal("divergent explicit map styles must be resolved")
 	}
 }
+
+func TestEncryptedMapLabelMergesIndependently(t *testing.T) {
+	base := mergeTestNote("n", "")
+	base["sealed"] = "original"
+	base["mapLabel"] = "One"
+	local, remote := maps.Clone(base), maps.Clone(base)
+	style := mergeObject{"shape": "square"}
+	remote["appearance"], remote["sealed"] = style, "updated"
+	for _, label := range []string{"Two", ""} {
+		if label == "" {
+			delete(local, "mapLabel")
+		} else {
+			local["mapLabel"] = label
+		}
+		result, ok := mergedNote(base, local, remote)
+		note := mergeMap(result)
+		if !ok || note["sealed"] != "updated" || note["title"] != "" || !mergeEqual(note["appearance"], style) ||
+			mergeField(note, "mapLabel") != mergeField(local, "mapLabel") {
+			t.Fatal(result)
+		}
+	}
+	local["mapLabel"], remote["mapLabel"] = "Two", "Three"
+	if _, ok := mergedNote(base, local, remote); ok {
+		t.Fatal("two different renames require a choice")
+	}
+	delete(remote, "sealed")
+	delete(remote, "mapLabel")
+	remote["title"] = "Private title"
+	if _, ok := mergedNote(base, local, remote); ok {
+		t.Fatal("removing protection must travel with its note content")
+	}
+}
 func TestFolderNativeMergeAcrossDevices(t *testing.T) {
 	for _, pw := range []string{"", testPass} {
 		t.Run(map[bool]string{false: "plain", true: "encrypted"}[pw != ""], func(t *testing.T) {

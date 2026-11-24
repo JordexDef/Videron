@@ -233,7 +233,7 @@ export function mountMapRoutes({stage, getSpace, getFragments = () => [], onChan
     const notes = new Map(space.notes.map(note => [note.id,note]));
     draft.stops.forEach((stop,i) => {
       const note = notes.get(stop.noteId), row = element('li','');
-      const name = !note ? tr('Заметка удалена','Deleted note') : isProtectedNote(note) ? protectedNoteTitle() : note.title.trim() || untitled();
+      const name = !note ? tr('Заметка удалена','Deleted note') : isProtectedNote(note) ? protectedNoteTitle(note) : note.title.trim() || untitled();
       const title = element('span','route-ellipsis',name);
       title.title = name;
       row.append(element('small','route-stop-number', String(i+1)), title);

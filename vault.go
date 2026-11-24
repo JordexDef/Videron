@@ -10,7 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
@@ -193,13 +195,26 @@ func validNote(id string, payload []byte) bool {
 	return err == nil && storedID == id
 }
 
-// A sealed note may keep its map position, links and appearance beside the envelope.
+// A sealed note may keep its map position, links, label and appearance beside the envelope.
 // Apply this second check where snapshots, folder revisions and sync all
 // enter storage. Ordinary note types and extension fields remain opaque.
 type storedNote struct{}
 type jsonPresence struct{}
 
 func (*jsonPresence) UnmarshalJSON([]byte) error { return nil }
+
+func validSealedMapLabel(label string) bool {
+	if label == "" || utf8.RuneCountInString(label) > 120 {
+		return false
+	}
+	// Match the editor's trim(), which also strips the byte order mark.
+	if strings.TrimFunc(label, func(r rune) bool { return unicode.IsSpace(r) || r == '\uFEFF' }) != label {
+		return false
+	}
+	return strings.IndexFunc(label, func(r rune) bool {
+		return unicode.IsControl(r) || r == '\u2028' || r == '\u2029'
+	}) < 0
+}
 
 // The autosaver may validate the same attachment in many snapshots. Cache only
 // hashes of fully validated sealed records. A single changed byte forces the
@@ -245,6 +260,11 @@ func (*storedNote) UnmarshalJSON(data []byte) error {
 		case "links":
 			var links []string
 			return d.Decode(&links)
+		case "mapLabel":
+			var label string
+			if err := d.Decode(&label); err != nil || !validSealedMapLabel(label) {
+				return errInvalid
+			}
 		case "appearance":
 			var raw json.RawMessage
 			if err := d.Decode(&raw); err != nil {
