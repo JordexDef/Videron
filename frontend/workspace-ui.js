@@ -1,5 +1,5 @@
 import {icon} from './art.js';
-import {getLanguage,tr} from './i18n.js';
+import {tr} from './i18n.js';
 import {folderLabel} from './folder-links.js';
 import {createWorkspaceActivity} from './workspace-activity.js';
 
@@ -142,7 +142,7 @@ export function openCreateSpace({dialog,native,projectProtected,onCreate,onError
     const controls=element('div','space-location-controls'),hint=element('p','space-hint');
     const path=element('span');
     const choose=button('','button secondary space-choose',()=>run(async()=>{
-      const selected=await native.PickFolder(getLanguage());
+      const selected=await native.PickFolder(tr('Выберите папку','Choose a folder'));
       if(!selected || !box.isConnected)return;
       if(folder!==selected)encryption.clear();
       folder=selected;

@@ -1,5 +1,5 @@
 import { icon } from './art.js'
-import { getLanguage, tr } from './i18n.js'
+import { tr } from './i18n.js'
 import { folderLabel } from './folder-links.js'
 import { spaceDialog, spaceEncryptionFields } from './workspace-ui.js'
 import { lastServerAddress, rememberServerAddress } from './server-address.js'
@@ -139,7 +139,7 @@ export function openWorkspaceServer(options){
     }
     locationInput.value=chosenLocation
     run(async()=>{
-      const dir=await native.PickFolder(getLanguage())
+      const dir=await native.PickFolder(tr('Выберите папку','Choose a folder'))
       if(!dir || !box.isConnected)return
       if(chosenLocation!=='custom' || customFolder!==dir)encryption.clear()
       customFolder=dir
@@ -150,7 +150,7 @@ export function openWorkspaceServer(options){
   location.append(locationInput)
   const defaultFolderAvailable=!!options.onNewProject
   async function destination(){
-    return defaultFolderAvailable?locationInput.value==='custom'?customFolder:'':(await native.PickFolder(getLanguage())||null)
+    return defaultFolderAvailable?locationInput.value==='custom'?customFolder:'':(await native.PickFolder(tr('Выберите папку','Choose a folder'))||null)
   }
   const encryption=spaceEncryptionFields(projectProtected)
   const actions=node('div','dialog-actions')
@@ -195,7 +195,7 @@ export function openWorkspaceServer(options){
     if([...copies.children].some(row=>row.dataset.folder===folder))return
     const row=node('div','server-copy')
     row.dataset.folder=folder
-    const open=action(tr('Открыть «'+name+'»','Open “'+name+'”'),true,()=>perform(
+    const open=action(tr('Открыть «{name}»','Open “{name}”',{name}),true,()=>perform(
       report=>useCredential(credential=>onJoin(credential,folder,true,report)),tr('Открываем проект…','Opening the project…')))
     open.title=folder
     const path=node('span','space-detail',folder)
@@ -310,14 +310,14 @@ export function openWorkspaceServer(options){
         tr('Выберите папку с рабочей копией этого пространства или пустую папку для новой копии.',
           'Choose the folder containing your working copy of this space, or an empty folder for a new copy.')
     }else if(!folder){
-      hint.textContent=tr('При подключении «'+spaceName+'» его карта и заметки будут отправлены на сервер.',
-        'Connecting “'+spaceName+'” will upload its map and notes to the server.')
+      hint.textContent=tr('При подключении «{name}» его карта и заметки будут отправлены на сервер.',
+        'Connecting “{name}” will upload its map and notes to the server.',{name:spaceName})
     }else{
       hint.textContent=onPrepareFolder?
         tr('Пространство сохранено в папке. Нажмите «Подключить это пространство», чтобы начать синхронизацию.',
            'Your space is saved in its folder. Choose “Connect this space” to start syncing.'):
-        tr('Подключите «'+spaceName+'», чтобы синхронизировать карту и заметки с сервером.',
-           'Connect “'+spaceName+'” to sync its map and notes with the server.')
+        tr('Подключите «{name}», чтобы синхронизировать карту и заметки с сервером.',
+           'Connect “{name}” to sync its map and notes with the server.',{name:spaceName})
     }
     if(!verified){status.replaceChildren();checkedAddress.textContent=''}
     location.hidden=!ready || !!picker || !defaultFolderAvailable

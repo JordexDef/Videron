@@ -243,7 +243,7 @@ function idleSettings(view, initialMinutes, commit) {
   const select = el('select')
   select.id = 'auto-lock-delay'
   select.add(new Option(tr('Только при новой сессии', 'Only in a new session'), '0'))
-  for (const minutes of presets) select.add(new Option(tr(minutes + ' мин', minutes + ' min'), String(minutes)))
+  for (const minutes of presets) select.add(new Option(tr('{minutes} мин', '{minutes} min', {minutes}), String(minutes)))
   select.add(new Option(tr('Другой интервал…', 'Custom interval…'), 'custom'))
   label.append(select)
   section.append(el('h3', '', tr('Автоблокировка', 'Auto-lock')),label)

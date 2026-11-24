@@ -118,6 +118,16 @@ function monthLength(year, month) {
   return utcDate(year, month + 1, 0).getUTCDate();
 }
 
+const monthBeforeDay = new Map();
+function monthComesFirst(locale) {
+  if (!monthBeforeDay.has(locale)) {
+    const format = new Intl.DateTimeFormat(locale, {day:'numeric',month:'numeric'});
+    const first = format.formatToParts(0).find(part => part.type === 'month' || part.type === 'day');
+    monthBeforeDay.set(locale, first?.type === 'month');
+  }
+  return monthBeforeDay.get(locale);
+}
+
 function dateSeries(raw, locale) {
   const yearFirst = /^\d{4}[-/.]/.test(raw[0]);
   const pattern = yearFirst ? /^(\d{4})([-/.])(\d{1,2})\2(\d{1,2})$/ : /^(\d{1,2})([-/.])(\d{1,2})\2(\d{4})$/;
@@ -136,7 +146,7 @@ function dateSeries(raw, locale) {
     }
     return dates;
   }
-  let monthFirst = !yearFirst && delimiter !== '.' && /^en(?:-|$)/i.test(locale);
+  let monthFirst = !yearFirst && delimiter !== '.' && monthComesFirst(locale);
   let dates = parseDates(monthFirst);
   if (!dates && !yearFirst && delimiter !== '.') {
     monthFirst = !monthFirst;

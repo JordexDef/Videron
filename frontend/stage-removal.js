@@ -13,7 +13,7 @@ export function openStageRemoval({space,area,index,anchor,onRemove,onClose}) {
   const {count,options,reason}=stageRemovalOptions(space,area.id,index);
   const last=reason==='last-stage', name=names[index];
   const title=last?tr('Последний этап','Final stage'):
-    tr('Удалить этап «'+name+'»?','Delete stage “'+name+'”?');
+    tr('Удалить этап «{name}»?','Delete stage “{name}”?',{name});
   const box=element('form','dialog stage-removal');
   box.setAttribute('role','dialog');box.setAttribute('aria-label',title);
   box.anchor=anchor instanceof Element?anchor:null;
@@ -52,8 +52,8 @@ export function openStageRemoval({space,area,index,anchor,onRemove,onClose}) {
       function showDestination(){
         const choice=options[select.selectedIndex];
         if(choice?.destination===null)hint.textContent=tr('Заметки останутся рядом с дорожкой.','The notes will stay beside the track.');
-        else if(choice?.rows>grid.rows)hint.textContent=tr('Мест на этапе станет '+choice.rows+' вместо '+grid.rows+'.',
-          'Seats per stage will increase from '+grid.rows+' to '+choice.rows+'.');
+        else if(choice?.rows>grid.rows)hint.textContent=tr('Мест на этапе станет {newCount} вместо {oldCount}.',
+          'Seats per stage will increase from {oldCount} to {newCount}.',{oldCount:grid.rows,newCount:choice.rows});
         else hint.textContent='';
       }
       select.onchange=showDestination;showDestination();

@@ -17,11 +17,8 @@ var (
 	errFolderOpen    = errors.New("VD_FOLDER_OPEN")
 )
 
-func (a *App) PickFolder(language string) (string, error) {
-	title := "Выберите папку"
-	if language == "en" {
-		title = "Choose a folder"
-	}
+func (a *App) PickFolder(title string) (string, error) {
+	title = dialogTitle(title, "Выберите папку", "Choose a folder")
 	path, err := wails.OpenDirectoryDialog(a.ctx, wails.OpenDialogOptions{Title: title})
 	if err != nil {
 		return "", errFolderOpen

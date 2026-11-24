@@ -1,6 +1,6 @@
 import { validSpaceName } from './data.js'
 import { folderLabel } from './folder-links.js'
-import { getLanguage, tr } from './i18n.js'
+import { tr } from './i18n.js'
 import { spaceEncryptionFields } from './workspace-ui.js'
 import { icon } from './art.js'
 
@@ -72,8 +72,8 @@ export function mountServerProjectPicker(host,params) {
     encryption.setAvailable(false)
     const summary=document.createElement('strong'),detail=document.createElement('p')
     summary.className='space-confirm-name'
-    summary.textContent=isRename?tr('Переименовать «'+title+'»','Rename “'+title+'”'):
-      tr('Удалить «'+title+'» с сервера?','Delete “'+title+'” from the server?')
+    summary.textContent=isRename?tr('Переименовать «{name}»','Rename “{name}”',{name:title}):
+      tr('Удалить «{name}» с сервера?','Delete “{name}” from the server?',{name:title})
     panel.setAttribute('aria-label',summary.textContent)
     detail.className='space-hint';detail.id='server-project-change-details'
     panel.setAttribute('aria-describedby',detail.id)
@@ -176,7 +176,7 @@ export function mountServerProjectPicker(host,params) {
     apply.disabled=settings.hidden || fresh && !validName(name.input.value)
     if(fresh)hint.textContent=tr('На сервере появится новый пустой проект.','A new empty project will be created on the server.')
     else if(same && isCustom())hint.textContent=tr('Заметки и подключение переедут вместе с рабочей копией.','The working copy will move with its notes and server connection.')
-    else if(!has && !connection && (folder || onPrepareFolder))hint.textContent=tr('Заметки из «'+spaceName+'» будут отправлены в этот проект.','Notes from “'+spaceName+'” will be uploaded to this project.')
+    else if(!has && !connection && (folder || onPrepareFolder))hint.textContent=tr('Заметки из «{name}» будут отправлены в этот проект.','Notes from “{name}” will be uploaded to this project.',{name:spaceName})
     else if(has && !same && !chosenFolder())hint.textContent=tr('Videron найдёт рабочую копию или создаст её в папке приложения.','Videron will find a working copy or create one in the app’s storage folder.')
     else hint.textContent=''
     hint.hidden=!hint.textContent
@@ -241,7 +241,7 @@ export function mountServerProjectPicker(host,params) {
     }
     path.input.value=location
     run(async()=>{
-      const dir=await native.PickFolder(getLanguage())
+      const dir=await native.PickFolder(tr('Выберите папку','Choose a folder'))
       if(!dir || !mounted())return
       if(!sameFolder(chosenFolder(),dir))encryption.clear()
       touched=true

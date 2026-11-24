@@ -53,7 +53,7 @@ export function areaPicker({anchor, title, areas, allowed = () => true, rootLabe
     const exact = found.find(entry => entry.name.toLocaleLowerCase() === term);
     active = exact ? list.children[found.indexOf(exact)] : list.querySelector('button:enabled');
     if (create) {
-      const label = query ? tr('Создать «'+query+'»','Create “'+query+'”') : tr('Новая область…','New area…');
+      const label = query ? tr('Создать «{name}»','Create “{name}”',{name:query}) : tr('Новая область…','New area…');
       const add = row('plus', label, createIn, () => {
         if (query) create(query);
         else { naming = true; render(); input.focus(); }

@@ -127,12 +127,21 @@ func (a *App) EnableCloseGuard() {
 	a.closeGuard = true
 }
 
-// SaveDrawing writes only to a path chosen in the system Save As dialog.
-func (a *App) SaveDrawing(payload, language string) (bool, error) {
-	title := "Сохранить рисунок"
-	if language == "en" {
-		title = "Save drawing"
+// Earlier clients sent a language code instead of the translated dialog title.
+func dialogTitle(value, russian, english string) string {
+	switch value {
+	case "ru", "":
+		return russian
+	case "en":
+		return english
+	default:
+		return value
 	}
+}
+
+// SaveDrawing writes only to a path chosen in the system Save As dialog.
+func (a *App) SaveDrawing(payload, title string) (bool, error) {
+	title = dialogTitle(title, "Сохранить рисунок", "Save drawing")
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title: title, DefaultFilename: "Videron.excalidraw",
 		Filters: []runtime.FileFilter{{DisplayName: "Excalidraw", Pattern: "*.excalidraw"}},
@@ -144,6 +153,22 @@ func (a *App) SaveDrawing(payload, language string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func (a *App) SaveLanguageTemplate(title string) (bool, error) {
+	template, err := files.ReadFile("frontend/languages/template.json")
+	if err != nil {
+		return false, err
+	}
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title: title, DefaultFilename: "Videron.language.json",
+		Filters: []runtime.FileFilter{{DisplayName: "JSON", Pattern: "*.json"}},
+	})
+	if err != nil || path == "" {
+		return false, err
+	}
+	_, err = writeAtomic(path, template, ".language-*.tmp")
+	return err == nil, err
 }
 
 func (a *App) beforeClose(ctx context.Context) bool {

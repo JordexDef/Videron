@@ -320,7 +320,7 @@ export function drawSlotGrid(ctx, group, view, {selected=false, active=false, sl
   // actual destination while keeping its hint close to the user's pointer.
   const addressed = destination ?? hoverSlot;
   const row = Math.floor(addressed/grid.cols)+1, col = addressed%grid.cols+1;
-  const address = grid.stages?.[col-1] ?? tr('Ряд '+row+' · место '+col,'Row '+row+' · seat '+col);
+  const address = grid.stages?.[col-1] ?? tr('Ряд {row} · место {seat}','Row {row} · seat {seat}',{row,seat:col});
   label.text = blocked ? (grid.stages?tr('На этапе недостаточно мест','Not enough seats in this stage'):tr('Недостаточно мест','Not enough seats'))
     : swapping ? tr('Обмен местами','Swap seats')+' · '+address : address+' · '+name;
   label.x = Math.max(52,Math.min(width-52, firstX+(hoverSlot%grid.cols)*pitchX));

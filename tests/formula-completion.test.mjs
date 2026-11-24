@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createWorkbook, formulaFunctionNames } from '../frontend/table-engine.js';
+import { setLanguagePacks } from '../frontend/i18n.js';
 import {
   applyFormulaCompletion, canSkipFormulaClosing, catalogTarget, formulaCompletions, formulaSignature, functionCatalog,
 } from '../frontend/formula-completion.js';
@@ -25,6 +26,16 @@ test('the function catalog lists each operation once and matches the current arg
   assert.equal(entries.find(item => item.name === 'ROUND').signature, 'ROUND(число, [разряды])');
   assert.ok(entries.every(item => item.description));
   assert.equal(functionCatalog('=SUM(A1;B1)', 'en')[0].signature, 'SUM(value; …)');
+});
+
+test('language packs translate formula help while function names remain valid spreadsheet tokens', t => {
+  setLanguagePacks([{apiVersion:1,type:'language',id:'test.de',name:'Deutsch',locale:'de',
+    messages:{'number':'Zahl','Absolute value of a number':'Absolutwert einer Zahl'}}]);
+  t.after(() => setLanguagePacks([]));
+  const abs = atCaret('=AB|', formulaCompletions, 'de').items[0];
+  assert.deepEqual(abs,{name:'ABS',signature:'ABS(Zahl)',description:'Absolutwert einer Zahl'});
+  assert.equal(atCaret('=ROUND(|', formulaSignature, 'de').signature,'ROUND(Zahl, [digits])');
+  assert.equal(functionCatalog('=', 'de')[0].description,'Sum of numbers and ranges');
 });
 
 test('catalog insertion wraps values and selections, and keeps surrounding formula syntax', () => {

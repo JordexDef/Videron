@@ -1,4 +1,5 @@
 import { getLanguage, tr } from './i18n.js';
+import { readExtensionManifests, tagSpectrumId } from './extension-manifest.js';
 import { appearanceOf } from './icons/node-art.js';
 import { isProtectedNote } from './note-vault.js';
 import { isLightTheme } from './theme.js';
@@ -17,9 +18,8 @@ function renderTagSpectrum() {
 
   addEventListener('message', event => {
     if (event.source !== parent || event.data?.type !== 'videron:data') return;
-    const { notes, areas, language } = event.data;
+    const { notes, areas, language, labels } = event.data;
     document.documentElement.lang = language;
-    const local = (ru, en) => language === 'en' ? en : ru;
     const tags = new Map();
     const areaNames = new Map(areas.map(area => [area.id, area.name]));
     for (const note of notes) {
@@ -35,7 +35,7 @@ function renderTagSpectrum() {
     let observer;
     function list(items, makeRow) {
       const rows = element('div');
-      const more = element('button', 'more', local('Показать ещё', 'Show more'));
+      const more = element('button', 'more', labels.more);
       let next = 0;
       function appendPage() {
         const page = document.createDocumentFragment();
@@ -67,8 +67,8 @@ function renderTagSpectrum() {
     function showTag(tag, items, tagButton) {
       const listScrollY = scrollY;
       heading.textContent = '#' + tag;
-      count.textContent = local('Заметок · ', 'Notes · ') + items.length;
-      const back = element('button', 'back', local('← Все теги', '← All tags'));
+      count.textContent = labels.notes + items.length;
+      const back = element('button', 'back', labels.allTags);
       back.onclick = () => {
         showAll();
         tagButton.focus({preventScroll:true});
@@ -76,7 +76,7 @@ function renderTagSpectrum() {
       };
       const notesList = list(items, note => {
         const row = element('button', 'row');
-        row.append(element('span', 'title', note.title || local('Без названия', 'Untitled')));
+        row.append(element('span', 'title', note.title));
         const area = areaNames.get(note.areaId);
         if (area) row.append(element('span', 'subtitle', area));
         row.onclick = () => parent.postMessage({ type: 'videron:open-note', id: note.id }, '*');
@@ -91,7 +91,7 @@ function renderTagSpectrum() {
       const row = element('button', 'row tag');
       const track = element('span', 'track');
       const bar = element('i');
-      row.setAttribute('aria-label', '#' + tag + local(', заметок: ', ', notes: ') + items.length);
+      row.setAttribute('aria-label', '#' + tag + labels.noteCount + items.length);
       track.setAttribute('aria-hidden', 'true');
       bar.style.width = items.length / sorted[0][1].length * 100 + '%';
       track.append(bar);
@@ -100,11 +100,11 @@ function renderTagSpectrum() {
       return row;
     });
     function showAll() {
-      heading.textContent = local('Частота тегов', 'Tag frequency');
-      count.textContent = local('Тегов · ', 'Tags · ') + tags.size;
+      heading.textContent = labels.frequency;
+      count.textContent = labels.tags + tags.size;
       show(tagList);
       if (!sorted.length) {
-        content.append(element('p', 'empty', local('Добавьте в текст заметки #тег. Здесь появятся теги и число заметок, в которых они встречаются.', 'Add a #tag to a note to see how many notes share it.')));
+        content.append(element('p', 'empty', labels.empty));
       }
     }
     showAll();
@@ -113,7 +113,7 @@ function renderTagSpectrum() {
 }
 const builtIn = {
   apiVersion: 1,
-  id: 'videron.tag-spectrum',
+  id: tagSpectrumId,
   get name() { return tr('Спектр тегов', 'Tag spectrum'); },
   get description() { return tr('Частота тегов и заметки, которые их связывают.', 'Explore tags by frequency and open the notes that share them.'); },
   html: `<style>
@@ -159,18 +159,6 @@ function button(text, action, className = 'button secondary') {
   el.type = 'button';
   el.onclick = action;
   return el;
-}
-
-function parseManifest(value) {
-  if (!value || value.apiVersion !== 1) throw Error(tr('Укажите apiVersion со значением 1.', 'Set apiVersion to 1.'));
-  if (typeof value.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,95}$/i.test(value.id)) {
-    throw Error(tr('Идентификатор может содержать латинские буквы, цифры, точку, дефис и подчёркивание.', 'Use letters A–Z, digits, periods, hyphens or underscores in the extension ID.'));
-  }
-  if (typeof value.name !== 'string' || !value.name.trim() || typeof value.html !== 'string' || !value.html.trim()) {
-    throw Error(tr('В манифесте нужны название name и содержимое html.', 'The manifest needs a name and HTML content in the html field.'));
-  }
-  if (value.description !== undefined && typeof value.description !== 'string') throw Error(tr('Поле description должно быть строкой.', 'The description field must be a string.'));
-  return { apiVersion: 1, id: value.id, name: value.name, description: value.description || '', html: value.html };
 }
 
 export function projectWorkspace(workspace) {
@@ -222,7 +210,7 @@ export function dismissExtensions() {
   activeManager?.();
 }
 
-export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenNote, notify }) {
+export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenNote, onSelectLanguage, notify }) {
   activeManager?.();
   let installed = [...plugins], disposeFrame = null;
   const previousFocus = document.activeElement;
@@ -288,7 +276,14 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
       const msg = event.data;
       if (msg.type === 'videron:ready' && !sent) {
         sent = true; clearTimeout(hintTimer); status.hidden = true;
-        frame.contentWindow.postMessage(projectWorkspace(workspace), '*');
+        const data = projectWorkspace(workspace);
+        if (plugin === builtIn) data.labels = {
+          more:tr('Показать ещё', 'Show more'), allTags:tr('← Все теги', '← All tags'),
+          notes:tr('Заметок · ', 'Notes · '), noteCount:tr(', заметок: ', ', notes: '),
+          frequency:tr('Частота тегов', 'Tag frequency'), tags:tr('Тегов · ', 'Tags · '),
+          empty:tr('Добавьте в текст заметки #тег. Здесь появятся теги и число заметок, в которых они встречаются.', 'Add a #tag to a note to see how many notes share it.')
+        };
+        frame.contentWindow.postMessage(data, '*');
       } else if (msg.type === 'videron:open-note' && sent && workspace.notes.some(n => n.id === msg.id && !isProtectedNote(n))) {
         close();
         onOpenNote(msg.id);
@@ -320,11 +315,17 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
     disposeFrame?.();
     dialog.className = 'dialog wide';
     heading.textContent = tr('Расширения', 'Extensions');
+    closeButton.textContent = tr('Закрыть', 'Close');
     content.replaceChildren();
     const error = node('p', 'hint');
     error.setAttribute('role', 'alert');
     const input = node('input');
     input.type = 'file'; input.accept = '.json,application/json'; input.hidden = true;
+    let updateTarget = null;
+    function chooseManifest(target = null) {
+      updateTarget = target;
+      input.click();
+    }
     input.onchange = async () => {
       const file = input.files[0];
       if (!file) return;
@@ -336,13 +337,15 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
         if (!input.isConnected) return;
         try { manifest = JSON.parse(source.replace(/^\uFEFF/, '')); }
         catch { throw Error(tr('Файл не содержит корректный JSON.', 'The file does not contain valid JSON.')); }
-        const imported = parseManifest(manifest);
-        if ([builtIn, ...installed].some(p => p.id === imported.id)) throw Error(tr('Расширение с таким идентификатором уже установлено.', 'An extension with this ID is already installed.'));
-        const next = [...installed, imported];
-        onSavePlugins(next);
+        const [imported] = readExtensionManifests([manifest], installed.filter(plugin => plugin !== updateTarget));
+        if (updateTarget && (imported.type !== 'language' || imported.id !== updateTarget.id || imported.locale !== updateTarget.locale)) {
+          throw Error(tr('Выберите пакет с тем же идентификатором и кодом языка.', 'Choose a pack with the same ID and language code.'));
+        }
+        const next = updateTarget ? installed.map(plugin => plugin === updateTarget ? imported : plugin) : [...installed, imported];
+        onSavePlugins(next, imported);
         installed = next;
         renderList();
-        notify?.(tr('Расширение установлено', 'Extension installed'));
+        notify?.(updateTarget ? tr('Языковой пакет обновлён', 'Language pack updated') : tr('Расширение установлено', 'Extension installed'));
       } catch (e) {
         error.textContent = tr('Ошибка импорта · ', 'Import failed · ') + e.message;
       } finally { input.value = ''; }
@@ -350,24 +353,60 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
     for (const plugin of [builtIn, ...installed]) {
       const row = node('article', 'extension');
       const info = node('div');
-      info.append(node('h3', '', plugin.name), node('p', '', plugin.description));
+      const languagePack = plugin.type === 'language';
+      const title = node('h3', '', plugin.name);
+      if (languagePack) title.lang = plugin.locale;
+      info.append(title);
+      if (languagePack) info.append(node('p', '', tr('Языковой пакет', 'Language pack') + ' · ' + plugin.locale));
+      if (plugin.description) info.append(node('p', '', plugin.description));
       const actions = node('span', 'extension-actions');
-      actions.append(button(tr('Открыть', 'Open'), () => showPlugin(plugin)));
+      if (languagePack) {
+        const active = getLanguage() === plugin.locale;
+        const apply = button(active ? tr('Текущий язык', 'Current language') : tr('Включить язык', 'Use language'), () => {
+          onSelectLanguage(plugin.locale);
+          renderList();
+        });
+        apply.disabled = active;
+        actions.append(apply, button(tr('Обновить…', 'Update…'), () => chooseManifest(plugin)));
+      } else actions.append(button(tr('Открыть', 'Open'), () => showPlugin(plugin)));
       if (plugin !== builtIn) {
         const remove = button(tr('Удалить', 'Remove'), () => {
           const next = installed.filter(p => p.id !== plugin.id);
           try {
-            onSavePlugins(next); installed = next; renderList();
+            onSavePlugins(next, plugin); installed = next; renderList();
             notify?.(tr('Расширение удалено', 'Extension removed'));
           } catch (e) { error.textContent = tr('Ошибка удаления · ', 'Removal failed · ') + e.message; }
         });
-        remove.setAttribute('aria-label',tr('Удалить «' + plugin.name + '»', 'Remove “' + plugin.name + '”'));
+        remove.setAttribute('aria-label',tr('Удалить «{name}»', 'Remove “{name}”', {name:plugin.name}));
         actions.append(remove);
       }
       row.append(info, actions); content.append(row);
     }
     const footer = node('div', 'dialog-actions');
-    footer.append(button(tr('Установить из JSON', 'Install from JSON'), () => input.click()));
+    const saveTemplate = button(tr('Сохранить шаблон языка…', 'Save language template…'), async () => {
+      saveTemplate.disabled = true;
+      error.textContent = '';
+      try {
+        if (window.go?.main?.App) {
+          const saved = await window.go.main.App.SaveLanguageTemplate(saveTemplate.textContent);
+          if (saved) notify?.(tr('Шаблон сохранён', 'Template saved'));
+        } else {
+          const response = await fetch(new URL('./languages/template.json', import.meta.url));
+          if (!response.ok) throw Error(response.statusText);
+          const download = document.createElement('a');
+          const url = URL.createObjectURL(await response.blob());
+          download.href = url;
+          download.download = 'Videron.language.json';
+          document.body.append(download);
+          download.click();
+          download.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+      } catch {
+        error.textContent = tr('Не удалось сохранить шаблон языка.', 'Could not save the language template.');
+      } finally { saveTemplate.disabled = false; }
+    });
+    footer.append(saveTemplate, button(tr('Установить из JSON', 'Install from JSON'), () => chooseManifest()));
     content.append(input, error, footer);
     closeButton.focus();
   }

@@ -27,7 +27,7 @@ import { openWorkspaceConflicts, dismissWorkspaceConflicts } from './workspace-c
 import { openWorkspaceServer, dismissWorkspaceServer } from './workspace-server-ui.js';
 import { rememberServerAddress } from './server-address.js';
 import { createEditorSaveStatus, mountWorkspaceStatus } from './workspace-status.js';
-import { bindStaticTranslations, getLanguage, setLanguage, tr } from './i18n.js';
+import { bindStaticTranslations, getLanguage, getLanguages, setLanguage, setLanguagePacks, tr } from './i18n.js';
 import { isMacPlatform, primaryCommand, shortcutLabel, shortcutAria } from './shortcuts.js';
 import { deleteNotes } from './note-deletion.js';
 import { isProtectedNote, protectedNoteTitle, openNoteSession } from './note-vault.js';
@@ -520,7 +520,7 @@ function gridSpacingField(grid,columns,rows){
 function areaDialog(area=null,{parentId=null,point=null,startAsGrid=false,startAsTrack=false,focusSpacing=false,anchor=null,stageIndex=null}={}){
   const parent=areaById(parentId);
   const d=anchor && area?.grid?gridSettingsPanel(anchor,!!area.grid.stages):
-    dialog(area?tr('Изменить область','Edit area'):parent?tr('Подобласть в «'+parent.name+'»','New area in “'+parent.name+'”'):tr('Новая область','New area'));
+    dialog(area?tr('Изменить область','Edit area'):parent?tr('Подобласть в «{name}»','New area in “{name}”',{name:parent.name}):tr('Новая область','New area'));
   const form=element('form'),field=element('label','field',tr('Название','Name')),input=element('input');
   input.required=true;input.maxLength=80;input.value=area?.name||'';input.placeholder=tr('Например, Исследования','For example, Research');field.append(input);
   const palette=element('div','palette');let color=area?.color||colors[workspace().areas.length%colors.length];
@@ -651,8 +651,8 @@ function placeNotes(ids,id,created=false,slot=null,positions=[]){
   if(area?.grid && ids.length===1 && count===2)notify(tr('Заметки поменялись местами','Notes swapped places'),undoButton());
   else if(count && area?.grid?.stages && Number.isInteger(slot))notify(area.name+' → '+area.grid.stages[slot%area.grid.cols]+' · '+count,undoButton());
   else if(count)notify(area
-    ?tr('В области «'+area.name+'» · '+count,'Moved to “'+area.name+'” · '+count)
-    :tr('Перемещено на верхний уровень · '+count,'Moved to the top level · '+count),undoButton());
+    ?tr('В области «{name}» · {count}','Moved to “{name}” · {count}',{name:area.name,count})
+    :tr('Перемещено на верхний уровень · {count}','Moved to the top level · {count}',{count}),undoButton());
   return true;
 }
 function placeArea(id,parentId){
@@ -717,10 +717,10 @@ function deleteFolder(area){
     notify(message+tr('. Все заметки сохранены.','. All notes were kept.'),undoButton());
   }
   if(area.grid){remove();return}
-  const d=dialog(tr('Удалить область «'+area.name+'»?','Delete area “'+area.name+'”?'));
+  const d=dialog(tr('Удалить область «{name}»?','Delete area “{name}”?',{name:area.name}));
   const detail=parent?.grid
-    ?tr('Заметки займут свободные места в «'+parent.name+'». Остальные поднимутся выше по дереву. Вложенные области перейдут в «'+parent.name+'».','Notes will take available slots in “'+parent.name+'”. Any remaining notes move up the tree. Child areas will move into “'+parent.name+'”.')
-    :parent ?tr('Заметки и вложенные области останутся в «'+parent.name+'».','Notes and child areas will move into “'+parent.name+'”.')
+    ?tr('Заметки займут свободные места в «{name}». Остальные поднимутся выше по дереву. Вложенные области перейдут в «{name}».','Notes will take available slots in “{name}”. Any remaining notes move up the tree. Child areas will move into “{name}”.',{name:parent.name})
+    :parent ?tr('Заметки и вложенные области останутся в «{name}».','Notes and child areas will move into “{name}”.',{name:parent.name})
     :tr('Заметки и вложенные области останутся на верхнем уровне пространства.','Notes and child areas will move to the top level of this workspace.');
   d.box.append(element('p','',detail));
   const actions=element('div','dialog-actions');
@@ -856,7 +856,7 @@ async function createSpace({name,folder,password},sourceId){
 }
 async function attachSpace(){
   try{
-    const path=await native.PickFolder(getLanguage());
+    const path=await native.PickFolder(tr('Выберите папку','Choose a folder'));
     if(!path || lockScreen)return;
     await changeSpace(async()=>{
       const info=await native.InspectSpaceFolder(path),entry=folderEntry(library.spaces,info.folder);
@@ -1474,7 +1474,7 @@ function renderLinkHint(){
   let message='';
   if(!bar.hidden){
     const source=byId(graph.linkSource);
-    message=source ? tr('Выберите заметку для связи с «','Select a note to link with “')+noteTitle(source)+tr('»','”')
+    message=source ? tr('Выберите заметку для связи с «{name}»','Select a note to link with “{name}”',{name:noteTitle(source)})
       : tr('Выберите первую заметку','Select the first note');
   }
   if(hint.textContent!==message)hint.textContent=hint.title=message;
@@ -1531,10 +1531,10 @@ function undoWorkspaceChange(){
     if(change.kind==='deletion' && ids.length===1)graph.focus(ids[0]);
     $('graph').focus({preventScroll:true});
   }else (listNoteRow(ids[0])||$('new-note')).focus({preventScroll:true});
-  const msg=change.kind==='area-delete'?tr('Восстановлена «'+change.area.name+'»','Restored “'+change.area.name+'”'):
+  const msg=change.kind==='area-delete'?tr('Восстановлена «{name}»','Restored “{name}”',{name:change.area.name}):
     change.kind==='deletion'?(ids.length===1?tr('Заметка восстановлена','Note restored'):tr('Восстановлено заметок · ','Notes restored · ')+ids.length):
-    change.kind==='stage-insert' && change.releasedCount?tr('Вставка отменена. Новые заметки на карте · '+change.releasedCount,
-      'Insertion undone. New notes moved onto the map · '+change.releasedCount):
+    change.kind==='stage-insert' && change.releasedCount?tr('Вставка отменена. Новые заметки на карте · {count}',
+      'Insertion undone. New notes moved onto the map · {count}',{count:change.releasedCount}):
     change.kind==='stage-insert'?tr('Вставка этапа отменена','Stage insertion undone'):
     change.kind==='stage-delete'?tr('Этап и места заметок восстановлены','Stage and note positions restored'):
     change.kind==='stage-order'?tr('Прежний порядок этапов восстановлен','Previous stage order restored'):
@@ -1549,7 +1549,7 @@ function removeNotes(ids){
   if(!ids.length || (single && !record))return;
   const title=single?noteTitle(record):'';
   const d=dialog(single?tr('Удалить заметку?','Delete note?'):tr('Удалить выбранные заметки?','Delete selected notes?'));
-  d.box.append(element('p','',single?tr('«'+title+'» и её связи будут удалены из этого пространства.','“'+title+'” and its links will be removed from this workspace.'):
+  d.box.append(element('p','',single?tr('«{title}» и её связи будут удалены из этого пространства.','“{title}” and its links will be removed from this workspace.',{title}):
     tr('Выбрано заметок · ','Selected notes · ')+ids.length+shortcutLabel(tr('. Удаление можно отменить через Ctrl+Z.','. You can undo this with Ctrl+Z.'))));
   const actions=element('div','dialog-actions');actions.append(button(tr('Отмена','Cancel'),d.close),button(tr('Удалить','Delete'),()=>{
     d.close();
@@ -1560,7 +1560,7 @@ function removeNotes(ids){
     rememberMapAction(space,{kind:'deletion',ids:removed.map(n=>n.id)});
     selected=null;graph.select(null);listSelection.clear();lastListId=null;chooseTool('select');dirty();render();
     (showingMap()?$('graph'):$('list-stage').querySelector('.note-row')||$('new-note')).focus({preventScroll:true});
-    notify(single?tr('Удалена «'+title+'»','Deleted “'+title+'”'):tr('Удалено заметок · ','Notes deleted · ')+ids.length,undoButton());
+    notify(single?tr('Удалена «{title}»','Deleted “{title}”',{title}):tr('Удалено заметок · ','Notes deleted · ')+ids.length,undoButton());
   }));d.box.append(actions);
 }
 function metricAction(target,kind,anchor){
@@ -1579,7 +1579,7 @@ function insertMapStage(id,index,name){
   if(!stageMapActive())return false;
   if(!insertStageWithHistory(workspace(),id,index,name).ok)return false;
   dirty(gridRecords(id));render();
-  notify(tr('Добавлен этап «'+name+'»','Added stage “'+name+'”'),undoButton());
+  notify(tr('Добавлен этап «{name}»','Added stage “{name}”',{name}),undoButton());
   return true;
 }
 function stageContext(id,index,anchor){
@@ -1599,7 +1599,7 @@ function stageContext(id,index,anchor){
         const affected=gridRecords(id); // Includes notes released to the map by this deletion.
         if(!deleteStageWithHistory(space,id,index,destination).ok)return false;
         dirty(affected);render();
-        notify(tr('Удалён этап «'+stages[index]+'»','Deleted stage “'+stages[index]+'”'),undoButton());
+        notify(tr('Удалён этап «{name}»','Deleted stage “{name}”',{name:stages[index]}),undoButton());
         return true;
       }});
     }}
@@ -1725,7 +1725,7 @@ function renderList(){
       fragment.append(batch);
     }
     const entry=element('div','note-list-entry'),check=element('input','note-check');
-    check.type='checkbox';check.value=n.id;check.setAttribute('aria-label',tr('Выбрать «','Select “')+noteTitle(n)+tr('»','”'));
+    check.type='checkbox';check.value=n.id;check.setAttribute('aria-label',tr('Выбрать «{name}»','Select “{name}”',{name:noteTitle(n)}));
     check.onclick=e=>selectListNote(n.id,e.shiftKey,check);
     const row=element('button','note-row'),symbol=element('span','row-symbol'),summary=element('span','note-summary');
     row.dataset.noteId=n.id;
@@ -1787,7 +1787,7 @@ function sidebarRow(item){
     open.onclick=()=>navigate('area',item.id);
     const actions=anchor=>{const area=areaById(item.id);if(area)areaActions(area,anchor)};
     row.oncontextmenu=e=>{e.preventDefault();actions(e.clientX||e.clientY?{x:e.clientX,y:e.clientY}:open)};
-    const more=iconButton('more',tr('Действия с областью «','Actions for area “')+item.title+tr('»','”'),e=>actions(e.currentTarget));
+    const more=iconButton('more',tr('Действия с областью «{name}»','Actions for area “{name}”',{name:item.title}),e=>actions(e.currentTarget));
     more.classList.add('area-more');more.tabIndex=-1;more.setAttribute('aria-haspopup','menu');
     row.append(open,more);
   }else if(item.kind==='note'){
@@ -1849,7 +1849,7 @@ function render(){
     $('welcome-create').replaceChildren(iconEl(existing?'layers':'plus'),document.createTextNode(existing?
       tr('Выбрать пространство','Choose a space'):tr('Создать пространство','Create space')));
   }
-  for(const control of document.querySelectorAll('[data-page],#new-area,#search,#extensions'))control.disabled=!hasSpace;
+  for(const control of document.querySelectorAll('[data-page],#new-area,#search'))control.disabled=!hasSpace;
   $('all-count').textContent=notes.length;$('pin-count').textContent=notes.filter(isPinned).length;
   document.querySelectorAll('[data-page]').forEach(b=>{
     const active=b.dataset.page===page;
@@ -1938,6 +1938,47 @@ function toggleSidebar(){
 function isDeleteKey(event){
   return event.key==='Delete' || (event.key==='Backspace' && isMacPlatform());
 }
+function updateLanguageSelector(){
+  const select=$('language-select');
+  select.replaceChildren(...getLanguages().map(({code,name})=>{
+    const option=new Option(name,code);
+    option.lang=code;
+    return option;
+  }));
+  select.value=getLanguage();
+}
+function loadLibraryLanguages(){
+  setLanguagePacks(library.languagePacks ?? []);
+  updateLanguageSelector();
+  translateStatic();
+}
+function refreshLanguage(){
+  stageControls?.reset();
+  translateStatic();closeMenu();$('toast').hidden=true;
+  $('language-select').value=getLanguage();
+  if(translateDemoSamples(library.spaces.demo))dirty({spaceId:'demo',all:true});
+  status();syncBadge();updateSidebarToggle();render();
+}
+function chooseLanguage(code){
+  const persisted=setLanguage(code);
+  refreshLanguage();
+  if(!persisted)notify(tr('Выбор языка действует до закрытия окна.','Your language choice will last until this window closes.'));
+}
+function saveExtensions(items,changed){
+  if(changed.type==='language'){
+    const packs=items.filter(item=>item.type==='language');
+    const previous=getLanguage();
+    setLanguagePacks(packs);
+    if(packs.length)library.languagePacks=packs;
+    else delete library.languagePacks;
+    dirty({settings:['languagePacks']});
+    updateLanguageSelector();
+    if(previous!==getLanguage() || changed.locale===getLanguage())refreshLanguage();
+  }else{
+    library.plugins=items.filter(item=>item.type!=='language');
+    dirty({settings:['plugins']});
+  }
+}
 function bindUI(){
   $('sync-review').onclick=async()=>{
     if(lockScreen || !folderSession || reviewing)return;
@@ -1956,14 +1997,7 @@ function bindUI(){
   for(const type of ['pointerup','pointercancel','lostpointercapture'])
     document.addEventListener(type,resumeFolderPoll,{capture:true});
   narrowSidebar.addEventListener('change',updateSidebarToggle);updateSidebarToggle();
-  $('language-select').onchange=e=>{
-    stageControls?.reset();
-    const persisted=setLanguage(e.target.value);
-    translateStatic();closeMenu();$('toast').hidden=true;
-    if(translateDemoSamples(library.spaces.demo))dirty({spaceId:'demo',all:true});
-    status();syncBadge();updateSidebarToggle();render();
-    if(!persisted)notify(tr('Выбор языка действует до закрытия окна.','Your language choice will last until this window closes.'));
-  };
+  $('language-select').onchange=e=>chooseLanguage(e.target.value);
   $('workspace-switch').onclick=e=>spaceMenu(e.currentTarget);
   $('welcome-create').onclick=e=>Object.keys(library.spaces).length?spaceMenu(e.currentTarget):newSpaceForm();
   $('welcome-folder').onclick=attachSpace;
@@ -1990,7 +2024,8 @@ function bindUI(){
     })));
   };
   $('help').onclick=showHelp;$('search').onclick=()=>search();$('settings').onclick=settings;
-  $('extensions').onclick=()=>openExtensions({workspace:workspace(),plugins:library.plugins,onSavePlugins:items=>{library.plugins=items;dirty({settings:['plugins']})},onOpenNote:edit,notify});
+  $('extensions').onclick=()=>openExtensions({workspace:workspace(),plugins:[...library.plugins,...(library.languagePacks??[])],
+    onSavePlugins:saveExtensions,onSelectLanguage:chooseLanguage,onOpenNote:edit,notify});
   document.addEventListener('keydown',e=>{
     const find=e.code==='KeyF' && e.shiftKey, save=e.code==='KeyS' && !e.shiftKey && editor && !editor.element.inert;
     if(!(find||save)||!primaryCommand(e)||e.isComposing||e.keyCode===229||e.defaultPrevented)return;
@@ -2092,6 +2127,7 @@ async function loadDesktopLibrary(){
       catalogRecords.markAll(); // Persist migrations applied by readLibrary before accepting later record edits.
       loaded=null;
     }else catalogSnapshot=serializeLibrary(library);
+    loadLibraryLanguages();
     const entry=library.spaces[library.active];
     if(isFolderSpace(entry)){
       let notice='';
@@ -2156,6 +2192,7 @@ async function init(){
   if(native)resume=await loadDesktopLibrary();
   else{
     library=readLibrary(localStorage.getItem(storageKey));
+    loadLibraryLanguages();
     catalogSnapshot=serializeLibrary(library);
     if(isFolderSpace(library.spaces[library.active])){
       library=localFallback(library);startupNotice=tr('Откройте папку пространства в настольном приложении.','Open the space folder in the desktop app.');
@@ -2196,8 +2233,8 @@ async function init(){
       if(!reorderStageWithHistory(workspace(),id,from,to))return false;
       const names=areaById(id).grid.stages;
       dirty(gridRecords(id));render();
-      notify(tr('«'+names[to]+'» · этап '+(to+1)+' из '+names.length,
-        '“'+names[to]+'” · stage '+(to+1)+' of '+names.length),undoButton());
+      notify(tr('«{name}» · этап {index} из {total}','“{name}” · stage {index} of {total}',
+        {name:names[to],index:to+1,total:names.length}),undoButton());
       return true;
     },
     onNewGridNote:(areaId,slot,point)=>addNote(point,'text',{areaId,slot}),

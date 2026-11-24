@@ -8,7 +8,7 @@ Videron gives every note a place on a map. Your first workspace opens on an empt
 
 A local Windows build produces `build/bin/Videron.exe`. To switch versions, close Videron and run the new executable. Windows needs the Microsoft Edge WebView2 Runtime. The editor, canvas, fonts, search and built-in extension are bundled with the app. You can work on notes offline. [Build the desktop app](../README.md#build-the-desktop-app)
 
-Use **Language** at the bottom of the sidebar to switch between English and Russian. The setting takes effect immediately and is saved on this device. On first launch, look for **Язык** and select **English**.
+Use **Language** at the bottom of the sidebar to select English, Russian or an installed language pack. The setting takes effect immediately and is saved on this device. On first launch, look for **Язык** and select **English**.
 
 On first launch, **Settings → Theme → Use system setting** follows the appearance of Windows or macOS. The map, editors and open dialogs update when the system switches themes. Choose **Light** or **Dark** to keep a fixed theme. Videron remembers this choice on this device across workspaces.
 
@@ -180,6 +180,30 @@ Use a long, unique passphrase and store it in your password manager. Recovering 
 
 ## Extensions
 
+### Language packs
+
+Choose **Extensions → Install from JSON**, select a language pack, then click **Use language** beside its name. The language also appears in the sidebar selector. To install a revised translation, click **Update…** on the pack. Removing the active pack switches the interface to English.
+
+To create a translation, choose **Save language template…** in Extensions. The template is bundled with Videron and is also available [in the repository](../frontend/languages/template.json). Give it a unique `id`, set `name` to the name readers will recognize in their language, and set `locale` to a language tag such as `fr` or `pt-BR`. Keep the English keys in `messages` and translate the values. Keep named placeholders such as `{total}`, the `$` placeholders in code-editor messages, and any leading or trailing spaces. You can omit a key to use the English label. A small pack can start with just two entries.
+
+```json
+{
+  "apiVersion": 1,
+  "type": "language",
+  "id": "community.fr",
+  "name": "Français",
+  "locale": "fr",
+  "messages": {
+    "New note": "Nouvelle note",
+    "{done} of {total} done": "Terminé : {done} sur {total}"
+  }
+}
+```
+
+Language packs contain text and work offline. They are stored in the local library and covered by its encryption. When a custom language is selected, the first password prompt after a restart or lock uses English until the library is unlocked. Your own notes and names stay as written.
+
+### Custom views
+
 Open **Extensions → Tag spectrum** and select a tag to see its notes. Click a note in the list to open it.
 
 You can import a custom view through the same window. Save this manifest as a `.json` file and choose it in the import dialog to display the number of notes exposed to the extension in the current space.
@@ -194,12 +218,12 @@ You can import a custom view through the same window. Save this manifest as a `.
 }
 ```
 
-Views run in a separate, sandboxed iframe with a Content Security Policy. The built-in Tag spectrum uses the same API as imported views. Use the `language` field in `videron:data` to choose labels for your view. Videron's language selector currently lists English and Russian. Adding another interface language requires a change to the app.
+Views run in a separate, sandboxed iframe with a Content Security Policy. Use the `language` field in `videron:data` to choose labels for your own view. The built-in Tag spectrum uses the app's translations.
 
 | Message | Direction | Purpose |
 | --- | --- | --- |
 | `videron:ready` | Extension → app | Request the current space's data. |
-| `videron:data` | App → extension | Delivers `apiVersion`, `language` (`ru` or `en`), and the `notes` and `areas` arrays. |
+| `videron:data` | App → extension | Delivers `apiVersion`, the active language tag (such as `ru`, `en` or `fr-CA`), and the `notes` and `areas` arrays. The language tag is in `language`. |
 | `videron:open-note` | Extension → app | Open the note with the supplied `id`. |
 
 A note record contains `id`, `title`, `type` (`text`, `canvas` or `data`), `appearance` (shape, icon and color), `tags`, `areaId`, `pinned`, `opens`, `x`, `y`, `weight` and `links`. The `links` array holds manual links. Compare `tags` to reconstruct tag links. An area record contains `id`, `name` and `color`. This API supports custom views and navigation.

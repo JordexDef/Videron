@@ -1,5 +1,6 @@
 import { getLanguage, tr } from './i18n.js';
 import { normalizeAreaTree } from './areas.js';
+import { readExtensionManifests } from './extension-manifest.js';
 
 export function blankWorkspace(){return {notes:[],areas:[]}}
 export const defaultMapView = Object.freeze({labels:true, links:true, grid:true, reading:true, manualLayout:false});
@@ -42,8 +43,13 @@ export function readLibrary(raw){
   try { data = JSON.parse(raw); }
   catch { throw new Error(tr('Файл хранилища содержит некорректный JSON.', 'The workspace file contains invalid JSON.')); }
   if (!data || typeof data !== 'object') throw new Error(tr('Структура хранилища повреждена.', 'The library structure is invalid.'));
-  if(data.plugins!==undefined&&(!Array.isArray(data.plugins)||data.plugins.some(p=>!p||p.apiVersion!==1||typeof p.id!=='string'||typeof p.name!=='string'||typeof p.html!=='string')))
+  if(data.plugins!==undefined&&(!Array.isArray(data.plugins)||data.plugins.some(p=>!p||p.type==='language'||p.apiVersion!==1||typeof p.id!=='string'||typeof p.name!=='string'||typeof p.html!=='string')))
     throw new Error(tr('Повреждён список расширений.', 'The extensions list is damaged.'));
+  if(data.languagePacks!==undefined){
+    if(!Array.isArray(data.languagePacks) || data.languagePacks.some(pack=>pack?.type!=='language'))
+      throw new Error(tr('Повреждён список языковых пакетов.', 'The language pack list is damaged.'));
+    data.languagePacks=readExtensionManifests(data.languagePacks,data.plugins);
+  }
   if(![1,2,3].includes(data.version) || !data.spaces || Array.isArray(data.spaces) ||
       typeof data.spaces!=='object' || typeof data.active!=='string' ||
       (!(data.version===3 && data.active==='') && !Object.hasOwn(data.spaces,data.active)) ||
@@ -104,7 +110,7 @@ export function demoWorkspace() {
 }
 
 function createDemo(language, legacy = false) {
-  const english = language === 'en';
+  const english = language !== 'ru';
   const local = (ru, en) => english ? en : ru;
   const areas=[
     {id:'visual',name:local('Визуальный язык', 'Visual language'),color:colors[0]},
@@ -236,7 +242,7 @@ function sameValue(left, right) {
 export function translateDemoSamples(workspace) {
   if (!workspace?.notes?.length) return false;
   referenceSamples ??= { ru: createDemo('ru'), en: createDemo('en'), legacy: createDemo('ru', true) };
-  const target = referenceSamples[getLanguage()];
+  const target = getLanguage()==='ru' ? referenceSamples.ru : referenceSamples.en;
   const references = Object.values(referenceSamples);
   const indexById = new Map(target.notes.map((note, i) => [note.id, i]));
   const firstLoose = indexById.get('demo-loose-0');

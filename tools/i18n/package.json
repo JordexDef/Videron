@@ -1,0 +1,13 @@
+{
+  "name": "videron-language-template",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node generate.mjs",
+    "check": "node generate.mjs --check"
+  },
+  "devDependencies": {
+    "acorn": "8.15.0",
+    "parse5": "7.3.0"
+  }
+}

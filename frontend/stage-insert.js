@@ -88,7 +88,7 @@ export function mountStageInsert(canvas,layer,onInsert){
         visible.add(key);
         if(draft?.button===button && grid.stages!==draft.stages)dismiss(true);
         button.boundary={id,index,x,y,stages:grid.stages};
-        const label=tr('Вставить этап на позицию '+(index+1)+' · '+name,'Insert stage at position '+(index+1)+' · '+name);
+        const label=tr('Вставить этап на позицию {index} · {name}','Insert stage at position {index} · {name}',{index:index+1,name});
         if(button.title!==label){button.title=label;button.setAttribute('aria-label',label)}
         const transform='translate('+(x-targetSize/2)+'px,'+y+'px)';
         if(button.style.transform!==transform)button.style.transform=transform;

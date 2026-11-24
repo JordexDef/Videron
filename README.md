@@ -27,7 +27,7 @@ On Windows, run the desktop EXE. On macOS, open the DMG and drag Videron into Ap
 - **Work with data.** Open JSON, CSV, or TSV in a data note. For CSV and TSV, switch to the table view to sort by a column or remove duplicates using the fields you choose.
 - **Work offline.** Create, edit and search your notes locally. You can sync a space when you want to use it on another computer.
 
-On first launch, choose **English** from the language selector at the bottom of the sidebar. Select **Explore the demo** to open the example map in its own space.
+On first launch, choose **English** from the language selector at the bottom of the sidebar. Select **Explore the demo** to open the example map in its own space. To use another language, install a translation through **Extensions** or create one from the bundled template. [Language packs](docs/guide.md#language-packs)
 
 ## Encryption
 

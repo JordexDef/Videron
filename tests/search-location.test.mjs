@@ -122,7 +122,8 @@ test('a deferred regex compilation error keeps the worker and its corpus usable'
   self.onmessage({data:{notes:[note('retry succeeds')]}})
   self.onmessage({data:{options:{query:'pattern',regex:true,language:'en'}}})
   self.onmessage({data:{options:{query:'retry'}}})
-  assert.match(responses[0].error,/regular expression/)
+  assert.equal(responses[0].regexError,'complexity')
+  assert.equal(findNotes([], {query:'[',regex:true}).regexError,'syntax')
   assert.equal(responses[1].matches[0].id,'one')
 })
 

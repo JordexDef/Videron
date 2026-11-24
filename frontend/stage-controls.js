@@ -84,8 +84,8 @@ export function mountStageControls({canvas, onEdit, onInsert}) {
       visible.add(group.id);
       const button = buttons.get(group.id) || add(group.id);
       const label = group.grid.stages
-        ? tr('Настроить дорожку «' + group.name + '»', 'Edit stage track “' + group.name + '”')
-        : tr('Настроить сетку «' + group.name + '»', 'Edit grid “' + group.name + '”');
+        ? tr('Настроить дорожку «{name}»', 'Edit stage track “{name}”',{name:group.name})
+        : tr('Настроить сетку «{name}»', 'Edit grid “{name}”',{name:group.name});
       if (button.title !== label) {
         button.title = label;
         button.setAttribute('aria-label',label);

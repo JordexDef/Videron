@@ -276,7 +276,7 @@ function noteDetails({root,note,notes,areas,current,update,openNote,openTag}) {
       const name=isProtectedNote(other)?protectedNoteTitle():other.title||tr('Без названия','Untitled')
       if(links.includes(other.id)){
         const row=connectionRow(other,name)
-        row.append(button(tr('Убрать связь с «'+name+'»','Remove link to “'+name+'”'),'close',()=>{
+        row.append(button(tr('Убрать связь с «{name}»','Remove link to “{name}”',{name}),'close',()=>{
           update({links:current().links.filter(id=>id!==other.id)})
         }))
         connections.append(row)
@@ -552,12 +552,13 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   function indicators(data) {
     if(embed){refreshEmbeddedHistory();return}
     const words=data.plain.trim() ? data.plain.trim().split(/\s+/u).length : 0
-    const summary=[words.toLocaleString(getLanguage())+tr(' сл.',words===1?' word':' words')]
+    const wordCount={count:words.toLocaleString(getLanguage())}
+    const summary=[words===1?tr('{count} сл.','{count} word',wordCount):tr('{count} сл.','{count} words',wordCount)]
     const {pending,done,cancelled}=taskCounts(body)
     const total=pending+done
     if(total+cancelled>=2){
-      if(total)summary.push(tr(`Готово ${done} из ${total}`,`${done} of ${total} done`))
-      if(cancelled)summary.push(tr(`Отменено ${cancelled}`,`${cancelled} cancelled`))
+      if(total)summary.push(tr('Готово {done} из {total}','{done} of {total} done',{done,total}))
+      if(cancelled)summary.push(tr('Отменено {count}','{count} cancelled',{count:cancelled}))
     }
     count.textContent=summary.join(' · ')
     undoBtn.disabled=!past.length;redoBtn.disabled=!future.length

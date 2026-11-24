@@ -57,6 +57,8 @@ test('localized dates preserve layout, leap days, elapsed-day and calendar-month
   assert.deepEqual(continueRow(['2021-02-28', '2022-02-28', '2023-02-28']), ['2024-02-29', '2025-02-28']);
   assert.deepEqual(continueRow(['1/2/2024']), ['2/2/2024', '3/2/2024']);
   assert.deepEqual(continueRow(['1/2/2024'], 2, 'en'), ['1/3/2024', '1/4/2024']);
+  assert.deepEqual(continueRow(['1/2/2024'], 2, 'en-GB'), ['2/2/2024', '3/2/2024']);
+  assert.deepEqual(continueRow(['1/2/2024'], 2, 'fil-PH'), ['1/3/2024', '1/4/2024']);
   assert.deepEqual(continueRow(['12/31/2024'], 1, 'ru'), ['01/01/2025']);
   assert.deepEqual(continueRow(['31.02.2024']), ['31.02.2024', '31.02.2024']);
   assert.deepEqual(continueRow(['01.01.2024', '03.01.2024', '04.01.2024']), ['01.01.2024', '03.01.2024']);

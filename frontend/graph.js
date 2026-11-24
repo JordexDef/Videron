@@ -1100,7 +1100,7 @@ export class Graph {
       const heading = canGrab && surface.header;
       const stageName = heading ? heading.grid.grid.stages[Math.floor((p.x-heading.l)/heading.pitch)] : '';
       const hint = grip ? tr('Потяните, чтобы изменить шаг сетки','Drag to adjust grid spacing')
-        : handle!==null ? tr('Переместить этап «'+stageName+'»','Move stage “'+stageName+'”') : stageName;
+        : handle!==null ? tr('Переместить этап «{name}»','Move stage “{name}”',{name:stageName}) : stageName;
       if (this.canvas.title !== hint) this.canvas.title = hint;
       if (id!==this.hover || grid!==this.hoverGrid || grip!==this.hoverGrip || area!==this.hoverGridArea || stage!==this.hoverStage || handle!==this.hoverHandle ||
           seat?.group!==this.hoverSeat?.group || seat?.index!==this.hoverSeat?.index) {

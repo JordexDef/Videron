@@ -14,7 +14,7 @@ export function findNotes(notes, options, preview = searchPreview) {
   let expression
   if (regex && query) {
     try { expression = new RegExp(query, exactCase ? 'u' : 'iu') }
-    catch { return {error:options.language === 'en' ? 'Invalid regular expression. Check the pattern syntax.' : 'Некорректное регулярное выражение. Проверьте синтаксис шаблона.'} }
+    catch { return {regexError:'syntax'} }
   }
   const needle = exactCase || regex ? query : query.toLowerCase()
   // A literal native search can scan the original buffer. Ordinary typing then
@@ -94,7 +94,7 @@ export function installSearchWorker(find, preview) {
       // Some engines compile on the first match, after new RegExp succeeded.
       // A rejected pattern should leave the loaded workspace available for retry.
       if (!data.options.regex || !(error instanceof SyntaxError || error instanceof RangeError)) throw error
-      response = {error:data.options.language === 'en' ? 'The regular expression is too complex. Simplify the pattern.' : 'Слишком сложное регулярное выражение. Упростите шаблон.'}
+      response = {regexError:'complexity'}
     }
     self.postMessage(response)
   }

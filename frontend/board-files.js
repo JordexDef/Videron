@@ -1,4 +1,4 @@
-import { getLanguage, tr } from './i18n.js';
+import { tr } from './i18n.js';
 import { boardInk, boardPaper } from './board-theme.js';
 import {
   handFont,
@@ -453,7 +453,7 @@ async function saveScene(doc, workbook) {
   if (doc.elements.some((e) => (e.type === 'text' || e.label) && fontStyle(e.fontFamily || handFont) === handFont))
     await loadHandFont();
   const json = JSON.stringify(exportScene(doc, workbook));
-  if (window.go?.main?.App) return window.go.main.App.SaveDrawing(json, getLanguage());
+  if (window.go?.main?.App) return window.go.main.App.SaveDrawing(json, tr('Сохранить рисунок', 'Save drawing'));
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
   const download = document.createElement('a');
   download.href = url;

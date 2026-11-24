@@ -1,4 +1,4 @@
-import {tr, getLanguage} from './i18n.js'
+import {tr} from './i18n.js'
 
 // Keep paths as paths in the note. Only the desktop bridge opens a directory.
 export function isFolderPath(path) {
@@ -20,7 +20,7 @@ export function canPickFolder() {
 
 export async function pickFolder() {
   if (!canPickFolder()) throw new Error('VD_FOLDER_DESKTOP')
-  const path = await window.go.main.App.PickFolder(getLanguage())
+  const path = await window.go.main.App.PickFolder(tr('Выберите папку', 'Choose a folder'))
   if (path && !isFolderPath(path)) throw new Error('VD_FOLDER_INVALID')
   return path || ''
 }

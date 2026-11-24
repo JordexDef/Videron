@@ -76,7 +76,8 @@ const russianPhrases = {
   Find:'Найти', Replace:'Заменить', next:'Далее', previous:'Назад', all:'Все', 'match case':'С учётом регистра',
   regexp:'Рег. выражение', 'by word':'Слово целиком', replace:'Заменить', 'replace all':'Заменить все',
   close:'Закрыть', 'Go to line':'Перейти к строке', go:'Перейти', 'current match':'Совпадение', 'on line':'в строке',
-  'replaced match on line $':'Замена в строке $', 'replaced $ matches':'Выполнено замен: $'
+  'replaced match on line $':'Замена в строке $', 'replaced $ matches':'Выполнено замен: $',
+  'Selection deleted':'Выделение удалено'
 }
 const palette = HighlightStyle.define([
   {tag:[tags.keyword,tags.modifier,tags.operatorKeyword], color:'var(--ve-keyword,#c8b1df)'},
@@ -261,7 +262,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     search({top:true}), highlights, themeSlot.of(currentScheme()), EditorState.tabSize.of(4),
     keymap.of([{key:'Mod-g',run:gotoLine},{win:'Ctrl-Shift-z',run:redo,preventDefault:true},
       ...searchKeymap,{key:'Escape',run:cancelTextOperation},...historyKeymap,indentWithTab,...defaultKeymap]),
-    EditorState.phrases.of(getLanguage() === 'ru' ? russianPhrases : {}),
+    EditorState.phrases.of(Object.fromEntries(Object.entries(russianPhrases).map(([en,ru])=>[en,tr(ru,en)]))),
     EditorView.contentAttributes.of({'aria-label':tr('Содержимое заметки данных','Data note contents'), spellcheck:'false'}),
     placeholder(tr('Введите данные или вставьте файл…','Type data or insert a file…')),
     EditorView.updateListener.of(update => {

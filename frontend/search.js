@@ -187,6 +187,12 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
     list=response.matches||[];active=-1;mounted.clear();rows.replaceChildren()
     query.removeAttribute('aria-activedescendant');rows.style.height=list.length*rowHeight+'px'
     results.inert=false;results.removeAttribute('aria-busy')
+    if(response.regexError){
+      const error=response.regexError==='syntax'
+        ? tr('Некорректное регулярное выражение. Проверьте синтаксис шаблона.','Invalid regular expression. Check the pattern syntax.')
+        : tr('Слишком сложное регулярное выражение. Упростите шаблон.','The regular expression is too complex. Simplify the pattern.')
+      showStatus(error,'error');return
+    }
     if(response.error){showStatus(response.error,'error');return}
     const summary=list.length?tr('Найдено заметок · ','Notes found · ')+list.length.toLocaleString(getLanguage()):(source.length?tr('Совпадений нет','No matches'):tr('В этом пространстве пока нет заметок','This workspace has no notes yet'))
     showStatus(summary,'ready')
@@ -200,7 +206,7 @@ export function openSearch({notes, areas=[], onOpen, initialQuery='', initialSta
   }
   function lookup(){
     if(closed || displayed===serial)return
-    const opts={...flags,query:query.value,area:area.value,language:getLanguage(),deferSnippets:true}
+    const opts={...flags,query:query.value,area:area.value,deferSnippets:true}
     if(opts.area && opts.area!=='_none')opts.areaIds=[...descendantAreaIds(areas,opts.area)]
     // Opening the dialog only needs recency and filters. Transfer bodies on the first nonempty query.
     if(!opts.query){display(findNotes(source,opts));return}

@@ -1,4 +1,5 @@
 import { formulaFunctionNames, tokenize } from './table-engine.js';
+import { translateFor } from './i18n.js';
 
 const descriptions = {
   SUM: ['Сумма чисел и диапазонов', 'Sum of numbers and ranges'],
@@ -34,18 +35,17 @@ function insideQuote(value, caret) {
 
 function help(name, language, separator) {
   const fn = names.get(name);
-  const en = language === 'en';
   let args;
-  if (fn === 'ABS') args = en ? 'number' : 'число';
-  else if (fn === 'ROUND') args = (en ? 'number' : 'число') + separator + (en ? '[digits]' : '[разряды]');
-  else args = (en ? 'value' : 'значение') + separator + '…';
-  return { name, signature: name + '(' + args + ')', description: descriptions[fn][en ? 1 : 0] };
+  if (fn === 'ABS') args = translateFor(language, 'число', 'number');
+  else if (fn === 'ROUND') args = translateFor(language, 'число', 'number') + separator + translateFor(language, '[разряды]', '[digits]');
+  else args = translateFor(language, 'значение', 'value') + separator + '…';
+  return { name, signature: name + '(' + args + ')', description: translateFor(language, ...descriptions[fn]) };
 }
 
 function argumentSeparator(tokens, language) {
   if (tokens.some(t => t.kind === ';')) return '; ';
   if (tokens.some(t => t.kind === ',')) return ', ';
-  return language === 'en' ? ', ' : '; ';
+  return language === 'ru' ? '; ' : ', ';
 }
 
 export function functionCatalog(value, language = 'ru') {
