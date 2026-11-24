@@ -8,7 +8,7 @@
 
 ## Установка на Linux
 
-Подойдёт VPS или домашняя виртуальная машина с Linux и systemd, например Debian или Ubuntu Server. Узнайте архитектуру командой `uname -m`. Скачайте подходящий архив, распакуйте его на сервере и перейдите в каталог с файлами `install.sh` и `videron-sync`. [Linux x86_64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-linux-amd64.tar.gz) · [Linux aarch64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-linux-arm64.tar.gz)
+Подойдёт VPS или домашняя виртуальная машина с Linux и systemd, например Debian или Ubuntu Server. Узнайте архитектуру командой `uname -m`. Скачайте подходящий архив, распакуйте его на сервере и перейдите в каталог с файлами `install.sh` и `videron-sync`. [Linux x86_64](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-Sync-0.49.0-linux-amd64.tar.gz) · [Linux aarch64](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-Sync-0.49.0-linux-arm64.tar.gz)
 
 Запустите установщик с адресом, по которому компьютеры будут подключаться к серверу. Замените домен в примере своим доменом или публичным IP.
 
@@ -22,14 +22,14 @@ sudo ./install.sh sync.example.net
 
 ## Запуск на Windows и macOS
 
-**Windows.** Скачайте серверный EXE для своего процессора. Переименуйте его в `videron-sync.exe` и откройте PowerShell в этой папке. [Windows x64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-windows-amd64.exe) · [Windows ARM64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-windows-arm64.exe)
+**Windows.** Скачайте серверный EXE для своего процессора. Переименуйте его в `videron-sync.exe` и откройте PowerShell в этой папке. [Windows x64](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-Sync-0.49.0-windows-amd64.exe) · [Windows ARM64](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-Sync-0.49.0-windows-arm64.exe)
 
 ```powershell
 .\videron-sync.exe -set-password
 .\videron-sync.exe -public sync.example.net
 ```
 
-**macOS.** Распакуйте архив сервера и откройте Терминал в папке с файлом `videron-sync`. Один архив подходит для Mac с Apple silicon и Intel. [Скачать для macOS](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-macOS-universal.tar.gz)
+**macOS.** Распакуйте архив сервера и откройте Терминал в папке с файлом `videron-sync`. Один архив подходит для Mac с Apple silicon и Intel. [Скачать для macOS](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-Sync-0.49.0-macOS-universal.tar.gz)
 
 ```sh
 ./videron-sync -set-password

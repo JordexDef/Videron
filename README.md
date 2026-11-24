@@ -6,19 +6,19 @@ Videron is a local-first desktop app for keeping notes on a map. The size of eac
 
 ![Videron's demo map with linked notes grouped into three areas and a note tree in the sidebar](docs/media/videron-map.png)
 
-## Download Videron 0.48.1
+## Download Videron 0.49.0
 
 Download the desktop app to work with your notes. Choose Videron Sync if you want to host your own server.
 
 | System | Desktop app | Videron Sync server |
 | --- | --- | --- |
-| Windows | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-windows-arm64.exe) | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-windows-amd64.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-windows-arm64.exe) |
-| macOS | [DMG for Apple silicon and Intel](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-macOS.dmg) | [Archive for Apple silicon and Intel](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-macOS-universal.tar.gz) |
-| Linux | [x64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-0.48.1-linux-arm64.tar.gz) | [x64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.48.1/Videron-Sync-0.48.1-linux-arm64.tar.gz) |
+| Windows | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-0.49.0.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-0.49.0-windows-arm64.exe) | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-Sync-0.49.0-windows-amd64.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-Sync-0.49.0-windows-arm64.exe) |
+| macOS | [DMG for Apple silicon and Intel](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-0.49.0-macOS.dmg) | [Archive for Apple silicon and Intel](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-Sync-0.49.0-macOS-universal.tar.gz) |
+| Linux | [x64](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-0.49.0-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-0.49.0-linux-arm64.tar.gz) | [x64](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-Sync-0.49.0-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.49.0/Videron-Sync-0.49.0-linux-arm64.tar.gz) |
 
 On Windows, run the desktop EXE. On macOS, open the DMG and drag Videron into Applications. On Linux, extract the desktop archive and run `./Videron` from that folder. The Linux builds target Ubuntu 24.04 with GTK 3 and WebKitGTK 4.1. If WebKitGTK is missing, install the runtime with `sudo apt install libwebkit2gtk-4.1-0`.
 
-[Server setup](docs/server-setup.md) · [Release notes and checksums](https://github.com/JordexDef/Videron/releases/tag/v0.48.1)
+[Server setup](docs/server-setup.md) · [Release notes and checksums](https://github.com/JordexDef/Videron/releases/tag/v0.49.0)
 
 ## Working with notes
 
