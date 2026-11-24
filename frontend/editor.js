@@ -484,10 +484,9 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   })
   function selectedTextRange(){return textSelection.selected()}
   function selectTextRange(anchor,focus){textSelection.select(anchor,focus)}
-  function copyTextRange(event,{start,end}){
+  function copyTextRange(event,range){
     const html=el('div'), plain=[]
-    for(let i=start.index;i<=end.index;i++){
-      const runs=sliceRuns(body[i].runs,i===start.index?start.offset:0,i===end.index?end.offset:Infinity)
+    for(const {runs} of selectedBlocks(body,range)){
       const row=el('div')
       row.style.whiteSpace='pre-wrap'
       appendRuns(row,runs);html.append(row)

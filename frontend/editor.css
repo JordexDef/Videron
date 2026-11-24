@@ -176,6 +176,7 @@
 .ve-text::selection, .ve-text *::selection, .ve-title::selection { background: var(--ve-selection,#5b5b5b); color: var(--ve-selection-ink,#f6f6f6); }
 ::highlight(videron-note-selection) { background-color: var(--ve-selection,#5b5b5b); color: var(--ve-selection-ink,#f6f6f6); }
 .ve-cross-selection .ve-text { caret-color:transparent }
+.ve-selected-line-break::after { content:'\00a0'; position:absolute; background:var(--ve-selection,#5b5b5b); pointer-events:none }
 .ve-selection-paint { position:fixed;inset:0;z-index:40;pointer-events:none }
 .ve-selection-paint i { position:absolute;background:Highlight;opacity:.35 }
 .ve-moving-text, .ve-moving-text .ve-text { cursor: grabbing; }

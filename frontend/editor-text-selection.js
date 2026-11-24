@@ -12,7 +12,7 @@ const clamp = (value,low,high) => Math.min(Math.max(low,value),high)
 // both WebView2 and WebKit clip the native highlight at the first host.
 export function createTextSelection({content,rowAt,lengthAt,scroll,visibleTop,moveVertically,reveal}) {
   const listeners = new AbortController(), events = {signal:listeners.signal}
-  let across = null, painted = null, fallback = null, gesture = null, frame = 0, swallowClick = false
+  let across = null, painted = null, boundaryRow = null, fallback = null, gesture = null, frame = 0, swallowClick = false
 
   function domPoint(node,offset) {
     const row = (node?.nodeType===1 ? node : node?.parentElement)?.closest('.ve-text')
@@ -35,6 +35,8 @@ export function createTextSelection({content,rowAt,lengthAt,scroll,visibleTop,mo
   function clear() {
     across = null
     content.classList.remove('ve-cross-selection')
+    boundaryRow?.classList.remove('ve-selected-line-break')
+    boundaryRow = null
     if (painted) {
       const highlight = globalThis.CSS?.highlights?.get(highlightName)
       highlight?.delete(painted)
@@ -91,6 +93,15 @@ export function createTextSelection({content,rowAt,lengthAt,scroll,visibleTop,mo
     const start = forward?a:f, end = forward?f:a
     painted.setStart(start.startContainer,start.startOffset)
     painted.setEnd(end.startContainer,end.startOffset)
+    // A paragraph separator is a real editable character in the model, but
+    // a range from one row's end to the next row's start paints no glyph.
+    const head = forward?anchor:focus
+    const boundary = head.offset===lengthAt(head.index) ? rowAt(head.index) : null
+    if (boundaryRow!==boundary) {
+      boundaryRow?.classList.remove('ve-selected-line-break')
+      boundaryRow=boundary
+      boundaryRow?.classList.add('ve-selected-line-break')
+    }
     paintFallback()
   }
   function bounded(anchor,focus) {
