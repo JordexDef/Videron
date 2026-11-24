@@ -1403,7 +1403,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       const pressed=style===control.dataset.taskStyle
       control.setAttribute('aria-pressed',String(pressed))
       control.title=pressed?tr('Убрать чекбокс и оставить текст','Remove the checkbox and keep the text'):
-        control===taskBtn?tr('Добавить чекбокс для выполнения','Add a checkbox for completion'):tr('Добавить задачу с галочкой и крестиком','Add a task with complete and cancel options')
+        control===taskBtn?tr('Добавить чекбокс для выполнения','Add a task you can check off'):tr('Добавить задачу с галочкой и крестиком','Add a task you can complete or cancel')
     }
     // May be called before toolbar insertion on initial render.
     for(const [btn,cmd] of [[boldBtn,'bold'],[italicBtn,'italic']])btn.setAttribute('aria-pressed',String(!!currentSelection()&&document.queryCommandState(cmd)))

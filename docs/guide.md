@@ -194,7 +194,7 @@ You can import a custom view through the same window. Save this manifest as a `.
 }
 ```
 
-Views run in a separate, sandboxed iframe with a Content Security Policy. The built-in Tag spectrum uses the same API as imported views.
+Views run in a separate, sandboxed iframe with a Content Security Policy. The built-in Tag spectrum uses the same API as imported views. Use the `language` field in `videron:data` to choose labels for your view. Videron's language selector currently lists English and Russian. Adding another interface language requires a change to the app.
 
 | Message | Direction | Purpose |
 | --- | --- | --- |

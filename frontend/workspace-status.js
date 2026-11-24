@@ -13,7 +13,7 @@ function connectionLabel(state) {
     connecting: tr('Подключение…', 'Connecting…'),
     online: tr('Сервер подключён', 'Server connected'),
     syncing: tr('Синхронизация…', 'Syncing…'),
-    offline: tr('Сервер недоступен', 'Server offline'),
+    offline: tr('Сервер недоступен', 'Server unreachable'),
     error: tr('Ошибка синхронизации', 'Sync error'),
   }
   return labels[state] || labels.local

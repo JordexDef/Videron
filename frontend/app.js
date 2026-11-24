@@ -1961,7 +1961,7 @@ function bindUI(){
     const persisted=setLanguage(e.target.value);
     translateStatic();closeMenu();$('toast').hidden=true;
     if(translateDemoSamples(library.spaces.demo))dirty({spaceId:'demo',all:true});
-    status();updateSidebarToggle();render();
+    status();syncBadge();updateSidebarToggle();render();
     if(!persisted)notify(tr('Выбор языка действует до закрытия окна.','Your language choice will last until this window closes.'));
   };
   $('workspace-switch').onclick=e=>spaceMenu(e.currentTarget);
