@@ -10,7 +10,7 @@ import { resolveMapMetrics, openMetricPicker, drawAreaMetric, drawNoteMetric } f
 import { areaDisplayName, areaPath, createArea, moveArea, descendantAreaIds, placeAreaNotes, releaseGridNotes, moveAreaGrid } from './areas.js';
 import { suggestGrid, slotAt } from './map-slots.js';
 import { DEFAULT_GRID_SPACING, MAX_GRID_SPACING, MIN_GRID_SPACING, fullGridIds, gridRowSpacing, gridSpacing, inSlot, isPinned } from './area-grid.js';
-import { rememberMapAction, lastMapAction, resizeGridWithHistory, reorderStageWithHistory, insertStageWithHistory, deleteStageWithHistory, deleteAreaWithHistory, editMapInk, undoMapAction } from './map-history.js';
+import { rememberMapAction, lastMapAction, resizeGridWithHistory, reorderStageWithHistory, insertStageWithHistory, deleteStageWithHistory, deleteAreaWithHistory, editMapInk, groupMapItems, ungroupMapItems, moveMapGroup, undoMapAction } from './map-history.js';
 import { mountMapInk } from './map-ink.js';
 import { areaPicker } from './area-picker.js';
 import { mountAreaDrag } from './area-drag.js';
@@ -894,9 +894,11 @@ function showHelp(){
     [tr('Поиск из любого редактора','Search from any editor'),'Ctrl Shift F'],
     [tr('Открыть выбранную заметку','Open the selected note'),tr('Enter или двойной щелчок','Enter or double-click')],
     [tr('Действия и внешний вид','Actions and appearance'),tr('Правый щелчок','Right-click')],
-    [tr('Выбрать несколько заметок на карте','Select several notes on the map'),tr('Рамка или Ctrl / Shift + щелчок','Drag a box or Ctrl / Shift + click')],
+    [tr('Выбрать заметки и рисунки на карте','Select notes and drawings on the map'),tr('Рамка или Ctrl / Shift + щелчок','Drag a box or Ctrl / Shift + click')],
+    [tr('Сгруппировать','Group'),'Ctrl G'],
+    [tr('Разгруппировать','Ungroup'),'Ctrl Shift G'],
     [tr('Выделить сетку или дорожку целиком','Select a whole grid or stage track'),tr('Обвести рамкой','Drag a box around it')],
-    [tr('Выбрать все заметки','Select all notes'),'Ctrl A'],
+    [tr('Выбрать все заметки и рисунки на карте','Select all notes and drawings on the map'),'Ctrl A'],
     [tr('Удалить выбранные заметки, сетку или дорожку','Delete selected notes, grid or track'),isMacPlatform()?'⌫ / Delete':'Delete'],
     [tr('Переместить заметки в область','Move notes into an area'),tr('Потянуть в контур или на папку','Drag into its outline or sidebar folder')],
     [tr('Изменить порядок этапов','Reorder stages'),tr('Потянуть ручку у названия этапа','Drag the handle beside a stage name')],
@@ -1718,6 +1720,32 @@ function appearance(n,focusLabel=false){
 function undoButton(){
   return lastMapAction(workspace()) ? {label:tr('Отменить','Undo'),run:undoWorkspaceChange} : null;
 }
+function canChangeMapGroup(){
+  return ready && library.active && showingMap() && tool==='select' && !spaceOperation && !reviewing && !editor && !openingNote && !lockScreen && !closingApp && !routes?.isEditing();
+}
+function groupAction(noteIds,inkIds){
+  if(noteIds.size+inkIds.size<2)return null;
+  return graph.selectionGroupId(noteIds,inkIds)?'ungroup':'group';
+}
+function applyGroupChange(change){
+  if(!change)return false;
+  const {noteIds,inkIds}=change,inkSet=new Set(inkIds);
+  const notes=noteIds.map(byId).filter(Boolean);
+  dirty({notes,mapInk:(workspace().mapInk??[]).filter(item=>inkSet.has(item.id))});
+  if(change.placements?.before.length)renderMapPlacement(notes);
+  else graph.setData(workspace().notes.map(mapNote),workspace().areas,new Set(noteIds));
+  graph.changeSelection(new Set(noteIds),null,inkSet);
+  return true;
+}
+function changeMapGroup(action){
+  if(!canChangeMapGroup() || graph.drag || graph.pinch || groupAction(graph.selectedIds,graph.selectedInkIds)!==action)return;
+  graph.flushPositions();
+  const notes=graph.selectedIds,drawings=graph.selectedInkIds;
+  const change=action==='group'
+    ? groupMapItems(workspace(),notes,drawings,[...notes].map(id=>graph.nodes.get(id)))
+    : ungroupMapItems(workspace(),graph.selectionGroupId(notes,drawings));
+  if(applyGroupChange(change))$('graph').focus({preventScroll:true});
+}
 function undoWorkspaceChange(){
   if(!ready||editor||openingNote||lockScreen)return;
   cancelTransfers();graph.flushPositions();
@@ -1727,8 +1755,16 @@ function undoWorkspaceChange(){
   }
   if(change.kind==='ink'){
     dirty(change.before ? {mapInk:change.after?[change.before]:true} : {removedInk:change.id});
+    if(change.before?.mapGroupId!==change.after?.mapGroupId || (!change.before && graph.selectedInkIds.has(change.id)))graph.refreshMapGroups();
     ink?.refreshSelection();graph.repaint();updateEmptyMap();
     notify(tr('Изменение рисунка отменено','Drawing change undone'),undoButton());return;
+  }
+  if(['map-group','map-ungroup','map-group-move'].includes(change.kind)){
+    applyGroupChange(change);
+    if(showingMap())$('graph').focus({preventScroll:true});
+    const message=change.kind==='map-group-move'?tr('Перемещение отменено','Move undone'):
+      change.kind==='map-ungroup'?tr('Группа восстановлена','Group restored'):tr('Группировка отменена','Grouping undone');
+    notify(message,undoButton());return;
   }
   let ids=[];
   if(['stage-order','stage-insert','stage-delete'].includes(change.kind))ids=[...graph.selectedIds];
@@ -1847,6 +1883,22 @@ function extensionMenuItems(anchor, note=null, position=null){
 function context(id,x,y,gridId=null,openNote=edit){
   const n=byId(id);
   const gridArea=areaById(gridId);
+  let grouping=[];
+  if(canChangeMapGroup() && !gridArea?.grid){
+    const drawing=!id && ink.itemAt(graph.world(graph.local({clientX:x,clientY:y})));
+    const hitSelection=id ? graph.selectedIds.has(id) : drawing && graph.selectedInkIds.has(drawing.id);
+    const members=graph.mapGroups?.get(n?.mapGroupId || drawing?.mapGroupId);
+    if(members && !hitSelection)graph.changeSelection(new Set(members.noteIds),null,new Set(members.inkIds));
+    if(members || (hitSelection && graph.selectedInkIds.size)){
+      const action=groupAction(graph.selectedIds,graph.selectedInkIds);
+      if(action){
+        grouping=[{icon:'layers',name:action==='group'?tr('Сгруппировать','Group'):tr('Разгруппировать','Ungroup'),
+          run:()=>changeMapGroup(action)}];
+        if(!n){menu({x,y},grouping);return}
+        grouping.push(null);
+      }
+    }
+  }
   const sizeAction=gridArea?.grid?.stages?{icon:'sliders',name:tr('Настроить дорожку…','Stage track settings…'),run:()=>areaDialog(gridArea,{anchor:{x,y}})}:
     gridArea?.grid?{icon:'slots',name:tr('Изменить размер сетки…','Resize grid…'),run:()=>areaDialog(gridArea,{focusSpacing:true,anchor:{x,y}})}:null;
   if(!n){
@@ -1859,13 +1911,13 @@ function context(id,x,y,gridId=null,openNote=edit){
       null,{icon:'fit',name:tr('Уместить карту','Fit map'),run:()=>graph.fit()},...extensionMenuItems({x,y},null,pos)]);return;
   }
   const group=showingMap()?graph.selectedIds:listSelection;
-  if(group.size>1 && group.has(id)){
+  if(group.size>1 && group.has(id) && (!showingMap() || !graph.selectedInkIds.size)){
     const ids=[...group];
-    menu({x,y},[{icon:'folder',name:tr('В область…','Move to area…'),run:()=>pickForNotes(ids,{x,y})},
+    menu({x,y},[...grouping,{icon:'folder',name:tr('В область…','Move to area…'),run:()=>pickForNotes(ids,{x,y})},
       {icon:'trash',name:tr('Удалить выбранные заметки','Delete selected notes'),run:()=>removeNotes(ids)}]);return;
   }
-  selected=id;graph.select(id);renderSelection();
-  menu({x,y},[{icon:isProtectedNote(n)?'lock':'edit',name:tr('Открыть заметку','Open note'),run:()=>openNote(id)},
+  if(!grouping.length){selected=id;graph.select(id);renderSelection()}
+  menu({x,y},[...grouping,{icon:isProtectedNote(n)?'lock':'edit',name:tr('Открыть заметку','Open note'),run:()=>openNote(id)},
     ...(isProtectedNote(n)?[{icon:'edit',name:tr('Переименовать на карте…','Rename on map…'),run:()=>appearance(n,true)}]:[]),
     {icon:'appearance',name:tr('Внешний вид','Appearance'),run:()=>appearance(n)},
     ...(isProtectedNote(n)?[]:[metricAction(n,'note',{x,y})]),{icon:inSlot(n)?'slots':'pin',name:pinLabel(n),run:()=>pin(n)},
@@ -2113,7 +2165,7 @@ function render(){
   if(ink?.active)ink.refreshSelection();
   if(tool==='link')renderLinkHint();
   reading?.invalidate();routes?.refresh();
-  if(selected || (!graph.selectedGridId && graph.selectedIds.size<2))graph.select(selected);
+  if(!graph.selectedInkIds.size && (selected || (!graph.selectedGridId && graph.selectedIds.size<2)))graph.select(selected);
   updateEmptyMap();$('try-demo').hidden=library.active==='demo'||!!library.demoHidden;
   $('view').hidden=!map&&page!=='area';
   $('view').replaceChildren(iconEl(map?'sliders':'folder'),document.createTextNode(map?tr('Вид','View'):tr('Область','Area')));
@@ -2324,6 +2376,11 @@ function bindUI(){
       if(ink.busy)return;
     }
     if(mapFocused && routes.keydown(e))return;
+    if(mapFocused && command && e.code==='KeyG' && canChangeMapGroup()){
+      e.preventDefault();
+      if(!e.repeat)changeMapGroup(e.shiftKey?'ungroup':'group');
+      return;
+    }
     if(!command && !e.shiftKey && e.key==='Escape'){
       if(e.repeat)return;
       selected=null;graph.select(null);listSelection.clear();lastListId=null;chooseTool('select');renderSelection();renderListSelection();return;
@@ -2333,7 +2390,7 @@ function bindUI(){
         e.preventDefault();
         if(!e.repeat && !graph.drag && !graph.pinch && !$('map-stage').dataset.routeMode){
           if(tool!=='select')chooseTool('select');
-          graph.changeSelection(new Set(graph.nodes.keys()));
+          graph.changeSelection(new Set(graph.nodes.keys()),null,new Set((workspace().mapInk??[]).map(item=>item.id)));
         }
       }else if(!showingMap() && $('list-stage').contains(e.target)){
         e.preventDefault();
@@ -2356,7 +2413,9 @@ function bindUI(){
       if(showingMap() && e.target===$('graph') && tool==='select' && !graph.drag && !graph.pinch && !$('map-stage').dataset.routeMode){
         const grid=areaById(graph.selectedGridId);
         if(grid?.grid){e.preventDefault();deleteFolder(grid)}
-        else if(graph.selectedIds.size){e.preventDefault();removeNotes([...graph.selectedIds])}
+        else if(graph.selectedInkIds.size && graph.selectedIds.size){
+          e.preventDefault();notify(tr('Для удаления заметок выделите их отдельно.','Select the notes separately to delete them.'));
+        }else if(graph.selectedIds.size){e.preventDefault();removeNotes([...graph.selectedIds])}
       }else if(!showingMap() && ($('list-stage').contains(e.target) || $('list-selection').contains(e.target))){
         const row=e.target.closest('[data-note-id]');
         const ids=listSelection.size?[...listSelection]:row?[row.dataset.noteId]:[];
@@ -2512,6 +2571,10 @@ async function init(){
   };
   stageControls=mountStageControls({canvas:$('graph'),onEdit:editMapGrid,onInsert:insertMapStage});
   graph=new Graph($('graph'),{onSelect:id=>{selected=id;renderSelection()},onAreaAction:pickForNotes,onOpen:editFromMap,onLink:linkClick,
+    getInkItems:()=>workspace().mapInk??[],inkItemAt:point=>ink?.itemAt(point),
+    inkIdsInRect:rect=>ink?.idsInRect(rect)??[],inkSelectionBounds:ids=>ink?.selectionBounds(ids),
+    groupAction,onGroupAction:changeMapGroup,
+    onMoveMapGroup:({groupId,dx,dy})=>canChangeMapGroup() && applyGroupChange(moveMapGroup(workspace(),groupId,dx,dy)),
     onDrawInk:(ctx,view)=>ink?.draw(ctx,view),onDrawInkSelection:(ctx,view)=>ink?.drawSelection(ctx,view),inkBounds:()=>ink?.bounds(),
     onPickInk:point=>{
       if(tool!=='select' || editor || !ready || openingNote || reviewing || lockScreen || spaceOperation)return false;
@@ -2582,7 +2645,9 @@ async function init(){
     onChange:(id,before,after)=>{
       if(!ready || editor || openingNote || lockScreen || reviewing || spaceOperation || !library.active || !showingMap())return false;
       if(!editMapInk(workspace(),id,before,after))return false;
-      dirty(after ? {mapInk:[after]} : {removedInk:id});graph.repaint();updateEmptyMap();return true;
+      dirty(after ? {mapInk:[after]} : {removedInk:id});
+      if(before?.mapGroupId!==after?.mapGroupId || (!after && graph.selectedInkIds.has(id)))graph.refreshMapGroups();
+      graph.repaint();updateEmptyMap();return true;
     }});
   ready=true;bindUI();render();status();syncIdle();
   queueSync(200);

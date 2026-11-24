@@ -239,6 +239,22 @@ test('a public label is opt-in and never replaces or exposes the private note ti
   await session.beforeClose()
 })
 
+test('group membership survives protection and ungrouping a locked note overrides its older encrypted metadata',async () => {
+  const f = fixture(), id = crypto.randomUUID()
+  f.record.mapGroupId = id
+  let session = await f.open()
+  await session.manageProtection(); await session.beforeClose()
+  assert.equal(f.record.mapGroupId,id)
+  const sealed = f.record.sealed
+  delete f.record.mapGroupId
+  session = await f.open()
+  assert.equal(session.note.mapGroupId,undefined)
+  assert.equal(f.record.sealed,sealed)
+  await session.manageProtection()
+  assert.equal(Object.hasOwn(f.record,'mapGroupId'),false)
+  await session.beforeClose()
+})
+
 test('failed removal of protection restores the public label with the envelope', async () => {
   const f = fixture()
   let session = await f.open()

@@ -47,6 +47,71 @@ test('an ordinary map click can select ink behind notes without stealing note cl
   assert.deepEqual([...graph.selectedIds],['front']);
 });
 
+test('marquee and modifier clicks select ink and notes, and a saved group toggles as a unit',()=>{
+  const {graph,point}=map([{id:'n',x:0,y:0},{id:'other',x:180,y:0}],[]);
+  const ink=[{id:'frame',type:'rect',x:-60,y:-60,w:120,h:120},{id:'label',type:'text',x:-20,y:25,w:45,h:20}];
+  graph.callbacks.getInkItems=()=>ink;
+  graph.callbacks.inkItemAt=p=>p.x===-60 ? ink[0] : null;
+  graph.callbacks.inkIdsInRect=rect=>ink.filter(i=>i.x>=rect.left && i.y>=rect.top && i.x+i.w<=rect.right && i.y+i.h<=rect.bottom).map(i=>i.id);
+  graph.pointerDown(point(-75,-75));graph.pointerUp(point(75,75));
+  assert.deepEqual([...graph.selectedIds],['n']);
+  assert.deepEqual([...graph.selectedInkIds],['frame','label']);
+  const click=e=>{graph.pointerDown(e);graph.pointerUp(e)};
+  click({...point(-60),shiftKey:true});
+  assert.deepEqual([...graph.selectedInkIds],['label']);
+  graph.setData([{id:'n',x:0,y:0,mapGroupId:'g'},{id:'other',x:180,y:0}],[]);
+  for (const item of ink) item.mapGroupId='g';
+  graph.refreshMapGroups();
+  click(point(180));
+  click({...point(-60),ctrlKey:true});
+  assert.deepEqual([...graph.selectedIds],['other','n']);
+  assert.deepEqual([...graph.selectedInkIds],['frame','label']);
+  click({...point(0),shiftKey:true});
+  assert.deepEqual([...graph.selectedIds],['other']);
+  assert.equal(graph.selectedInkIds.size,0);
+});
+
+test('the first drag on a grouped frame previews notes, commits once and cancels without publishing intermediate positions',()=>{
+  const notes=[{id:'n',x:0,y:0,mapGroupId:'g',pinned:true},{id:'outside',x:160,y:5}];
+  const {graph,point,calls}=map(notes,[]);
+  const frame={id:'rect',mapGroupId:'g'};
+  const label={id:'text',mapGroupId:'g'};
+  graph.callbacks.getInkItems=()=>[frame,label];
+  graph.callbacks.inkItemAt=p=>p.x===-70 ? frame : null;
+  graph.refreshMapGroups();
+  const committed=[];
+  graph.callbacks.onMoveMapGroup=change=>committed.push(change);
+  const press=point(-70,20), drag=point(-43,54);
+  graph.pointerDown(press);graph.pointerMove(drag);
+  assert.deepEqual([graph.nodes.get('n').x,graph.nodes.get('n').y],[27,34]);
+  assert.deepEqual([...graph.drag.composition.inkIds],['rect','text']);
+  graph.flushPositions();assert.equal(calls.move.length,0);
+  graph.pointerUp(drag,true);
+  assert.equal(committed.length,0);
+  assert.deepEqual([graph.nodes.get('n').x,graph.nodes.get('n').y],[0,0]);
+  graph.pointerDown(press);graph.pointerMove(drag);graph.pointerUp(point(0,68));
+  assert.equal(committed.length,1);
+  const change=committed[0];
+  assert.deepEqual([change.groupId,change.dx,change.dy],['g',70,48]);
+  assert.deepEqual([...change.noteIds],['n']);
+  assert.equal(graph.nodes.get('outside').x,160);
+  assert.equal(calls.manual.length,0);
+  assert.equal(calls.drop.length,0);
+});
+
+test('groups stay aligned against link attraction and folder pressure until the last companion is removed',()=>{
+  const notes=[{id:'fixed',x:0,y:0,areaId:'a',mapGroupId:'g',links:['outside']},
+    {id:'outside',x:250,y:0,pinned:true},{id:'peer',x:10,y:0,areaId:'b',pinned:true}];
+  const {graph}=map(notes,[{id:'a'},{id:'b'}]);
+  let ink=[{id:'frame',mapGroupId:'g'}];
+  graph.callbacks.getInkItems=()=>ink;graph.refreshMapGroups();
+  for(let n=0;n<60;n++)graph.step();
+  const node=graph.nodes.get('fixed');
+  assert.deepEqual([node.x,node.y,node.pinned],[0,0,false]);
+  ink=[];graph.refreshMapGroups();graph.step();
+  assert.ok(Math.hypot(node.x,node.y)>0);
+});
+
 test('free layout freezes the current frame, new data and overlapping notes until automatic layout resumes',()=>{
   const notes=[{id:'a',x:0,y:0,tags:['shared']},{id:'b',x:1,y:0,links:['a']},{id:'c',x:150,y:0,tags:['shared']}];
   const {graph,calls}=map(notes,[]);

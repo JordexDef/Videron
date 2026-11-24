@@ -92,8 +92,10 @@ h1{font-size:clamp(23px,2vw,29px);font-weight:540;line-height:1.25;letter-spacin
 .button.primary:hover{background:var(--primary-hover,#ffffff)}
 .button.secondary{background:var(--control-bg,#222222);border:1px solid var(--control-line,#3c3c3c);color:var(--fg-soft,#c9c9c9)}
 .map-stage{position:relative;min-height:0;flex:1;overflow:hidden}
-.map-area-action{position:absolute;z-index:1;display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:4px 9px;border:1px solid var(--focus-border,#5a5a5a);border-radius:6px;background:var(--control-bg,#292929);box-shadow:0 3px 12px var(--shadow-subtle,#0004);color:var(--text);font-size:12px;font-weight:550;white-space:nowrap}
-.map-area-action:hover{background:var(--control-hover,#383838);border-color:var(--focus-border,#858585)}
+.map-area-action{position:absolute;z-index:1;display:inline-flex;border:1px solid var(--focus-border,#5a5a5a);border-radius:6px;background:var(--control-bg,#292929);box-shadow:0 3px 12px var(--shadow-subtle,#0004);color:var(--text);font-size:12px;font-weight:550;white-space:nowrap}
+.map-area-action button{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:4px 9px;border-radius:5px;color:inherit;font:inherit}
+.map-area-action button:hover{background:var(--control-hover,#383838)}
+.map-area-action button:not([hidden])+button{border-inline-start:1px solid var(--control-line);border-start-start-radius:0;border-end-start-radius:0}
 .map-area-action .ico{width:15px;height:15px}
 .map-selection-count{border-left:1px solid var(--focus-border,#565656);padding-left:7px;color:var(--fg-soft,#bdbdbd);font-variant-numeric:tabular-nums}
 #graph{display:block;width:100%;height:100%;touch-action:none}

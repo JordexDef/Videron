@@ -3,6 +3,7 @@ import { gridRowSpacing, gridSpacing, setGridSpacing } from './area-grid.js';
 import { deleteAreaStage, insertAreaStage, undoStageStructure } from './stage-structure.js';
 import { undoNotesDeletion } from './note-deletion.js';
 import { sameWorkspaceValue } from './workspace-merge.js';
+import { createGroup, dissolveGroup, translateGroup, undoGroupChange } from './map-groups.js';
 
 const histories = new WeakMap();
 export function rememberMapAction(space, action) {
@@ -12,6 +13,20 @@ export function rememberMapAction(space, action) {
   if (history.length > 20) history.shift();
 }
 export function lastMapAction(space) { return histories.get(space)?.at(-1); }
+
+function recordGroupChange(space, action) {
+  if (action) rememberMapAction(space,action);
+  return action;
+}
+export function groupMapItems(space,noteIds,inkIds,positions) {
+  return recordGroupChange(space,createGroup(space,noteIds,inkIds,positions));
+}
+export function ungroupMapItems(space,id) {
+  return recordGroupChange(space,dissolveGroup(space,id));
+}
+export function moveMapGroup(space,id,dx,dy) {
+  return recordGroupChange(space,translateGroup(space,id,dx,dy));
+}
 
 // Ink items are replaced on edit. Keep only the affected stroke and its paint order.
 function replaceInk(space, id, expected, replacement, insertAt) {
@@ -116,6 +131,9 @@ export function undoMapAction(space) {
   const action = histories.get(space)?.pop();
   if (!action) return null;
   switch (action.kind) {
+    case 'map-group':
+    case 'map-ungroup':
+    case 'map-group-move': return undoGroupChange(space,action) ? action : null;
     case 'ink': return replaceInk(space,action.id,action.after,action.before,action.index) ? action : null;
     case 'deletion':
       return undoNotesDeletion(space,action.ids??[action.id]) ? action : null;

@@ -1,6 +1,8 @@
 import { contourGap, contourSupport, measureContour } from './map-contours.js';
 import { slotGridBounds } from './map-slots.js';
 
+const anchored = note => note.pinned || note.inMapGroup;
+
 // Compare siblings in their parent's space. A child travels with its branch.
 export function areaContactFamilies(groups) {
   const siblings = new Map();
@@ -14,7 +16,7 @@ export function areaContactFamilies(groups) {
       const box=slotGridBounds(group.grid);
       x=(box.left+box.right)/2;y=(box.top+box.bottom)/2;count=1;
     } else {
-      for (const note of group.nodes) if (note.pinned) {
+      for (const note of group.nodes) if (anchored(note)) {
         group.pins.push(note);x+=note.x;y+=note.y;count++;
       }
       for (const child of group.children) if (child.fixedCentre) {
@@ -23,7 +25,7 @@ export function areaContactFamilies(groups) {
     }
     group.fixedCentre=count ? {x:x/count,y:y/count,count} : null;
     group.mobile=!group.grid && (!group.nodes.length && !group.children.length ||
-      group.nodes.some(n=>!n.pinned) || group.children.some(g=>g.mobile));
+      group.nodes.some(n=>!anchored(n)) || group.children.some(g=>g.mobile));
   }
   return [...siblings.values()].filter(family=>family.length>1);
 }
@@ -55,7 +57,7 @@ function fixedFront(group,nx,ny) {
   if (!group.fixedCentre) return -Infinity;
   if (group.grid) return frontOfBox(group.gridBounds,nx,ny);
   let front=-Infinity;
-  for (const note of group.nodes) if (note.pinned)
+  for (const note of group.nodes) if (anchored(note))
     front=Math.max(front,note.x*nx+note.y*ny+note.r+10);
   for (const child of group.children) front=Math.max(front,fixedFront(child,nx,ny)+27);
   return front;
@@ -86,7 +88,7 @@ function press(group,nx,ny,plane,depth,rigid=!group.fixedCentre) {
     }
     return amount;
   }
-  for (const note of group.nodes) if (!note.pinned) move(note,note.r);
+  for (const note of group.nodes) if (!anchored(note)) move(note,note.r);
   if (!group.nodes.length && !group.children.length) emptyMovement=move(group.emptyAnchor,22);
   for (const child of group.children)
     emptyMovement=Math.max(emptyMovement,press(child,nx,ny,plane-27,depth,rigid));

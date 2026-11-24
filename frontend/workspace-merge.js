@@ -36,7 +36,7 @@ function mergeFields(base,local,remote){
   return Object.fromEntries(fields);
 }
 
-const locationKeys=new Set(['areaId','slot','pinned']);
+const locationKeys=new Set(['areaId','slot','pinned','mapGroupId']);
 const transientKeys=new Set(['x','y','opens','modified']);
 const mapKeys=new Set([...locationKeys,...transientKeys,'links']);
 const publicNoteFields=['appearance','mapLabel'];
@@ -44,7 +44,7 @@ const protectedMapKeys=new Set([...mapKeys,...publicNoteFields]);
 function contentOf(note,keys){return note && Object.fromEntries(Object.entries(note).filter(([key])=>!keys.has(key)))}
 function fieldsOf(note,keys){return note && Object.fromEntries(Object.entries(note).filter(([key])=>keys.has(key)))}
 function withoutDrift(note){
-  return Object.fromEntries(Object.entries(note).filter(([key])=>!transientKeys.has(key) || (note.pinned && (key==='x' || key==='y'))));
+  return Object.fromEntries(Object.entries(note).filter(([key])=>!transientKeys.has(key) || ((note.pinned || note.mapGroupId) && (key==='x' || key==='y'))));
 }
 function coordinates(note){
   if(!note)return undefined;
@@ -63,16 +63,20 @@ function mergeNote(base,local,remote){
   const sealedOnAllSides=base?.sealed && local.sealed && remote.sealed;
   const keys=sealedOnAllSides?protectedMapKeys:mapKeys;
   const content=threeWay(contentOf(base,keys),contentOf(local,keys),contentOf(remote,keys));
-  const location=threeWay(fieldsOf(base,locationKeys),fieldsOf(local,locationKeys),fieldsOf(remote,locationKeys));
+  const leftLocation=fieldsOf(local,locationKeys), rightLocation=fieldsOf(remote,locationKeys);
+  const location=threeWay(fieldsOf(base,locationKeys),leftLocation,rightLocation);
   if(content===diverged || location===diverged)return diverged;
   const left=coordinates(local),right=coordinates(remote);
   let point=threeWay(coordinates(base),left,right);
+  // Coordinates captured by grouping win over ordinary free-map drift on a peer.
+  if(location.mapGroupId && local.mapGroupId!==remote.mapGroupId)
+    point=location.mapGroupId===local.mapGroupId?left:right;
   if(point===diverged){
-    if(location.pinned && location.slot==null)return diverged;
+    if((location.pinned || location.mapGroupId) && location.slot==null)return diverged;
     // Prefer the position accompanying a placement change; free physics drifts
     // independently on both computers. Break ties consistently in either direction.
-    if(!equal(fieldsOf(local,locationKeys),fieldsOf(remote,locationKeys)))
-      point=equal(location,fieldsOf(local,locationKeys))?left:right;
+    if(!equal(leftLocation,rightLocation))
+      point=equal(location,leftLocation)?left:right;
     else point=(left.x??0)>(right.x??0) || (left.x===right.x && (left.y??0)>(right.y??0))?left:right;
   }
   const note={...content,...location,...point,links:linkUnion(base?.links,local.links,remote.links)};
@@ -126,7 +130,8 @@ export function mergeWorkspace(base,local,remote,choices={}){
       let item=threeWay(before,left,right);
       if(item===diverged && left && right){
         if(kind==='note')item=mergeNote(before,left,right);
-        else if(before)item=mergeFields(before,left,right);
+        else if(before && !(kind==='ink' && (left.mapGroupId || right.mapGroupId) &&
+          threeWay(coordinates(before),coordinates(left),coordinates(right))===diverged))item=mergeFields(before,left,right);
       }else if(item===diverged && kind==='note' && before && equal(withoutDrift(before),withoutDrift(left??right))){
         item=undefined; // Opening an otherwise unchanged note does not veto a deletion.
       }

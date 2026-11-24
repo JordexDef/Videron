@@ -145,6 +145,24 @@ func TestRestyledEncryptedNoteMergesWithRemoteCiphertext(t *testing.T) {
 	}
 }
 
+func TestGroupMovesKeepCoordinatesTogether(t *testing.T) {
+	base := mergeTestNote("n", "")
+	base["sealed"] = "old"
+	local, remote := maps.Clone(base), maps.Clone(base)
+	local["mapGroupId"] = "bca45bba-a128-4a37-8065-ea3fe72d8a3e"
+	remote["sealed"], remote["x"] = "new", float64(150)
+	result, ok := mergedNote(base, local, remote)
+	if !ok || !mergeEqual(mergeMap(result)["x"], local["x"]) || mergeMap(result)["sealed"] != "new" {
+		t.Fatal("free drift moved a newly grouped member", result)
+	}
+	grouped := mergeMap(result)
+	left, right := maps.Clone(grouped), maps.Clone(grouped)
+	left["x"], right["y"] = float64(99), float64(200)
+	if _, ok := mergedNote(grouped, left, right); ok || compatibleInkMove(grouped, left, right) {
+		t.Fatal("concurrent transforms must not combine their horizontal and vertical components")
+	}
+}
+
 func TestEncryptedMapLabelMergesIndependently(t *testing.T) {
 	base := mergeTestNote("n", "")
 	base["sealed"] = "original"

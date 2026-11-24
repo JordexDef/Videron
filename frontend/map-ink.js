@@ -38,10 +38,20 @@ function initialLayers(item) {
   return [{path, width, fill: false, stroke: true}];
 }
 
-export function mapInkBounds(items) {
+export function inkIdsInRect(items, rect) {
+  const ids = [];
+  for (const item of items) {
+    // Dragging inside a large hollow frame can still select its contents separately.
+    if (drawable(item) && item.x >= rect.left && item.y >= rect.top &&
+        item.x + item.w <= rect.right && item.y + item.h <= rect.bottom) ids.push(item.id);
+  }
+  return ids;
+}
+
+export function mapInkBounds(items, ids = null) {
   let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
   for (const item of items) {
-    if (!drawable(item)) continue;
+    if (!drawable(item) || (ids && !ids.has(item.id))) continue;
     const pad = strokeMargin(item);
     left = Math.min(left, item.x - pad);
     top = Math.min(top, item.y - pad);
@@ -240,11 +250,13 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
       }
       ctx.restore();
     };
+    const movingGroup = graph.drag?.composition;
     for (const item of items) {
       if (!drawable(item) || textEditor.item?.id === item.id) continue;
-      const moving = gesture?.kind === 'move' && gesture.item === item;
+      const moving = movingGroup?.inkIds.has(item.id) ? movingGroup :
+        gesture?.kind === 'move' && gesture.item === item ? gesture : null;
       const shown = gesture?.kind === 'resize' && gesture.item === item ? gesture.draft : item;
-      paint(shown, shown.x + (moving ? gesture.dx : 0), shown.y + (moving ? gesture.dy : 0));
+      paint(shown, shown.x + (moving?.dx ?? 0), shown.y + (moving?.dy ?? 0));
     }
     if (gesture?.kind === 'draw') {
       const draft = draftItem(gesture);
@@ -254,6 +266,22 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
   }
 
   function drawSelection(ctx, view) {
+    const ids = graph.drag?.previewInkIds ?? graph.selectedInkIds;
+    if (ids?.size) {
+      const {ox, oy, zoom} = view, move = graph.drag?.composition;
+      ctx.save();
+      ctx.strokeStyle = mapPalette().caption;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      for (const item of getItems()) {
+        if (!drawable(item) || !ids.has(item.id)) continue;
+        const moving = move?.inkIds.has(item.id);
+        const x = ox + (item.x + (moving ? move.dx : 0)) * zoom;
+        const y = oy + (item.y + (moving ? move.dy : 0)) * zoom;
+        ctx.strokeRect(x - 4, y - 4, item.w * zoom + 8, item.h * zoom + 8);
+      }
+      ctx.restore();
+    }
     if (!active || tool !== 'select' || textEditor.item) return;
     let item = currentSelection();
     if (!drawable(item)) return;
@@ -295,10 +323,12 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
     const selected = tool === 'select' ? currentSelection() : null;
     const handle = inkHandleAt(selected, point, graph.zoom, e.pointerType === 'touch');
     const target = !handle && (tool === 'select' || tool === 'erase' || tool === 'text') ? hit(point) : null;
-    // A shape picked from the normal map only borrows the drawing tools while it is being edited.
-    if (quickSelection && !handle && (!target || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey ||
-        graph.hit(local) || graph.gridSurface(local).area)) {
+    const extend = e.shiftKey || e.ctrlKey || e.metaKey;
+    // Transfer the first selected stroke when switching from editing one drawing to selecting several.
+    if (tool === 'select' && !handle && (extend || !target || graph.handlesInk?.(target.id) ||
+        (quickSelection && (e.altKey || graph.hit(local) || graph.gridSurface(local).area)))) {
       onExit();
+      if (extend && selected) graph.changeSelection(graph.selectedIds, null, new Set([...graph.selectedInkIds, selected.id]));
       return;
     }
     e.preventDefault(); e.stopImmediatePropagation();
@@ -452,7 +482,9 @@ export function mountMapInk({ graph, stage = graph.canvas.parentElement, canvas 
   listen(doc.defaultView, 'videron:themechange', updateControls);
   refreshLanguage();
   return {
-    draw, drawSelection, itemAt: hit, selectItem, bounds: () => mapInkBounds(getItems()), setActive, reset, refreshLanguage, deleteSelection, cancel,
+    draw, drawSelection, itemAt: hit, selectItem, bounds: () => mapInkBounds(getItems()),
+    idsInRect: rect => inkIdsInRect(getItems(), rect), selectionBounds: ids => mapInkBounds(getItems(), ids),
+    setActive, reset, refreshLanguage, deleteSelection, cancel,
     refreshSelection: updateControls,
     flushText: () => textEditor.finish(true),
     get editingText() { return !!textEditor.item; },

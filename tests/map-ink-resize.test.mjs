@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { inkHandleAt, resizeMapInk } from '../frontend/map-ink-resize.js';
+import { inkIdsInRect, mapInkBounds } from '../frontend/map-ink.js';
 
 const frame = {id:'frame', type:'rect', x:40, y:-5, w:160, h:80, seed:42, glow:true};
+
+test('a map marquee can select a label inside a frame separately, or both from outside', () => {
+  const label = {...frame, id:'label', type:'text', text:'Ideas', x:70, y:32, w:30, h:14};
+  const distant = {...frame, id:'distant', x:400};
+  const items = [frame, label, distant];
+  assert.deepEqual(inkIdsInRect(items,{left:70,top:32,right:100,bottom:46}), ['label']);
+  assert.deepEqual(inkIdsInRect(items,{left:40,top:-5,right:200,bottom:75}), ['frame','label']);
+  assert.deepEqual(mapInkBounds(items,new Set(['frame','label'])), mapInkBounds([frame]));
+  assert.equal(mapInkBounds(items,new Set(['deleted'])), null);
+});
 
 test('ink handle hit areas use screen pixels and give the closest handle priority', () => {
   for (const zoom of [.25, 1, 4]) {

@@ -183,8 +183,8 @@ function noteContent(node, note, other) {
   if (!openOther) return
   const mapNames = {dataLanguage:tr('Формат данных','Data format'),dataHasHeader:tr('Первая строка — заголовки','First row is a header'),areaId:tr('Область','Area'), slot:tr('Место в сетке','Grid seat'), links:tr('Связи','Links'),
     tags:tr('Теги','Tags'),color:tr('Цвет','Color'),mapExcerpt:tr('Закреплённый фрагмент','Pinned passage'),
-    pinned:tr('Закрепление','Pin'), appearance:tr('Внешний вид','Appearance'), mapMetric:tr('График','Chart')}
-  if(note.pinned || openOther.pinned){
+    pinned:tr('Закрепление','Pin'), appearance:tr('Внешний вид','Appearance'), mapMetric:tr('График','Chart'),mapGroupId:tr('Группа','Group')}
+  if(note.pinned || openOther.pinned || note.mapGroupId || openOther.mapGroupId){
     mapNames.x=tr('Координата X','X coordinate')
     mapNames.y=tr('Координата Y','Y coordinate')
   }
@@ -264,6 +264,8 @@ export function openWorkspaceConflicts({conflicts, spaceName, previewSealed}) {
             body.append(label)
           }
           body.append(el('p','conflict-empty',tr('Заметка защищена отдельным паролем.','This note has its own password.')))
+          if ((value.mapGroupId || other?.mapGroupId) && Number.isFinite(value.x) && Number.isFinite(value.y))
+            body.append(el('p','',tr('Положение на карте · {x}, {y}', 'Map position · {x}, {y}', {x:Math.round(value.x),y:Math.round(value.y)})))
           if (previewSealed) {
             const unlock=button(tr('Показать содержимое','Show contents'),'secondary',async()=>{
               let note

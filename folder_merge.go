@@ -151,7 +151,9 @@ func mergeRecordFields(base, local, remote mergeObject) (any, bool) {
 	return out, true
 }
 
-func mergeLocationKey(k string) bool  { return k == "slot" || k == "areaId" || k == "pinned" }
+func mergeLocationKey(k string) bool {
+	return k == "slot" || k == "areaId" || k == "pinned" || k == "mapGroupId"
+}
 func mergeTransientKey(k string) bool { return k == "x" || k == "y" || k == "opens" || k == "modified" }
 func mergePointKey(k string) bool     { return k == "x" || k == "y" }
 func mergeContentKey(k string) bool {
@@ -170,7 +172,9 @@ func mergeSubset(record mergeObject, keep func(string) bool) any {
 	return m
 }
 func stableNoteFields(note mergeObject) any {
-	return mergeSubset(note, func(k string) bool { return !mergeTransientKey(k) || mergePointKey(k) && mergeTruthy(note["pinned"]) })
+	return mergeSubset(note, func(k string) bool {
+		return !mergeTransientKey(k) || mergePointKey(k) && (mergeTruthy(note["pinned"]) || note["mapGroupId"] != nil)
+	})
 }
 func stringEntries(v any) map[string]bool {
 	out := map[string]bool{}
@@ -227,8 +231,15 @@ func mergedNote(base, local, remote mergeObject) (any, bool) {
 	}
 	left, right := mergeSubset(local, mergePointKey), mergeSubset(remote, mergePointKey)
 	point, ok := threeWayValue(mergeSubset(base, mergePointKey), left, right)
+	group := mergeMap(loc)["mapGroupId"]
+	if group != nil && !mergeEqual(local["mapGroupId"], remote["mapGroupId"]) {
+		point, ok = right, true
+		if mergeEqual(group, local["mapGroupId"]) {
+			point = left
+		}
+	}
 	if !ok {
-		if mergeTruthy(mergeMap(loc)["pinned"]) && mergeMap(loc)["slot"] == nil {
+		if (mergeTruthy(mergeMap(loc)["pinned"]) || group != nil) && mergeMap(loc)["slot"] == nil {
 			return nil, false
 		}
 		point = right
@@ -366,7 +377,7 @@ func (p *workspaceMergePlan) mergeCollection(kind string, b, l, r mergeIndex) an
 			if left != nil && right != nil {
 				if kind == "note" {
 					item, ok = mergedNote(before, left, right)
-				} else if before != nil {
+				} else if before != nil && (kind != "ink" || compatibleInkMove(before, left, right)) {
 					item, ok = mergeRecordFields(before, left, right)
 				}
 			} else if kind == "note" && before != nil {
@@ -387,6 +398,16 @@ func (p *workspaceMergePlan) mergeCollection(kind string, b, l, r mergeIndex) an
 		}
 	}
 	return out
+}
+
+// A rigid translation is one coordinate pair, even when one peer only moved
+// the group horizontally and another only moved it vertically.
+func compatibleInkMove(before, left, right mergeObject) bool {
+	if left["mapGroupId"] == nil && right["mapGroupId"] == nil {
+		return true
+	}
+	_, ok := threeWayValue(mergeSubset(before, mergePointKey), mergeSubset(left, mergePointKey), mergeSubset(right, mergePointKey))
+	return ok
 }
 func mergeCollectionKind(key string) string {
 	switch key {

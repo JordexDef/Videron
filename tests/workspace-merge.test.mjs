@@ -6,6 +6,21 @@ const note=(id,title=id)=>({id,title,body:[],tags:[],links:[],x:0,y:0,opens:0,mo
 const workspace=(...notes)=>({name:'space',notes,areas:[]});
 const copies=base=>[structuredClone(base),structuredClone(base)];
 
+test('grouping freezes coordinates against free drift and divergent group translations conflict as entire points',()=>{
+  const base=workspace({...note('n',''),sealed:'old'}), group=crypto.randomUUID();
+  base.mapInk=[{id:'frame',type:'rect',x:70,y:90}];
+  const [local,remote]=copies(base);
+  local.notes[0].mapGroupId=local.mapInk[0].mapGroupId=group;
+  remote.notes[0].x=100; remote.notes[0].sealed='new';
+  const merged=mergeWorkspace(base,local,remote);
+  assert.deepEqual(merged.conflicts,[]);
+  assert.deepEqual(merged.data.notes[0],{...local.notes[0],sealed:'new'});
+  const [left,right]=copies(merged.data);
+  left.mapInk[0].x+=10; left.notes[0].x+=10;
+  right.mapInk[0].y+=20; right.notes[0].y+=20;
+  assert.deepEqual(mergeWorkspace(merged.data,left,right).conflicts.map(c=>c.key).sort(),['ink:frame','note:n']);
+});
+
 test('independent notes, new notes, deletes and future fields survive without mutating sources',()=>{
   const base=workspace(note('one'),note('two'),note('old')), [local,remote]=copies(base);
   local.notes[0].title='local';local.notes.pop();remote.notes[1].future={body:'remote'};

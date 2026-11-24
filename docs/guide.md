@@ -52,6 +52,10 @@ Choose the pencil in the lower-left map toolbar (**P**) to draw around notes. Us
 
 Click a drawing’s outline on the map to select it. Drag the outline to move it or a handle to resize it. Hold **Shift** while resizing a shape to keep its proportions. For a caption, drag a corner to change its font size. Open the color swatch and move over the palette to preview the result on the map. Click to keep the color or press **Esc** to restore it. **Glow** adds a halo. **Delete** removes the selection and **Ctrl+Z** undoes the last change.
 
+To move a frame, its caption and its notes together, use the selection arrow (**V**) and drag a box around them. You can also add or remove individual objects with **Shift**+click. Choose **Group** below the selection or press **Ctrl+G**. Drag the frame's outline, the caption or a member note to move the whole group. **Ctrl+Z** restores every member's position in one step. Choose **Ungroup** or press **Ctrl+Shift+G** to edit the objects separately. On macOS, use **⌘** for these shortcuts.
+
+Grouping a note from a grid frees its seat. Undoing the grouping restores the seat if it is still available. Before grouping individually encrypted notes in a synced space, update Videron on each computer. Older clients cannot read group membership on a locked note.
+
 ### Routes, charts and search
 
 - Open **Routes**, create a route, and click the notes in presentation order. Reorder the stops and pick an excerpt for each. Save the route and press Play. **←** and **→** move between stops. **Esc** returns to your original map view.

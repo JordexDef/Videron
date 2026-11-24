@@ -403,6 +403,7 @@ func TestMixedProtectedRecordsCannotReachStorage(t *testing.T) {
 	ok := map[string]any{"id": "note-a", "sealed": encoded, "pinned": true, "links": []string{"b"}, "slot": nil, "x": 3, "title": "", "plain": "", "body": []any{}, "weight": 0, "tags": []string{}}
 	ok["appearance"] = map[string]any{"shape": "diamond", "color": "#a9c6ed", "icon": "lucide/bookmark"}
 	ok["mapLabel"] = "Проект 🔒"
+	ok["mapGroupId"] = "97cd34ca-4d71-4f91-a552-98745da71121"
 	record, err := json.Marshal(ok)
 	if err != nil {
 		t.Fatal(err)
@@ -415,6 +416,7 @@ func TestMixedProtectedRecordsCannotReachStorage(t *testing.T) {
 		"plain": "PRIVATE-INDEX", "title": "PRIVATE-TITLE", "body": []any{map[string]string{"text": "PRIVATE-CODE"}},
 		"tags": []string{"private-tag"}, "board": map[string]any{}, "extraAttachment": "PRIVATE-IMAGE", "sealed": originalNote,
 		"appearance": map[string]any{"shape": "circle", "caption": "PRIVATE-TITLE"},
+		"mapGroupId": "PRIVATE-GROUP-NAME",
 	} {
 		t.Run(field, func(t *testing.T) {
 			bad := make(map[string]any, len(ok)+1)

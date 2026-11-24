@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"unicode"
@@ -257,6 +258,8 @@ func validSealedMapLabel(label string) bool {
 	}) < 0
 }
 
+var mapGroupUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
 // The autosaver may validate the same attachment in many snapshots. Cache only
 // hashes of fully validated sealed records. A single changed byte forces the
 // ordinary JSON/base64 validation path again. Slot collisions only cause misses.
@@ -309,6 +312,11 @@ func (*storedNote) UnmarshalJSON(data []byte) error {
 		case "areaId":
 			var area string
 			return d.Decode(&area)
+		case "mapGroupId":
+			var group string
+			if err := d.Decode(&group); err != nil || !mapGroupUUID.MatchString(group) {
+				return errInvalid
+			}
 		case "links":
 			var links []string
 			return d.Decode(&links)

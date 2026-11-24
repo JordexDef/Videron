@@ -30,7 +30,7 @@ function rgb(color, fallback = NEUTRAL) {
 }
 
 const rgba = (color, alpha) => `rgba(${color},${alpha})`;
-const tethered = (node, drag) => node.pinned || node.seated || !!drag?.held?.has(node.id);
+const tethered = (node, drag) => node.pinned || node.seated || node.inMapGroup || !!drag?.held?.has(node.id);
 const noteGap = (a, b) => 6 + 0.14 * Math.min(a.r, b.r);
 
 function seatedRadius(natural, grid) {
@@ -176,10 +176,11 @@ export class Graph {
     this.height = 1;
     this.tool = 'select';
     this.selectedIds = new Set();
+    this.selectedInkIds = new Set();
     this.selectedGridId = null;
     this.areaAction = callbacks.onAreaAction && mapAreaButton(canvas, anchor => {
       if (this.selectedIds.size) callbacks.onAreaAction([...this.selectedIds], anchor);
-    });
+    }, action => callbacks.onGroupAction?.(action));
     this.hover = null;
     this.contacts = new Map();
     this.frame = 0;
@@ -201,7 +202,7 @@ export class Graph {
     });
     listen(canvas, 'pointerleave', e => {
       if (!this.drag && e.pointerType!=='touch') {
-        this.hover = this.hoverGrid = this.hoverSeat = this.hoverGrip = this.hoverGridArea = this.hoverStage = this.hoverHandle = null;
+        this.hover = this.hoverComposition = this.hoverGrid = this.hoverSeat = this.hoverGrip = this.hoverGridArea = this.hoverStage = this.hoverHandle = null;
         this.updateCursor(); this.repaint();
       }
     });
@@ -338,7 +339,7 @@ export class Graph {
   }
 
   setData(notes, areas, placementIds = null) {
-    if (this.drag?.noteIds || this.drag?.grid || this.drag?.stage) this.cancelDrag();
+    if (this.drag?.noteIds || this.drag?.grid || this.drag?.stage || this.drag?.composition || this.drag?.groupId) this.cancelDrag();
     this.measuredGroups = null;
     this.hoverGrid = this.hoverSeat = this.hoverGrip = this.hoverGridArea = this.hoverStage = this.hoverHandle = null;
     this.gridLabels = [];
@@ -370,12 +371,12 @@ export class Graph {
       const appearance = appearanceOf(note);
       const protectedNote = Object.hasOwn(note,'sealed');
       const naturalRadius = appearance.radius ?? contentRadius(note), r = seated ? seatedRadius(naturalRadius,group.grid) : naturalRadius;
-      const layoutKey = JSON.stringify([tags, links, !!note.pinned, note.areaId, seated, r, appearance.shape]);
+      const layoutKey = JSON.stringify([tags, links, !!note.pinned, note.areaId, seated, r, appearance.shape,note.mapGroupId]);
       const heatTarget = 1 - Math.exp(-Math.max(0, Number(note.opens) || 0) / 10);
       const title = note.title || tr('Без названия', 'Untitled');
       const task = agentTaskInfo(note);
       const appearanceAndLayout = {
-        index, title, inputX: x, inputY: y,
+        index, title, inputX: x, inputY: y, mapGroupId:note.mapGroupId,
         taskRoot:task?.rootId, taskStatus:task?.status,
         r, naturalRadius, pinned: !!note.pinned, areaId:note.areaId ?? null, slot:note.slot, seated, tags, links, layoutKey,
         geometry: geometryFor(appearance.shape), icon: appearance.icon || (protectedNote ? lockSticker : null), customColor: !!appearance.color,
@@ -433,11 +434,11 @@ export class Graph {
       }
     }
     this.groups = ordered;
-    this.areaFamilies=areaContactFamilies(ordered);
+    this.refreshMapGroups();
     if (this.selectedGridId && !areaMap.get(this.selectedGridId)?.grid) {
       this.changeSelection(new Set());
     } else if ([...this.selectedIds].some(id => !next.has(id))) {
-      this.changeSelection(new Set([...this.selectedIds].filter(id => next.has(id))));
+      this.changeSelection(new Set([...this.selectedIds].filter(id => next.has(id))),null,this.selectedInkIds);
     }
     if (this.hover && !next.has(this.hover)) this.hover = null;
     if (this.linkSource && !next.has(this.linkSource)) this.linkSource = null;
@@ -598,7 +599,7 @@ export class Graph {
 
   flushPositions() {
     // A positioning gesture can still turn into a folder drop or be cancelled.
-    if (this.drag?.layout || this.drag?.grid) return;
+    if (this.drag?.layout || this.drag?.grid || this.drag?.composition) return;
     const positions = [];
     for (const n of this.nodes.values()) {
       if (Math.abs(n.x - n.savedX) + Math.abs(n.y - n.savedY) < 0.05) continue;
@@ -630,15 +631,69 @@ export class Graph {
     return closest;
   }
 
+  // Ink and notes keep their own IDs. Count both kinds before anchoring notes:
+  // deleting the last companion should release the surviving note naturally.
+  refreshMapGroups() {
+    if (this.drag?.groupId) this.cancelDrag();
+    this.selectedInkIds ??= new Set();
+    const groups = new Map(), inkGroups = new Map();
+    const add = (groupId, id, key) => {
+      if (!groupId) return;
+      if (!groups.has(groupId)) groups.set(groupId,{noteIds:new Set(),inkIds:new Set()});
+      groups.get(groupId)[key].add(id);
+    };
+    for (const node of this.nodes.values()) add(node.mapGroupId,node.id,'noteIds');
+    const liveInk = new Set();
+    for (const item of this.callbacks.getInkItems?.() || []) {
+      liveInk.add(item.id);
+      if (item.mapGroupId) {
+        add(item.mapGroupId,item.id,'inkIds');
+        inkGroups.set(item.id,item.mapGroupId);
+      }
+    }
+    for (const [id,group] of groups) if (group.noteIds.size + group.inkIds.size < 2) groups.delete(id);
+    let anchorsChanged = false;
+    for (const node of this.nodes.values()) {
+      const grouped = groups.has(node.mapGroupId);
+      if (!!node.inMapGroup !== grouped) anchorsChanged = true;
+      node.inMapGroup = grouped;
+    }
+    this.mapGroups = groups;
+    this.inkGroups = inkGroups;
+    this.groupActionCache = null;
+    this.hoverComposition = false;
+    this.areaFamilies = areaContactFamilies(this.groups);
+    if (this.selectedInkIds?.size && [...this.selectedInkIds].some(id => !liveInk.has(id)))
+      this.changeSelection(this.selectedIds,null,new Set([...this.selectedInkIds].filter(id => liveInk.has(id))));
+    if (anchorsChanged) this.wake();
+  }
+
+  selectionGroupId(notes,inks) {
+    if (notes.size + inks.size < 2) return null;
+    const id = notes.size ? this.nodes.get(notes.values().next().value)?.mapGroupId : this.inkGroups?.get(inks.values().next().value);
+    const group = this.mapGroups?.get(id);
+    if (!group || group.noteIds.size !== notes.size || group.inkIds.size !== inks.size) return null;
+    for (const noteId of notes) if (!group.noteIds.has(noteId)) return null;
+    for (const inkId of inks) if (!group.inkIds.has(inkId)) return null;
+    return id;
+  }
+
+  handlesInk(id) {
+    return this.mapGroups?.has(this.inkGroups?.get(id)) ||
+      (this.selectedInkIds?.has(id) && this.selectedIds.size + this.selectedInkIds.size > 1);
+  }
+
   select(id) {
     this.selectedGridId = null;
     this.selectedIds = new Set(id ? [id] : []);
+    this.selectedInkIds = new Set();
     this.repaint();
   }
-  changeSelection(ids, gridId = null) {
+  changeSelection(ids, gridId = null, inkIds = new Set()) {
     this.selectedGridId = gridId;
     this.selectedIds = ids;
-    this.callbacks.onSelect?.(ids.size === 1 ? ids.values().next().value : null, [...ids]);
+    this.selectedInkIds = inkIds;
+    this.callbacks.onSelect?.(ids.size === 1 && !inkIds.size ? ids.values().next().value : null, [...ids], [...inkIds]);
     this.repaint();
   }
   setLinkMode(on, sourceId = null) {
@@ -657,11 +712,12 @@ export class Graph {
 
   updateCursor() {
     const invalidStage = this.drag?.moved && this.drag.stage?.to === null;
-    const invalidMove = this.drag?.noteIds && !this.drag.offMap && !this.drag.mapTarget && !this.drag.moving.size;
+    const invalidMove = this.drag?.moved && this.drag.holdSelection ||
+      this.drag?.noteIds && !this.drag.offMap && !this.drag.mapTarget && !this.drag.moving.size;
     this.canvas.style.cursor = invalidStage || invalidMove || this.drag?.mapTarget?.blocked ? 'no-drop' : this.drag?.resizeGrid ? 'nwse-resize'
-      : this.drag?.pan || this.drag?.grid || this.drag?.stage ? 'grabbing' : this.hoverGrip && !this.drag && !this.linking && this.tool==='select' && !this.spacePan ? 'nwse-resize'
+      : this.drag?.pan || this.drag?.grid || this.drag?.stage || this.drag?.groupId && this.drag.moved ? 'grabbing' : this.hoverGrip && !this.drag && !this.linking && this.tool==='select' && !this.spacePan ? 'nwse-resize'
       : this.linking || this.drag?.marquee || this.callbacks.recordingRoute?.() ? 'crosshair' : this.tool === 'hand' || this.spacePan || this.hoverGrid ? 'grab'
-      : this.drag?.moved ? 'grabbing' : this.hover ? 'pointer' : 'default';
+      : this.drag?.moved ? 'grabbing' : this.hoverComposition ? 'grab' : this.hover ? 'pointer' : 'default';
   }
 
   pointerDown(e) {
@@ -694,12 +750,23 @@ export class Graph {
     this.hoverStage=revealed;this.hoverHandle=from;
     if(revealed!==null)this.hoverGridArea=header.grid;
     const stage = from === null ? null : {group:header.grid, from, to:from, boundary:from, top:this.world({x:p.x,y:header.t}).y, pointerX:p.x};
-    const grid = resizeGrid || (canGrabGrid && !stage && this.callbacks.onGridMove && surface?.move);
+    const canPick = e.button===0 && this.tool==='select' && !this.linking && !this.spacePan && !this.callbacks.recordingRoute?.();
+    const hitInk = canPick && !node && !surface?.label && !grip ? this.callbacks.inkItemAt?.(this.world(p)) : null;
+    // A visible grouped stroke can be grabbed across empty seats. Occupied
+    // seats, grid names, stage headers and resize grips keep their own gestures.
+    const ink = !surface?.area || this.mapGroups?.has(hitInk?.mapGroupId) ? hitInk : null;
+    const groupId = canPick && (node?.mapGroupId || ink?.mapGroupId);
+    const group = this.mapGroups?.get(groupId);
+    const grid = resizeGrid || (canGrabGrid && !group && !stage && this.callbacks.onGridMove && surface?.move);
     if (this.selectedGridId && (header || (grid && grid.id !== this.selectedGridId))) this.changeSelection(new Set());
-    const pan = e.button === 1 || this.spacePan || this.tool === 'hand' || this.callbacks.recordingRoute?.() || (!node && !grid && !stage && (this.linking || e.pointerType === 'touch'));
-    const marquee = !pan && !node && !grid && !stage;
-    this.drag = { id:e.pointerId,node,cell,pan,grid:!pan && grid,stage,resizeGrid:!pan && !!resizeGrid,marquee,extend,start:p,prev:p,moved:false,button:e.button };
+    const selectedMember = node ? this.selectedIds.has(node.id) : this.selectedInkIds?.has(ink?.id);
+    const holdSelection = selectedMember && !group && this.selectedIds.size + (this.selectedInkIds?.size || 0) > 1 && (this.selectedInkIds?.size ||
+      this.mapGroups?.size && [...this.selectedIds].some(id => this.nodes.get(id)?.inMapGroup));
+    const pan = e.button === 1 || this.spacePan || this.tool === 'hand' || this.callbacks.recordingRoute?.() || (!node && !grid && !stage && !group && (this.linking || e.pointerType === 'touch'));
+    const marquee = !pan && !node && !grid && !stage && !group && !holdSelection;
+    this.drag = { id:e.pointerId,node,ink,groupId:group ? groupId : null,cell,pan,grid:!pan && grid,stage,resizeGrid:!pan && !!resizeGrid,marquee,extend,start:p,prev:p,moved:false,button:e.button };
     this.drag.startWorld = this.world(p);
+    this.drag.holdSelection = holdSelection;
     if (this.drag.grid) this.drag.gridOrigin = grid.grid;
     // Catch a moving bubble on press, even when the pointer has not yet
     // travelled far enough to distinguish a drag from a click.
@@ -741,6 +808,46 @@ export class Graph {
     drag.moving = new Set(drag.mobileMembers.map(p=>p.node.id));
     drag.releasesSeats = drag.mobileMembers.some(p=>p.node.seated);
     drag.homeArea = drag.members.every(p=>p.node.areaId===drag.node.areaId) ? drag.node.areaId : null;
+  }
+
+  selectMapMember(noteId, inkId, groupId, extend) {
+    const group = this.mapGroups?.get(groupId);
+    const notes = new Set(extend ? this.selectedIds : []), inks = new Set(extend ? this.selectedInkIds : []);
+    const remove = extend && (noteId ? notes.has(noteId) : inks.has(inkId));
+    const update = (set,id) => { if (remove) set.delete(id); else set.add(id); };
+    if (group) {
+      for (const id of group.noteIds) update(notes,id);
+      for (const id of group.inkIds) update(inks,id);
+    } else if (noteId) update(notes,noteId);
+    else if (inkId) update(inks,inkId);
+    this.changeSelection(notes,null,inks);
+  }
+
+  moveComposition(drag, point) {
+    let composition = drag.composition;
+    if (!composition) {
+      const group = this.mapGroups.get(drag.groupId);
+      this.flushPositions();
+      this.selectMapMember(null,null,drag.groupId,false);
+      const positions = Array.from(group.noteIds,id => {
+        const {x,y} = this.nodes.get(id);
+        return {id,x,y};
+      });
+      composition = drag.composition = {groupId:drag.groupId, noteIds:group.noteIds, inkIds:group.inkIds, positions, dx:0, dy:0};
+    }
+    const world = this.world(point);
+    composition.dx = world.x - drag.startWorld.x;
+    composition.dy = world.y - drag.startWorld.y;
+    this.positionComposition(composition,composition.dx,composition.dy);
+  }
+
+  positionComposition(composition, dx, dy) {
+    this.measuredGroups = null;
+    for (const {id,x,y} of composition.positions) {
+      const node = this.nodes.get(id);
+      node.x = x + dx; node.y = y + dy;
+      node.vx = node.vy = 0;
+    }
   }
 
   restoreLayout(drag) {
@@ -962,6 +1069,7 @@ export class Graph {
     this.drag = null;
     this.hoverStage=this.hoverHandle=null;
     if (drag?.grid) this.previewGrid(drag.grid,drag.gridOrigin);
+    if (drag?.composition) this.positionComposition(drag.composition,0,0);
     if (drag?.noteIds) {
       this.restoreLayout(drag);
       this.callbacks.onNoteDragEnd?.();
@@ -1034,6 +1142,7 @@ export class Graph {
   previewMarquee(drag, point) {
     const rect = selectionRect(this.world(drag.start), this.world(point));
     drag.preview = new Set(drag.extend ? this.selectedIds : []);
+    drag.previewInkIds = new Set(drag.extend ? this.selectedInkIds : []);
     drag.previewGridId = null;
     if (!drag.extend) {
       for (const group of this.groups) {
@@ -1051,6 +1160,18 @@ export class Graph {
       if (drag.previewGridId !== null) return;
     }
     for (const node of this.nodes.values()) if (intersectsNote(rect,node)) drag.preview.add(node.id);
+    for (const id of this.callbacks.inkIdsInRect?.(rect) || []) drag.previewInkIds.add(id);
+    if (this.mapGroups?.size) {
+      const groups = new Set();
+      for (const id of drag.preview) groups.add(this.nodes.get(id)?.mapGroupId);
+      for (const id of drag.previewInkIds) groups.add(this.inkGroups.get(id));
+      for (const groupId of groups) {
+        const group = this.mapGroups.get(groupId);
+        if (!group) continue;
+        for (const id of group.noteIds) drag.preview.add(id);
+        for (const id of group.inkIds) drag.previewInkIds.add(id);
+      }
+    }
   }
 
   pointerMove(e) {
@@ -1067,11 +1188,12 @@ export class Graph {
     const drag = this.drag;
     if (drag && e.pointerId === drag.id) {
       if (!drag.moved && Math.hypot(p.x - drag.start.x, p.y - drag.start.y) < 4) return;
-      if (!drag.moved && drag.node && !drag.pan && !this.linking) this.startNoteDrag(drag);
+      if (!drag.moved && drag.node && !drag.pan && !this.linking && !drag.groupId && !drag.holdSelection) this.startNoteDrag(drag);
       drag.moved = true;
       const dx = (p.x - drag.prev.x) / this.zoom, dy = (p.y - drag.prev.y) / this.zoom;
       if (drag.stage) this.updateStageDrop(drag.stage,p);
       else if (drag.pan) { this.camera.x -= dx; this.camera.y -= dy; }
+      else if (drag.groupId) this.moveComposition(drag,p);
       else if (drag.grid) {
         const pos = this.world(p), origin = drag.gridOrigin;
         const dx=pos.x-drag.startWorld.x, dy=pos.y-drag.startWorld.y;
@@ -1092,6 +1214,8 @@ export class Graph {
       const corner=!bubble && this.hitGridGrip(p);
       const id=bubble?.id ?? this.gridCellAt(p,surface,corner)?.note?.id ?? null;
       const canGrab=!id && !extendsSelection(e) && !this.linking && !this.spacePan && this.tool==='select' && !this.callbacks.recordingRoute?.();
+      const groupHover = !!(id ? this.nodes.get(id)?.inMapGroup : canGrab && !corner && !surface.label && this.inkGroups?.size &&
+        this.mapGroups.has(this.callbacks.inkItemAt?.(this.world(p))?.mapGroupId));
       const grip = canGrab && this.callbacks.onGridSpacing && corner;
       const grid = canGrab && !grip && this.callbacks.onGridMove && surface.move;
       const header=canGrab && !grip && this.callbacks.onStageReorder ? surface.header : null;
@@ -1104,9 +1228,9 @@ export class Graph {
       const hint = grip ? tr('Потяните, чтобы изменить шаг сетки','Drag to adjust grid spacing')
         : handle!==null ? tr('Переместить этап «{name}»','Move stage “{name}”',{name:stageName}) : stageName;
       if (this.canvas.title !== hint) this.canvas.title = hint;
-      if (id!==this.hover || grid!==this.hoverGrid || grip!==this.hoverGrip || area!==this.hoverGridArea || stage!==this.hoverStage || handle!==this.hoverHandle ||
+      if (id!==this.hover || groupHover!==this.hoverComposition || grid!==this.hoverGrid || grip!==this.hoverGrip || area!==this.hoverGridArea || stage!==this.hoverStage || handle!==this.hoverHandle ||
           seat?.group!==this.hoverSeat?.group || seat?.index!==this.hoverSeat?.index) {
-        this.hover = id; this.hoverGrid = grid; this.hoverSeat = seat; this.hoverGrip = grip; this.hoverGridArea = area;
+        this.hover = id; this.hoverComposition = groupHover; this.hoverGrid = grid; this.hoverSeat = seat; this.hoverGrip = grip; this.hoverGridArea = area;
         this.hoverStage=stage;this.hoverHandle=handle;
         this.updateCursor(); this.repaint();
       }
@@ -1140,16 +1264,19 @@ export class Graph {
         const group=this.groups.find(g=>g.id===drag.grid.id);
         this.hoverGrid=this.hoverGridArea=group || null;
       }
-    } else if (drag.preview) this.changeSelection(drag.preview,drag.previewGridId);
+    } else if (drag.composition) {
+      const change = drag.composition;
+      this.positionComposition(change,0,0);
+      const p = this.local(e);
+      if ((change.dx || change.dy) && p.x>=0 && p.x<this.width && p.y>=0 && p.y<this.height)
+        this.callbacks.onMoveMapGroup?.(change);
+    } else if (drag.preview) this.changeSelection(drag.preview,drag.previewGridId,drag.previewInkIds);
     else if (!drag.moved && drag.button === 0 && !this.spacePan && this.tool !== 'hand') {
       const id = drag.node?.id ?? drag.cell?.note?.id ?? null;
       if (id && this.callbacks.onRoutePick?.(id)) { this.updateCursor(); this.repaint(); return; }
       if (this.linking) { if (id) this.callbacks.onLink?.(id); }
-      else if (id && drag.extend) {
-        const ids = new Set(this.selectedIds);
-        if (ids.has(id)) ids.delete(id); else ids.add(id);
-        this.changeSelection(ids);
-      } else if (!drag.extend && !drag.resizeGrid && (id || !this.stageHeaderAt(drag.start))) {
+      else if (drag.groupId || drag.extend && (id || drag.ink)) this.selectMapMember(id,drag.ink?.id,drag.groupId,drag.extend);
+      else if (!drag.extend && !drag.resizeGrid && (id || !this.stageHeaderAt(drag.start))) {
         const pickGrid = !id && !this.callbacks.recordingRoute?.();
         const title = pickGrid && this.hitGridLabel(drag.start);
         const group = title || (pickGrid && drag.cell?.group);
@@ -1213,7 +1340,10 @@ export class Graph {
       this.camera.x += (e.deltaX || e.deltaY) * unit / this.zoom;
       this.repaint();
     } else this.zoomAt(Math.exp(-clamp(e.deltaY * unit, -480, 480) * 0.00165), point);
-    if (this.drag?.noteIds) {
+    if (this.drag?.composition) {
+      this.moveComposition(this.drag,point);
+      this.drag.prev=point;
+    } else if (this.drag?.noteIds) {
       this.moveNotes(this.drag,e,point);
       this.drag.prev=point;
       this.updateCursor();
@@ -1372,7 +1502,7 @@ export class Graph {
     }
     // Grids and multi-note selections move as a unit. Keep their surroundings
     // in place while aiming, then settle the links against the committed layout.
-    const layoutPreview = this.drag?.grid || this.drag?.held?.size > 1;
+    const layoutPreview = this.drag?.grid || this.drag?.composition || this.drag?.held?.size > 1;
     // Paint the new camera before advancing the world under the pointer.
     // Remaining physics work resumes on the next frame without wheel input.
     const zoomFrame = this.zoomChanged;
@@ -1408,7 +1538,7 @@ export class Graph {
     // controls to reposition. Interactions and layout edits use an exact frame.
     const plainOverview = preview?.supported && this.nodes.size >= 2000 && this.zoom < .22 &&
       !this.remaining && !this.heating.size && !this.drag && !this.target && !this.pinch &&
-      !this.hover && !this.selectedIds.size && !this.groups.some(group => group.grid) &&
+      !this.hover && !this.selectedIds.size && !this.selectedInkIds?.size && !this.groups.some(group => group.grid) &&
       !this.canvas.parentElement?.dataset?.routeMode && !this.canvas.parentElement?.classList?.contains('drawing-on-map');
     if (plainOverview && zoomFrame && preview.show(this.camera,this.width,this.height)) {
       this.clearAgentPulses();
@@ -1592,7 +1722,23 @@ export class Graph {
     }
     this.callbacks.onDrawInkSelection?.(c,view);
     const showAction = this.tool === 'select' && !this.linking && !this.drag?.moved && !this.pinch && !this.callbacks.recordingRoute?.();
-    this.areaAction?.place(showAction ? bounds : null,selected.size,w,h);
+    const inks = this.selectedInkIds;
+    let action = null;
+    if (showAction && this.areaAction) {
+      if (this.groupActionCache?.notes !== selected || this.groupActionCache?.inks !== inks) {
+        this.groupActionCache = {notes:selected,inks,action:this.callbacks.groupAction?.(selected,inks)};
+      }
+      action = this.groupActionCache.action;
+      const inkBounds = inks?.size && this.callbacks.inkSelectionBounds?.(inks);
+      if (inkBounds) {
+        const left = ox + inkBounds.left*z, right = ox + inkBounds.right*z;
+        const top = oy + inkBounds.top*z, bottom = oy + inkBounds.bottom*z;
+        if (left <= w && right >= 0 && top <= h && bottom >= 0)
+          bounds = bounds ? {left:Math.min(bounds.left,left),right:Math.max(bounds.right,right),
+            top:Math.min(bounds.top,top),bottom:Math.max(bounds.bottom,bottom)} : {left,right,top,bottom};
+      }
+    }
+    this.areaAction?.place(showAction ? bounds : null,inks?.size ? 0 : selected.size,w,h,action);
     this.callbacks.onMapFrame?.(this);
   }
 

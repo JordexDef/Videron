@@ -2,6 +2,7 @@ import { tr } from './i18n.js'
 import { checkNote, hasCredentialBlock } from './data.js'
 import { appearanceOf } from './icons/node-art.js'
 import { openVaultPassword } from './vault-ui.js'
+import { validMapGroupId } from './map-groups.js'
 
 export function isProtectedNote(record) {
   return !!record && Object.hasOwn(record, 'sealed')
@@ -19,6 +20,7 @@ function mapFields(record) {
     if (Object.hasOwn(record, field)) result[field] = record[field]
   }
   if (Object.hasOwn(record, 'appearance')) result.appearance = appearanceOf(record)
+  if (validMapGroupId(record.mapGroupId)) result.mapGroupId = record.mapGroupId
   return result
 }
 
@@ -34,7 +36,10 @@ function noteWithMapFields(note, record) {
     delete original.rightIcon
     fields.appearance = {...original, ...fields.appearance}
   }
-  return {...note, ...fields}
+  const current = {...note, ...fields}
+  // The note might have been ungrouped after its last encryption.
+  if (validMapGroupId(note.mapGroupId) && !fields.mapGroupId) delete current.mapGroupId
+  return current
 }
 
 function lockedRecord(record, sealed) {
