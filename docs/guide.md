@@ -154,7 +154,7 @@ Tables and charts appear as images in exported `.excalidraw` files. The file als
 
 A note is made up of versioned blocks. Text supports paragraphs, headings, quotes, indentation, font styles, colors and hyperlinks. Insert images from a file, the clipboard or by dragging them in. An embedded drawing or table retains its size and editable contents, including shapes, cells and charts.
 
-Open the space switcher and choose **Create space…**. By default the space lives in the local library. To store it separately, choose a folder, including one managed by a cloud drive. Select **Encrypt the file with a password** to enable encryption before the first write. To move an existing local space into a folder, choose **Spaces on this computer… → Move to folder…**.
+Open the space switcher and choose **Create space…**. By default the space lives in the local library. To store it separately, choose a folder, including one managed by a cloud drive. Select **Encrypt space** to enable encryption before the first write. To move an existing local space into a folder, choose **Spaces on this computer… → Move to folder…**.
 
 The selected folder contains the document `Videron.space` and a hidden `.videron-sync` directory with its history. When using a cloud drive, sync the **entire folder**, including the hidden directory, on both computers. On the second computer, choose **Open from folder…**. If you encrypted the space, enter the same password. Its encryption covers the document, attachments and history. Links to other folders retain their paths.
 
@@ -179,6 +179,8 @@ Videron encrypts the title, text, searchable copy, tags, code, drawings, tables 
 Use a long, unique passphrase and store it in your password manager. Recovering access requires the password. The desktop app encrypts data with AES-256-GCM and derives the key with Argon2id using 64 MiB of memory, three passes and four threads. Each new password setup receives a random salt and each write uses a fresh random nonce. Earlier backups and separately exported files keep the form in which you saved them. [Argon2id parameters in RFC 9106](https://www.rfc-editor.org/rfc/rfc9106.html#section-4)
 
 ## Extensions
+
+**English** · [Русский](guide.ru.md#расширения)
 
 ### Language packs
 
@@ -232,7 +234,9 @@ A note record contains `id`, `title`, `type` (`text`, `canvas` or `data`), `appe
 
 For example, you can add a meeting action and its owner to the end of a note. Import the example JSON through **Extensions → Install from JSON**, then right-click a text note on the map, in the list or in the sidebar and choose **Add a meeting follow-up**. When several commands are available, open **Extension commands…** to see them. Review the requested access, enter the next step and click **Add to note**. [Meeting follow-up example](examples/meeting-follow-up.json)
 
-To keep a daily journal, install the daily note example. Right-click an empty spot on the map and run its workspace command to open today’s entry or create it from a template. Workspace commands are also available in Extensions. [Daily note example](examples/daily-note.json)
+To keep a daily journal, install the daily note example. Right-click an empty spot on the map and choose **Open today's note**. It opens today’s entry or creates one with the `#daily` tag. Workspace commands are also available in Extensions. [Daily note example](examples/daily-note.json)
+
+Each example comes in English and Russian. To switch the language of its menu commands, remove the installed example in **Extensions** and install the file linked in the other guide. Notes you created with it stay in your space. [Russian examples](guide.ru.md#команды-для-заметок-и-пространства)
 
 Add a `commands` array to a view manifest to register actions. Each entry has a unique `id`, a menu `title` and a `scope`. Use `note` for actions on a selected note, or `workspace` for actions in the active space. A note command may set `noteTypes` to any combination of `text`, `canvas` and `data` to appear only on those types.
 

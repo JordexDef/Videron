@@ -1,6 +1,6 @@
 # Videron
 
-**English** · [Русский](README.ru.md)
+**English** · [Русский](README.ru.md) · [Documentation](docs/README.md)
 
 Videron is a local-first desktop app for keeping notes on a map. The size of each circle reflects how much it holds, and its glow shows how often you open it. Give two notes the same tag to link them. Zoom in to read a preview, or save a route through several notes to revisit them in order.
 
@@ -75,4 +75,4 @@ Download Videron Sync for the computer that will host your projects. On Linux wi
 
 ## User guide
 
-For keyboard shortcuts, map routes, table formulas, encryption, and the extension API, see the [Videron user guide](docs/guide.md).
+The guide covers keyboard shortcuts, map routes, table formulas, encryption and the extension API. [English](docs/guide.md) · [Русский](docs/guide.ru.md)
