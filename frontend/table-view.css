@@ -143,6 +143,10 @@
   height: 25px;
   border-radius: 3px;
 }
+.vt-cell > input.vt-editor:focus,
+.vt-head > input.vt-rename:focus {
+  outline: none;
+}
 .vt-scroll {
   flex: 1;
   min-height: 0;
