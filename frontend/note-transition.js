@@ -4,6 +4,26 @@ export function cancelNoteTransition() {
   activeTransition?.();
 }
 
+export function returnToNoteMap(graph, id, visit, space) {
+  if (!visit) { graph.focus(id); return; }
+  if (visit.space !== space || !visit.camera) return;
+  graph.restoreCamera(visit.camera);
+  if (visit.origin !== 'map' || document.hidden) return;
+
+  let destination = graph.noteViewportRect(id);
+  // A linked note, a resized window or a synced move can put a bubble outside the old view.
+  if (!destination) {
+    const node = graph.nodes.get(id);
+    if (!node) return;
+    graph.restoreCamera({x:node.x, y:node.y, zoom:visit.camera.zoom});
+    destination = graph.noteViewportRect(id);
+  }
+  if (destination) {
+    graph.showReturnCue(id);
+    playNoteTransition('close', destination);
+  }
+}
+
 // The editor and the closing sheet both fill the viewport. Moving only their
 // clip keeps text at reading size and leaves document layout and focus alone.
 export function playNoteTransition(direction, rect, editorElement) {

@@ -1,7 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Graph} from '../frontend/graph.js';
+import {returnToNoteMap} from '../frontend/note-transition.js';
 import {geometryFor} from '../frontend/icons/node-art.js';
+
+test('returning from the sidebar restores the displayed map even when a linked note is off screen', () => {
+  const camera={x:34,y:-20,zoom:.84};
+  const graph=Object.assign(Object.create(Graph.prototype),{
+    camera:{x:40,y:10,zoom:.9},target:{x:200,y:50,zoom:1.5},callbacks:{},repaint(){},
+    focus(){assert.fail('sidebar return must not fly to a note')},
+    noteViewportRect(){assert.fail('sidebar return must not prepare a bubble transition')}
+  });
+  const visit={origin:'sidebar',noteId:'first',space:'personal',camera};
+  returnToNoteMap(graph,'linked-note',visit,'personal');
+  assert.deepEqual(graph.captureCamera(),camera);
+  assert.equal(graph.target,null);
+  graph.camera.x=100;
+  returnToNoteMap(graph,'first',visit,'another-space');
+  assert.equal(graph.camera.x,100);
+});
 
 test('returning uses the displayed camera and the current canvas layout', () => {
   const rect={left:180,top:60,width:600,height:400};

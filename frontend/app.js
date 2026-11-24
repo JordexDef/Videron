@@ -1,7 +1,7 @@
 import { Graph } from './graph.js';
 import { initTheme } from './theme.js';
 import { createMapCameraMemory } from './map-camera-memory.js';
-import { playNoteTransition, cancelNoteTransition } from './note-transition.js';
+import { playNoteTransition, cancelNoteTransition, returnToNoteMap } from './note-transition.js';
 import { mountMapReading, readingFragments } from './map-reading.js';
 import { mountMapRoutes } from './map-routes.js';
 import { mountStageControls } from './stage-controls.js';
@@ -1501,41 +1501,29 @@ function navigate(target,area=null){
   $('shell').classList.remove('mobile-open');updateSidebarToggle();
 }
 function editFromMap(id,searchTarget=null){
-  return edit(id,null,searchTarget,{fromMap:true});
+  return edit(id,null,searchTarget,{origin:'map'});
 }
-function returnToMapNote(id,camera){
-  graph.restoreCamera(camera);
-  if(document.hidden)return;
-  let destination=graph.noteViewportRect(id);
-  // A linked note, a resized window or a synced move can put the note outside the old frame.
-  if(!destination){
-    const node=graph.nodes.get(id);
-    if(!node)return;
-    graph.restoreCamera({x:node.x,y:node.y,zoom:camera.zoom});
-    destination=graph.noteViewportRect(id);
-  }
-  if(destination){
-    graph.showReturnCue(id);
-    playNoteTransition('close',destination);
-  }
+function editFromSidebar(id){
+  return edit(id,null,null,{origin:'sidebar'});
 }
 function edit(id,returnToResults=null,searchTarget=null,navigation={}){
   if(editorMerge)return editorMerge.then(()=>edit(id,returnToResults,searchTarget,navigation),()=>{});
   const record=byId(id);if(!record||editor||openingNote||spaceOperation||lockScreen||closingApp||!ready)return;
   ink?.flushText();
   cancelNoteTransition();
-  const fromMap=navigation.fromMap && showingMap();
-  const mapVisit=fromMap?{space:library.active,camera:graph.captureCamera()}:navigation.mapVisit;
+  const origin=navigation.origin,fromMap=origin==='map' && showingMap();
+  const visit=fromMap || origin==='sidebar'
+    ? {origin,space:library.active,noteId:id,camera:showingMap()?graph.captureCamera():null}
+    : navigation.visit;
   routes?.reset();reading?.hide();
   // A route can start flying back to its first view as it closes.
-  if(fromMap)graph.restoreCamera(mapVisit.camera);
+  if(origin && visit?.camera)graph.restoreCamera(visit.camera);
   cancelTransfers();closeMenu();
-  openingNote=openRecord(record,returnToResults,searchTarget,mapVisit,fromMap).finally(()=>{openingNote=null});
+  openingNote=openRecord(record,returnToResults,searchTarget,visit,fromMap).finally(()=>{openingNote=null});
   return openingNote;
 }
-async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
+async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
   const id=record.id;
-  const fromTree=$('areas').contains(document.activeElement);
   const hiddenRouteFragments=new Map();
   const unlocks=rememberedNotes;
   let session,openEditor,deadline;
@@ -1578,8 +1566,7 @@ async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
   chooseTool('select');selected=id;graph.select(id);record.opens=(record.opens||0)+1;dirty({notes:[record]});
   const backLabels={map:tr('К карте','Back to map'),list:tr('К списку','Back to list'),pinned:tr('К закреплённым','Back to pinned'),area:tr('К области','Back to area')};
   const saveStatus=createEditorSaveStatus();
-  const sameMap=()=>mapVisit && mapVisit.space===library.active && showingMap();
-  const source=fromMap && sameMap() && !lockScreen?graph.noteViewportRect(id):null;
+  const source=fromMap && visit.space===library.active && showingMap() && !lockScreen?graph.noteViewportRect(id):null;
   const agentControls=agentEditorButton(record,session);
   editor=openEditor({note:session.note,notes:workspace().notes,areas:workspace().areas,saveIndicator:saveStatus.element,
     agentButton:agentControls.element,agentTaskActions:{setStatus:manualTaskStatus},
@@ -1606,24 +1593,23 @@ async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
       saveStatus.close();editor=null;noteSession=null;$('shell').inert=!!editorMerge;syncIdle();
       if(lockScreen)return;
       render();
-      if(reason==='back' && showingMap() && !returnToResults && !closingApp){
-        if(sameMap())returnToMapNote(id,mapVisit.camera);
-        else if(!mapVisit)graph.focus(id);
-      }
-      if(document.activeElement===document.body && !(fromTree && sidebarTree?.focusNote(id))){
+      if(reason==='back' && showingMap() && !returnToResults && !closingApp)
+        returnToNoteMap(graph,id,visit,library.active);
+      const treeNote=visit?.origin==='sidebar' && visit.space===library.active && visit.noteId;
+      if(document.activeElement===document.body && !(treeNote && sidebarTree?.focusNote(treeNote))){
         const row=listNoteRow(id);
         (showingMap()?$('graph'):row||$('new-note')).focus({preventScroll:true});
       }
       flush().catch(reportWriteError);
       queueSync(100);
     },
-    onOpenNote:target=>edit(target,returnToResults,null,{mapVisit})
+    onOpenNote:target=>edit(target,returnToResults,null,{visit})
   });
   editor.agentControls=agentControls;
   editor.saveStatus=saveStatus;
   if(storageState==='failed')saveStatus.failed();
   editor.returnToResults=returnToResults;
-  editor.mapVisit=mapVisit;
+  editor.visit=visit;
   syncMapVisibility();
   $('shell').inert=true;
   if(searchTarget)editor.revealSearchMatch(searchTarget);
@@ -2088,10 +2074,10 @@ function sidebarRow(item){
     open.dataset.noteId=item.id;
     const kind=item.icon==='board'?tr('Заметка-холст','Canvas note'):item.icon==='newData'?tr('Заметка с данными','Data note'):tr('Текстовая заметка','Text note');
     open.title=item.icon==='lock'?item.title:item.title+' · '+kind;
-    open.onclick=()=>edit(item.id);
+    open.onclick=()=>editFromSidebar(item.id);
     open.oncontextmenu=e=>{
       e.preventDefault();const box=open.getBoundingClientRect();
-      context(item.id,e.clientX||box.left,e.clientY||box.bottom);
+      context(item.id,e.clientX||box.left,e.clientY||box.bottom,null,editFromSidebar);
     };
     row.append(open);
   }else{
@@ -2187,7 +2173,7 @@ async function search(initialState={},onDismiss){
   const lifetime=new AbortController();
   searchLifetime=lifetime;
   const origin=editor,originId=selected;
-  const returnToOrigin=origin?edit.bind(null,originId,origin.returnToResults,null,{mapVisit:origin.mapVisit}):onDismiss;
+  const returnToOrigin=origin?edit.bind(null,originId,origin.returnToResults,null,{visit:origin.visit}):onDismiss;
   closeMenu();
   try{
     const {openSearch}=await import('./search.js');
