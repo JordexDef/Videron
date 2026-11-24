@@ -14,6 +14,7 @@ import { attachTextToolbar } from './canvas-text-toolbar.js'
 import { blockText, textTypes } from './search-location.js'
 import { historyDirection, primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
 import { blockTagText } from './board-rich-text.js'
+import { readClipboardRuns } from './clipboard-runs.js'
 import { isListStyle, listStyleOf, indentOf, listMarkers, atParentLevel, isTaskStyle, taskStateOf, taskCounts,
   withListStyle, toggleTask, listItemForPrefix, continuedListItem } from './note-lists.js'
 import { createSearchReveal, rangeInText } from './search-reveal.js'
@@ -122,6 +123,19 @@ function appendRuns(parent, runs) {
     parent.append(n)
   }
 }
+function marksForElement(node, inherited) {
+  const marks = {...inherited}, tag = node.tagName, style = node.style
+  if (['STRONG','B'].includes(tag) || style?.fontWeight === 'bold' || Number(style?.fontWeight) >= 600) marks.bold = true
+  if (['I','EM'].includes(tag) || style?.fontStyle === 'italic') marks.italic = true
+  if (tag === 'U' || style?.textDecorationLine?.includes('underline')) marks.underline = true
+  const color = safeColor(style?.color || node.getAttribute?.('color'))
+  if (color) marks.color = color
+  if (tag === 'A') {
+    if (isFolderPath(node.dataset.folderPath)) marks.folderPath = node.dataset.folderPath
+    else if (safeLink(node.getAttribute('href'))) marks.href = safeLink(node.getAttribute('href'))
+  }
+  return marks
+}
 function readRuns(root) {
   const runs = []
   function add(value, marks) {
@@ -136,16 +150,7 @@ function readRuns(root) {
     const tag = node.tagName
     if (['SCRIPT','STYLE','IFRAME','OBJECT','TEMPLATE','NOSCRIPT'].includes(tag)) return
     if (tag === 'BR') { if (node.parentNode.childNodes.length > 1) add('\n', inherited); return }
-    const marks = {...inherited}, style = node.style
-    if (['STRONG','B'].includes(tag) || style?.fontWeight === 'bold' || Number(style?.fontWeight) >= 600) marks.bold = true
-    if (['I','EM'].includes(tag) || style?.fontStyle === 'italic') marks.italic = true
-    if (tag === 'U' || style?.textDecorationLine?.includes('underline')) marks.underline = true
-    const color = safeColor(style?.color || node.getAttribute?.('color'))
-    if (color) marks.color = color
-    if (tag === 'A') {
-      if (isFolderPath(node.dataset.folderPath)) marks.folderPath = node.dataset.folderPath
-      else if (safeLink(node.getAttribute('href'))) marks.href = safeLink(node.getAttribute('href'))
-    }
+    const marks = marksForElement(node, inherited)
     const block = ['P','DIV','LI','H1','H2','H3','BLOCKQUOTE','PRE','SECTION','TR'].includes(tag)
     if (block && node !== root && runs.length && !runs.at(-1).text.endsWith('\n')) add('\n', inherited)
     for (const child of node.childNodes) walk(child, marks)
@@ -747,17 +752,17 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     e.preventDefault()
     if(e.clipboardData.files.length){insertImages(e.clipboardData.files,position());return}
     const mark=position()
-    const snippet=pastedCode(e.clipboardData.getData('text/plain'),blockText(body[mark.index]).trim()==='')
+    const plain=e.clipboardData.getData('text/plain')
+    const snippet=pastedCode(plain,blockText(body[mark.index]).trim()==='')
     if(snippet){insertCode(snippet,mark);return}
     const html=e.clipboardData.getData('text/html')
-    const frag=document.createDocumentFragment()
-    if(html){
-      // Template contents are inert. Only validated text marks are rebuilt in the editor.
-      const template=el('template');template.innerHTML=html
-      appendRuns(frag,readRuns(template.content))
-    } else frag.append(document.createTextNode(e.clipboardData.getData('text/plain')))
-    if(!frag.textContent)return
-    const clean=el('div');clean.append(frag)
+    const template=html ? el('template') : null
+    // Template contents are inert. Only validated text marks are rebuilt in the editor.
+    if(template)template.innerHTML=html
+    const runs=readClipboardRuns(template?.content,plain || null,marksForElement)
+    if(!runs.length)return
+    const clean=el('div')
+    appendRuns(clean,runs)
     document.execCommand('insertHTML',false,clean.innerHTML)
   }
   function autoList(e,i){
