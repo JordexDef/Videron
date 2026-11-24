@@ -71,6 +71,8 @@ go run -tags webkit2_41 github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -ta
 | macOS · Terminal | `open build/bin/Videron.app` |
 | Linux · Terminal | `./build/bin/Videron` |
 
+Keep one local desktop build at the path shown above. Close the running app before rebuilding and use the same filename each time. Stage release packages and checksums in a separate directory.
+
 ## Run your own sync server
 
 Download Videron Sync for the computer that will host your projects. On Linux with systemd, unpack the server archive and run `sudo ./install.sh sync.example.net`, replacing the example domain with your address. The installer asks for a server password and starts the service. On Windows and macOS, you can run the server from a terminal. [Server setup, backups, and updates](docs/server-setup.md)
