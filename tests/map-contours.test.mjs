@@ -56,7 +56,7 @@ test('free layout freezes the current frame, new data and overlapping notes unti
   assert.notEqual(graph.nodes.get('d').x,150);
 });
 
-test('free placement can release a seat and move a pinned group companion across a foreign grid at exact offsets',()=>{
+test('free placement can leave a full destination and release a seated group at exact offsets',()=>{
   const notes=[{id:'seat',x:-250,y:0,areaId:'source',slot:0,links:['pin']},
     {id:'pin',x:-180,y:25,areaId:'parent',pinned:true},{id:'resident',x:150,y:0,areaId:'dest',slot:0}];
   const areas=[{id:'parent'},{id:'source',parentId:'parent',grid:{rows:1,cols:1,x:-250,y:0}},
@@ -67,18 +67,46 @@ test('free placement can release a seat and move a pinned group companion across
   const start=structuredClone(notes);
   graph.pointerDown(point(-250));
   graph.pointerMove(point(156,9));
-  assert.equal(graph.drag.mapTarget,null);
+  assert.equal(graph.drag.mapTarget.blocked,true);
   graph.cancelDrag();
   assert.deepEqual([...graph.nodes.values()].map(n=>[n.x,n.y]),start.map(n=>[n.x,n.y]));
   graph.pointerDown(point(-180,25)); // Grab the pinned member this time.
-  graph.pointerUp(point(226,34));
-  assert.deepEqual(notes.map(n=>[n.areaId,n.x,n.y]),[['parent',156,9],['parent',226,34],['dest',150,0]]);
+  graph.pointerMove(point(226,34)); // Too few seats for both notes.
+  graph.pointerUp(point(226,134)); // Release the group on the open canvas.
+  assert.deepEqual(notes.map(n=>[n.areaId,n.x,n.y]),[['parent',156,109],['parent',226,134],['dest',150,0]]);
   assert.deepEqual(notes[0].links,['pin']);
   assert.equal(notes[1].pinned,true);
   assert.equal(graph.remaining,0);
   assert.deepEqual(calls.drop,[]);
   assert.ok(undoMapAction(space));
   assert.deepEqual(notes,start);
+});
+
+test('free layout previews, commits and undoes a group drop into a nested grid',()=>{
+  // Older free layouts can leave a note directly over a seat without assigning it.
+  const notes=[{id:'locked',sealed:'opaque',pinned:true,x:144,y:0,areaId:null,slot:null,links:['plain']},
+    {id:'plain',x:-260,y:20,areaId:null,slot:null}];
+  const areas=[{id:'folder'},{id:'dock',parentId:'folder',grid:{x:80,y:0,cols:3,rows:1,spacing:64}}];
+  const {graph,point,space}=map(notes,areas);
+  graph.callbacks.onMapDrop=(ids,id,slot,positions)=>{
+    const change=placeAreaNotes(space,ids,id,slot,positions);
+    assert.ok(change.ok);
+    rememberMapAction(space,{kind:'placement',before:change.before,after:change.after});
+    graph.setData(notes,areas,new Set(ids));
+  };
+  const before=structuredClone(notes);
+  graph.setView({manualLayout:true});
+  graph.changeSelection(new Set(['plain','locked']));
+  graph.pointerDown(point(144,0));
+  graph.pointerMove(point(156,8));
+  assert.deepEqual([...graph.drag.mapTarget.seats],[['locked',1],['plain',2]]);
+  assert.deepEqual(notes,before);
+  graph.pointerUp(point(156,8));
+  graph.step();
+  assert.deepEqual(notes.map(n=>[n.areaId,n.slot,n.x,n.y]),[['dock',1,144,0],['dock',2,208,0]]);
+  assert.equal(graph.remaining,0);
+  assert.ok(undoMapAction(space));
+  assert.deepEqual(notes,before);
 });
 
 test('a free layout drag onto a different folder keeps membership and saves the exact position of a pinned note',()=>{

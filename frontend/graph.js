@@ -722,14 +722,16 @@ export class Graph {
       this.changeSelection(new Set([...(drag.extend ? this.selectedIds : []), drag.node.id]));
     drag.noteIds = [...this.selectedIds];
     drag.seatOrder = [drag.node.id,...drag.noteIds.filter(id=>id!==drag.node.id)];
-    if (!this.view?.manualLayout) {
-      this.measureGroups();
-      // A folder follows its members during the drag. Use the outline the user
-      // aimed for at the start of the gesture to decide where a release lands.
-      drag.dropHulls = new Map();
-      for (const group of this.groups) if (!group.grid) {
+    const manualLayout = this.view?.manualLayout;
+    if (!manualLayout) this.measureGroups();
+    drag.dropAreas = new Map();
+    for (const group of this.groups) {
+      if (group.grid) {
+        drag.dropAreas.set(group, null);
+      } else if (!manualLayout) {
+        // A folder moves with its members. Hit-test its outline from the start of the drag.
         const {x,y,r,points} = group.hull;
-        drag.dropHulls.set(group,{x,y,r,points});
+        drag.dropAreas.set(group,{x,y,r,points});
       }
     }
     // Live collisions can displace neighbours too. Keep the pre-drag layout
@@ -762,7 +764,7 @@ export class Graph {
     drag.overSidebar = !!this.callbacks.onNoteDragMove?.(drag.noteIds, event.clientX, event.clientY);
     const offMap = drag.overSidebar || point.x < 0 || point.y < 0 || point.x >= this.width || point.y >= this.height;
     const world = this.world(point);
-    drag.mapTarget = !offMap && !this.view?.manualLayout && this.callbacks.onMapDrop ? this.dropTarget(world,drag) : null;
+    drag.mapTarget = !offMap && this.callbacks.onMapDrop ? this.dropTarget(world,drag) : null;
     if (offMap || drag.mapTarget?.blocked || (!drag.mapTarget && !drag.moving.size)) {
       if (drag.held) { this.restoreLayout(drag); this.remaining = 0; }
       drag.held = null;
@@ -805,9 +807,8 @@ export class Graph {
     // Children win over their parents. Among siblings, an explicit seat wins,
     // then the closer centre breaks ties for unavoidably overlapping contents.
     let best = null, bestSlot = null, bestScore = Infinity;
-    for (const group of this.groups) {
+    for (const [group,hull] of drag.dropAreas) {
       if (best && group.depth < best.depth) continue;
-      const hull = drag.dropHulls.get(group);
       const slot = group.grid ? slotAt(group.grid,world) : null;
       if (group.grid ? slot===null : !insideContour(hull,world)) continue;
       const score = group.grid ? Math.hypot(world.x-group.grid.x,world.y-group.grid.y) :
@@ -823,7 +824,7 @@ export class Graph {
       return {group:best,slot:bestSlot,seats,blocked:!seats};
     }
     if (drag.homeArea === best.id) return null;
-    return {group:best,slot:null,hull:drag.dropHulls.get(best)};
+    return {group:best,slot:null,hull:drag.dropAreas.get(best)};
   }
 
   hitGridLabel(point) {
