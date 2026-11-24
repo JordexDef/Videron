@@ -226,7 +226,27 @@ Views run in a separate, sandboxed iframe with a Content Security Policy. Use th
 | `videron:data` | App → extension | Delivers `apiVersion`, the active language tag (such as `ru`, `en` or `fr-CA`), and the `notes` and `areas` arrays. The language tag is in `language`. |
 | `videron:open-note` | Extension → app | Open the note with the supplied `id`. |
 
-A note record contains `id`, `title`, `type` (`text`, `canvas` or `data`), `appearance` (shape, icon and color), `tags`, `areaId`, `pinned`, `opens`, `x`, `y`, `weight` and `links`. The `links` array holds manual links. Compare `tags` to reconstruct tag links. An area record contains `id`, `name` and `color`. This API supports custom views and navigation.
+A note record contains `id`, `title`, `type` (`text`, `canvas` or `data`), `appearance` (shape, icon and color), `tags`, `areaId`, `pinned`, `opens`, `x`, `y`, `weight` and `links`. The `links` array holds manual links. Compare `tags` to reconstruct tag links. An area record contains `id`, `parentId`, `name` and `color`.
+
+### Note and workspace commands
+
+For example, you can add a meeting action and its owner to the end of a note. Import the example JSON through **Extensions → Install from JSON**, then right-click a text note on the map, in the list or in the sidebar and choose **Add a meeting follow-up**. When several commands are available, open **Extension commands…** to see them. Review the requested access, enter the next step and click **Add to note**. [Meeting follow-up example](examples/meeting-follow-up.json)
+
+To keep a daily journal, install the daily note example. Right-click an empty spot on the map and run its workspace command to open today’s entry or create it from a template. Workspace commands are also available in Extensions. [Daily note example](examples/daily-note.json)
+
+Add a `commands` array to a view manifest to register actions. Each entry has a unique `id`, a menu `title` and a `scope`. Use `note` for actions on a selected note, or `workspace` for actions in the active space. A note command may set `noteTypes` to any combination of `text`, `canvas` and `data` to appear only on those types.
+
+Declare the methods your extension uses in `permissions`. Videron asks for access each time the extension opens and names the selected note when applicable. A view opened from Extensions can see map metadata and request permission to create notes. Launching a note command also lets the user share that note’s text or allow new paragraphs. Individually password-protected notes stay private.
+
+| Method | Parameters | What it does |
+| --- | --- | --- |
+| `notes.read` | `{}` | Reads the selected note’s text and returns `{id, title, type, text}`. |
+| `notes.append` | `{text}` | Adds plain text at the end of the selected text note. |
+| `notes.create` | `{title, text?}` | Creates a text note in the active space and returns `{id}`. |
+
+Every view has access to the built-in JavaScript SDK. Call `videron.start({onData, onCommand, onTheme})` with the callbacks your view uses. The example calls `await videron.notes.append(text)` when the user clicks its button. Other methods include `await videron.notes.read()`, `await videron.notes.create(title, text)` and `videron.openNote(id)`. Workspace commands can request creation. Reading and appending require a note command.
+
+For direct messaging, the iframe sends `videron:ready` on startup. On a command launch, the app sends `videron:data` followed by `{type:"videron:command", id, noteId}`. Here `id` identifies the command and `noteId` is the selected note’s ID, or `null` for workspace commands. To call a method, send `{type:"videron:request", requestId, method, params}` to `parent` with `postMessage`. Give each request a unique string ID. Listen for messages from `parent` with `type:"videron:response"` and the same `requestId`. A successful response contains `result`, and a failed response contains an `error` string. The app chooses the target note from the user’s selection.
 
 ## Build from source
 

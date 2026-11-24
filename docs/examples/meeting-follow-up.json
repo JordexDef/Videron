@@ -1,0 +1,18 @@
+{
+  "apiVersion": 1,
+  "id": "example.meeting-follow-up",
+  "name": "Meeting follow-up",
+  "description": "Add an action and its owner to the selected text note.",
+  "commands": [
+    {
+      "id": "add-follow-up",
+      "title": "Add a meeting follow-up",
+      "scope": "note",
+      "noteTypes": ["text"]
+    }
+  ],
+  "permissions": [
+    "notes.append"
+  ],
+  "html": "<style>\n  body { margin: 24px; max-width: 34em; font: 15px/1.5 system-ui; color: CanvasText; background: Canvas }\n  label { display: block; margin: 12px 0 }\n  input { box-sizing: border-box; width: 100%; padding: 8px; font: inherit }\n  button { margin: 8px 0; padding: 6px 14px; font: inherit }\n</style>\n<p id=\"hint\"></p>\n<section id=\"entry\" hidden>\n  <label><span id=\"actionLabel\"></span><input id=\"action\" maxlength=\"1000\"></label>\n  <label><span id=\"ownerLabel\"></span><input id=\"owner\" maxlength=\"120\"></label>\n  <button id=\"add\" type=\"button\"></button>\n</section>\n<p id=\"status\" role=\"status\"></p>\n<script>\n  const element = id => document.getElementById(id)\n  let russian = false, active = false\n  const label = (en, ru) => russian ? ru : en\n  videron.start({\n    onData(data) {\n      russian = data.language === 'ru'\n      element('hint').textContent = label('Choose “Add a meeting follow-up” from a text note’s extension commands.', 'Выберите «Add a meeting follow-up» в командах расширений текстовой заметки.')\n      element('actionLabel').textContent = label('Next step', 'Следующий шаг')\n      element('ownerLabel').textContent = label('Owner (optional)', 'Ответственный (необязательно)')\n      element('add').textContent = label('Add to note', 'Добавить в заметку')\n    },\n    onCommand(command) {\n      if (command.id !== 'add-follow-up' || !command.noteId) return\n      active = true\n      element('hint').hidden = true\n      element('entry').hidden = false\n      element('action').focus()\n    }\n  })\n  element('add').onclick = async () => {\n    const action = element('action').value.trim()\n    if (!action) { element('action').focus(); return }\n    if (!active || element('add').disabled) return\n    const owner = element('owner').value.trim()\n    const text = label('Next step', 'Следующий шаг') + ' — ' + action + (owner ? ' · ' + owner : '')\n    element('add').disabled = true\n    element('status').textContent = ''\n    try {\n      await videron.notes.append(text)\n      element('status').textContent = label('Follow-up added.', 'Следующий шаг добавлен.')\n    } catch (error) {\n      element('status').textContent = error.message\n      element('add').disabled = false\n    }\n  }\n</script>"
+}

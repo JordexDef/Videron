@@ -1,5 +1,6 @@
 import { getLanguage, tr } from './i18n.js';
-import { readExtensionManifests, tagSpectrumId } from './extension-manifest.js';
+import { readExtensionManifests, supportsNoteCommand, tagSpectrumId } from './extension-manifest.js';
+import { setupExtensionAPI } from './extension-sdk.js';
 import { appearanceOf } from './icons/node-art.js';
 import { isProtectedNote } from './note-vault.js';
 import { isLightTheme } from './theme.js';
@@ -189,7 +190,22 @@ export function projectWorkspace(workspace) {
 }
 
 const pluginPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-src 'none'; connect-src 'none'";
-function setupPluginHost() {
+function setupPluginHost(ticket) {
+  let requestPort;
+  if (ticket) {
+    // This endpoint belongs to the original document, even if the iframe later navigates.
+    const channel = new MessageChannel();
+    const port = channel.port1;
+    requestPort = port;
+    port.onmessage = ({data}) => {
+      if (data.kind === 'verify') port.postMessage({kind:'request', message:data.message});
+      if (data.kind === 'event') dispatchEvent(new MessageEvent('message', {
+        data:data.message, origin:data.origin, source:parent
+      }));
+    };
+    parent.postMessage({type:'videron:session', ticket}, '*', [channel.port2]);
+    addEventListener('pagehide', () => { port.postMessage({kind:'leave'}); port.close(); }, {once:true});
+  }
   addEventListener('message', event => {
     if (event.source !== parent || event.data?.type !== 'videron:theme') return;
     const {theme} = event.data;
@@ -201,8 +217,12 @@ function setupPluginHost() {
     parent.postMessage({type:'videron:back'}, '*');
   }, true);
   addEventListener('error', event => parent.postMessage({type:'videron:error', message:String(event.message || '')}, '*'));
+  return message => {
+    if (requestPort && message.type === 'videron:request') requestPort.postMessage({kind:'request', message});
+    else parent.postMessage(message, '*');
+  };
 }
-const pluginHead = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${pluginPolicy}"><meta name="referrer" content="no-referrer"><style>:where(html[data-theme=light]){color-scheme:light}:where(html[data-theme=dark]){color-scheme:dark}</style><script>(${setupPluginHost.toString()})()<\/script>`;
+const pluginHead = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${pluginPolicy}"><meta name="referrer" content="no-referrer"><style>:where(html[data-theme=light]){color-scheme:light}:where(html[data-theme=dark]){color-scheme:dark}</style>`;
 
 let activeManager = null;
 
@@ -210,9 +230,10 @@ export function dismissExtensions() {
   activeManager?.();
 }
 
-export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenNote, onSelectLanguage, notify }) {
+export function openExtensions({ workspace, getWorkspace = () => workspace, hasWorkspace = true, plugins = [], command, onRequest,
+  onSavePlugins, onOpenNote, onSelectLanguage, notify }) {
   activeManager?.();
-  let installed = [...plugins], disposeFrame = null;
+  let installed = [...plugins], disposeFrame = null, leaveView = null;
   const previousFocus = document.activeElement;
   const shade = node('div', 'shade');
   const dialog = node('div', 'dialog wide');
@@ -241,9 +262,9 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
   function handleKey(event) {
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopImmediatePropagation();
-      if (disposeFrame) renderList(); else close();
+      (leaveView || close)();
     } else if (event.key === 'Tab') {
-      const focusable = [...dialog.querySelectorAll('button:not([disabled]), iframe')];
+      const focusable = [...dialog.querySelectorAll('button:not([disabled]), summary, iframe')].filter(el => el.getClientRects().length);
       if (event.shiftKey && document.activeElement === focusable[0]) {
         event.preventDefault(); focusable.at(-1)?.focus();
       } else if (!event.shiftKey && document.activeElement === focusable.at(-1)) {
@@ -254,9 +275,50 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
   document.addEventListener('keydown', handleKey, true);
   shade.addEventListener('click', e => { if (e.target === shade) close(); });
 
-  function showPlugin(plugin) {
+  function showPlugin(plugin, action = null, noteId = null, direct = false) {
     disposeFrame?.();
-    heading.textContent = plugin.name;
+    leaveView = direct ? close : renderList;
+    if (plugin.unavailableReason) {
+      notify?.(plugin.unavailableReason);
+      leaveView();
+      return;
+    }
+    const target = () => {
+      const note = noteId ? getWorkspace()?.notes.find(item => item.id === noteId) : null;
+      return supportsNoteCommand(action, note) && !isProtectedNote(note) ? note : null;
+    };
+    const targetNote = noteId ? target() : null;
+    if (action?.scope === 'note' && !targetNote) {
+      notify?.(tr('Заметка недоступна.', 'The note is unavailable.'));
+      leaveView();
+      return;
+    }
+    const grants = new Set(hasWorkspace ? (plugin.permissions || []).filter(permission =>
+      permission === 'notes.create' || (targetNote && (permission === 'notes.read' ||
+        (permission === 'notes.append' && (targetNote.type ?? 'text') === 'text')))) : []);
+    if (!grants.size) return startFrame(plugin, action, noteId, grants, target);
+
+    heading.textContent = action?.title || plugin.name;
+    dialog.className = 'dialog wide';
+    const intro = node('p', '', tr('Разрешить «{name}» на время этого запуска?', 'Allow “{name}” to do the following for this run?', {name:plugin.name}));
+    const list = node('ul', 'extension-permissions');
+    const title = targetNote?.title || tr('Без названия', 'Untitled');
+    if (grants.has('notes.read')) list.append(node('li', '', tr('Прочитать текст заметки «{title}»', 'Read the text of “{title}”', {title})));
+    if (grants.has('notes.append')) list.append(node('li', '', tr('Дописывать текст в «{title}»', 'Append text to “{title}”', {title})));
+    if (grants.has('notes.create')) list.append(node('li', '', tr('Создавать заметки в этом пространстве', 'Create notes in this workspace')));
+    const actions = node('div', 'dialog-actions');
+    const cancel = button(tr('Отмена', 'Cancel'), leaveView);
+    const allow = button(tr('Разрешить на этот раз', 'Allow for this run'), () => {
+      if (allow.isConnected && activeManager === close) startFrame(plugin, action, noteId, grants, target);
+    }, 'button primary');
+    actions.append(cancel, allow);
+    content.replaceChildren(intro, list, actions);
+    cancel.focus();
+  }
+
+  function startFrame(plugin, action, noteId, grants, target) {
+    disposeFrame?.();
+    heading.textContent = action?.title || plugin.name;
     dialog.className = 'dialog full';
     const frame = node('iframe', 'extension-view');
     frame.setAttribute('sandbox', 'allow-scripts');
@@ -270,49 +332,99 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
       status.hidden = false;
       status.textContent = tr('Расширение не сообщило о готовности. Проверьте обработчик videron:ready.', 'The extension did not signal readiness. Check its videron:ready message.');
     }, 3500);
-    let sent = false;
+    let sent = false, loaded = false, port = null;
+    const ticket = grants.size ? Array.from(crypto.getRandomValues(new Uint8Array(20))).join('.') : '';
+    const active = () => activeManager === close && frame.isConnected;
+    const deliver = message => {
+      if (ticket) port?.postMessage({kind:'event', message, origin:location.origin});
+      else frame.contentWindow?.postMessage(message, '*');
+    };
+    function handleRequest(msg) {
+      if (!sent || !active() || typeof msg.requestId !== 'string' || !msg.requestId || msg.requestId.length > 128) return;
+      const response = {type:'videron:response', requestId:msg.requestId};
+      try {
+        if (!getWorkspace() || !grants.has(msg.method) || typeof onRequest !== 'function') {
+          throw Error(tr('У расширения нет разрешения на это действие.', 'The extension does not have permission for this action.'));
+        }
+        const params = msg.params === undefined ? {} : msg.params;
+        if (!params || typeof params !== 'object' || Array.isArray(params)) throw Error(tr('Некорректные параметры запроса.', 'Invalid request parameters.'));
+        const note = noteId ? target() : null;
+        if (msg.method !== 'notes.create' && (!note || (params.id !== undefined && params.id !== noteId) ||
+            (msg.method === 'notes.append' && (note.type ?? 'text') !== 'text'))) {
+          throw Error(tr('Эта заметка недоступна расширению.', 'This note is unavailable to the extension.'));
+        }
+        response.result = onRequest(msg.method, params, {noteId});
+      } catch (error) {
+        response.error = String(error.message || tr('Не удалось выполнить запрос.', 'The request failed.')).slice(0, 300);
+      }
+      if (active()) deliver(response);
+    }
     function receive(event) {
-      if (event.source !== frame.contentWindow || event.origin !== 'null' || !event.data) return;
+      if (!active() || event.source !== frame.contentWindow || event.origin !== 'null' || !event.data) return;
       const msg = event.data;
+      if (ticket && msg.type === 'videron:session' && msg.ticket === ticket && !port && event.ports[0]) {
+        port = event.ports[0];
+        port.onmessage = ({data}) => {
+          if (!active()) return;
+          if (data?.kind === 'request') handleRequest(data.message);
+          if (data?.kind === 'leave') leaveView();
+        };
+        syncTheme();
+        return;
+      }
+      if (ticket && !port) return;
       if (msg.type === 'videron:ready' && !sent) {
+        const current = getWorkspace();
+        if (!current || (noteId && !target())) { leaveView(); return; }
         sent = true; clearTimeout(hintTimer); status.hidden = true;
-        const data = projectWorkspace(workspace);
+        const data = projectWorkspace(current);
         if (plugin === builtIn) data.labels = {
           more:tr('Показать ещё', 'Show more'), allTags:tr('← Все теги', '← All tags'),
           notes:tr('Заметок · ', 'Notes · '), noteCount:tr(', заметок: ', ', notes: '),
           frequency:tr('Частота тегов', 'Tag frequency'), tags:tr('Тегов · ', 'Tags · '),
           empty:tr('Добавьте в текст заметки #тег. Здесь появятся теги и число заметок, в которых они встречаются.', 'Add a #tag to a note to see how many notes share it.')
         };
-        frame.contentWindow.postMessage(data, '*');
-      } else if (msg.type === 'videron:open-note' && sent && workspace.notes.some(n => n.id === msg.id && !isProtectedNote(n))) {
+        deliver(data);
+        if (action) deliver({type:'videron:command', id:action.id, noteId});
+      } else if (msg.type === 'videron:request' && sent) {
+        // Low-level postMessage clients use the same document-bound channel as the SDK.
+        if (port) port.postMessage({kind:'verify', message:msg});
+        else handleRequest(msg);
+      } else if (msg.type === 'videron:open-note' && sent && getWorkspace()?.notes.some(n => n.id === msg.id && !isProtectedNote(n))) {
         close();
         onOpenNote(msg.id);
       } else if (msg.type === 'videron:back') {
-        renderList();
+        leaveView();
       } else if (msg.type === 'videron:error') {
         clearTimeout(hintTimer); status.hidden = false;
         status.textContent = tr('Ошибка расширения · ', 'Extension error · ') + String(msg.message || tr('Сбой выполнения', 'Script error')).slice(0, 200);
       }
     }
     window.addEventListener('message', receive);
-    const syncTheme = () => frame.contentWindow?.postMessage({type:'videron:theme', theme:isLightTheme() ? 'light' : 'dark'}, '*');
-    frame.addEventListener('load', syncTheme);
+    const syncTheme = () => deliver({type:'videron:theme', theme:isLightTheme() ? 'light' : 'dark'});
+    frame.addEventListener('load', () => {
+      if (!active()) return;
+      if (loaded && ticket) { leaveView(); return; }
+      loaded = true; syncTheme();
+    });
     window.addEventListener('videron:themechange', syncTheme);
     disposeFrame = () => {
       clearTimeout(hintTimer);
+      port?.close();
       window.removeEventListener('message', receive);
       window.removeEventListener('videron:themechange', syncTheme);
       frame.remove();
       disposeFrame = null;
     };
     const theme = isLightTheme() ? 'light' : 'dark';
-    frame.srcdoc = `<!doctype html><html data-theme="${theme}">` + pluginHead + plugin.html;
-    content.replaceChildren(back, status, frame);
-    back.focus();
+    frame.srcdoc = `<!doctype html><html data-theme="${theme}">${pluginHead}<script>(${setupExtensionAPI.toString()})((${setupPluginHost.toString()})(${JSON.stringify(ticket)}))<\/script>` + plugin.html;
+    content.replaceChildren(...(leaveView === close ? [] : [back]), status, frame);
+    (leaveView === close ? closeButton : back).focus();
   }
 
   function renderList() {
     disposeFrame?.();
+    leaveView = null;
     dialog.className = 'dialog wide';
     heading.textContent = tr('Расширения', 'Extensions');
     closeButton.textContent = tr('Закрыть', 'Close');
@@ -360,7 +472,9 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
       if (languagePack) info.append(node('p', '', tr('Языковой пакет', 'Language pack') + ' · ' + plugin.locale));
       if (plugin.description) info.append(node('p', '', plugin.description));
       const actions = node('span', 'extension-actions');
-      if (languagePack) {
+      if (plugin.unavailableReason) {
+        info.append(node('p', '', plugin.unavailableReason));
+      } else if (languagePack) {
         const active = getLanguage() === plugin.locale;
         const apply = button(active ? tr('Текущий язык', 'Current language') : tr('Включить язык', 'Use language'), () => {
           onSelectLanguage(plugin.locale);
@@ -368,7 +482,25 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
         });
         apply.disabled = active;
         actions.append(apply, button(tr('Обновить…', 'Update…'), () => chooseManifest(plugin)));
-      } else actions.append(button(tr('Открыть', 'Open'), () => showPlugin(plugin)));
+      } else {
+        actions.append(button(tr('Открыть', 'Open'), () => showPlugin(plugin)));
+        const commands = plugin.commands || [];
+        const noteCommands = commands.filter(action => action.scope === 'note').map(action => action.title);
+        if (noteCommands.length) info.append(node('p', '', tr('Щёлкните заметку правой кнопкой, чтобы вызвать {commands}.',
+          'Right-click a note to run {commands}.', {commands:noteCommands.join(' · ')})));
+        if (hasWorkspace) {
+          const workspaceCommands = commands.filter(action => action.scope === 'workspace');
+          const buttons = workspaceCommands.map(action => button(action.title, () => showPlugin(plugin, action)));
+          if (buttons.length === 1) actions.append(...buttons);
+          if (buttons.length > 1) {
+            const details = node('details');
+            const choices = node('span', 'extension-actions');
+            choices.append(...buttons);
+            details.append(node('summary', '', tr('Команды пространства ({count})', 'Workspace commands ({count})', {count:buttons.length})), choices);
+            info.append(details);
+          }
+        }
+      }
       if (plugin !== builtIn) {
         const remove = button(tr('Удалить', 'Remove'), () => {
           const next = installed.filter(p => p.id !== plugin.id);
@@ -411,7 +543,12 @@ export function openExtensions({ workspace, plugins = [], onSavePlugins, onOpenN
     closeButton.focus();
   }
   activeManager = close;
-  renderList();
+  if (command) {
+    const plugin = installed.find(entry => entry.type !== 'language' && !entry.unavailableReason && entry.id === command.pluginId);
+    const action = plugin?.commands?.find(entry => entry.id === command.id);
+    if (hasWorkspace && action) showPlugin(plugin, action, action.scope === 'note' ? command.noteId : null, true);
+    else { close(); notify?.(tr('Команда расширения недоступна.', 'The extension command is unavailable.')); }
+  } else renderList();
   return { close };
 }
 

@@ -64,6 +64,15 @@ test('installation rejects duplicate IDs, canonical locale tags and built-in lan
   for (const locale of ['RU','en']) assert.throws(()=>readExtensionManifests([{...pack,locale}]));
 });
 
+test('opening a library with a newer permission preserves the manifest and all readable records', () => {
+  const unsupported = {...view, permissions:['future.capability']};
+  const raw = JSON.stringify({...newLibrary(),plugins:[unsupported]});
+  const library = readLibrary(raw);
+  assert.ok(library.plugins[0].unavailableReason);
+  assert.deepEqual(JSON.parse(serializeLibrary(library)).plugins, [unsupported]);
+  assert.deepEqual(library.spaces.personal, newLibrary().spaces.personal);
+});
+
 test('a third interface language reaches views and uses the English sample map', () => {
   const previous = getLanguage();
   try {

@@ -161,7 +161,10 @@ h1{font-size:clamp(23px,2vw,29px);font-weight:540;line-height:1.25;letter-spacin
 .results{max-height:46vh;overflow:auto}.results>p{padding:8px 2px}
 .shortcuts>div,.extension{border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;justify-content:space-between;padding:11px 0;font-size:12px}
 .extension{align-items:flex-start}.extension>div{flex:1;min-width:0;overflow-wrap:anywhere}.extension h3{margin:0 0 3px;font-size:14px;font-weight:550}
-.extension-actions{display:flex;gap:5px;flex-wrap:wrap}.extension-actions .button{height:28px;padding:0 7px;font-size:11px}
+.extension-actions{display:flex;gap:5px;flex-wrap:wrap;min-width:0;max-width:100%}.extension-actions .button{height:auto;min-height:28px;max-width:100%;padding:0 7px;font-size:11px;white-space:normal;overflow-wrap:anywhere}
+.extension-permissions{display:grid;gap:5px;margin:12px 0;padding-inline-start:20px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.extension summary{cursor:pointer;color:var(--muted);margin:5px 0}
+@media(max-width:600px){.extension{flex-wrap:wrap}.extension>div{flex-basis:100%}}
 .extension-view{width:100%;height:52vh;border:0;border-radius:6px;background:var(--canvas)}
 #toast{position:fixed;left:50%;bottom:72px;transform:translateX(-50%);z-index:300;border-radius:7px;border:1px solid var(--focus-border,#575757);background:var(--control-selected,#303030);color:var(--text);padding:10px 15px;font-size:12px;max-width:min(500px,90%);box-shadow:0 4px 20px var(--shadow-subtle,#0004)}
 #toast:has(.toast-action){display:flex;align-items:center;gap:14px;padding:6px 7px 6px 13px}

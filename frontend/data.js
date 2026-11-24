@@ -45,6 +45,16 @@ export function readLibrary(raw){
   if (!data || typeof data !== 'object') throw new Error(tr('Структура хранилища повреждена.', 'The library structure is invalid.'));
   if(data.plugins!==undefined&&(!Array.isArray(data.plugins)||data.plugins.some(p=>!p||p.type==='language'||p.apiVersion!==1||typeof p.id!=='string'||typeof p.name!=='string'||typeof p.html!=='string')))
     throw new Error(tr('Повреждён список расширений.', 'The extensions list is damaged.'));
+  if(data.plugins?.some(p=>Object.hasOwn(p,'commands') || Object.hasOwn(p,'permissions'))){
+    data.plugins=data.plugins.map(plugin=>{
+      try { return readExtensionManifests([plugin])[0]; }
+      catch(error){
+        // Keep an unsupported manifest intact for a newer client while the library is open.
+        Object.defineProperty(plugin,'unavailableReason',{value:error.message,enumerable:false});
+        return plugin;
+      }
+    });
+  }
   if(data.languagePacks!==undefined){
     if(!Array.isArray(data.languagePacks) || data.languagePacks.some(pack=>pack?.type!=='language'))
       throw new Error(tr('Повреждён список языковых пакетов.', 'The language pack list is damaged.'));

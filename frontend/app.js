@@ -15,6 +15,8 @@ import { areaPicker } from './area-picker.js';
 import { mountAreaDrag } from './area-drag.js';
 import { mountSidebarTree, sidebarRows } from './sidebar-tree.js';
 import { openExtensions, dismissExtensions } from './extensions.js';
+import { supportsNoteCommand } from './extension-manifest.js';
+import { applyExtensionNoteRequest } from './extension-notes.js';
 import { openAppearance } from './appearance.js';
 import { paintIcons, icon, drawAtlas } from './art.js';
 import { newLibrary, readLibrary, serializeLibrary, blankWorkspace, isFolderSpace, demoWorkspace, translateDemoSamples, createNote, colors, validSpaceName } from './data.js';
@@ -1605,6 +1607,22 @@ function stageContext(id,index,anchor){
     }}
   ]);
 }
+function extensionMenuItems(anchor, note=null, position=null){
+  const items=[];
+  for(const plugin of library.plugins){
+    if(plugin.unavailableReason)continue;
+    for(const command of plugin.commands??[]){
+      const available=note ? supportsNoteCommand(command,note) : command.scope==='workspace';
+      if(!available)continue;
+      items.push({icon:'extensions',name:command.title,title:plugin.name+' · '+command.title,
+        run:()=>launchExtensions({pluginId:plugin.id,id:command.id,noteId:note?.id??null},position)});
+    }
+  }
+  if(!items.length)return [];
+  if(items.length===1)return [null,items[0]];
+  return [null,{icon:'extensions',name:tr('Команды расширений…','Extension commands…'),
+    run:()=>menu(anchor,items.map(item=>({...item,name:item.title})))}];
+}
 function context(id,x,y,gridId=null,openNote=edit){
   const n=byId(id);
   const gridArea=areaById(gridId);
@@ -1617,7 +1635,7 @@ function context(id,x,y,gridId=null,openNote=edit){
       {icon:'trash',name:areaDeleteLabel(gridArea),run:()=>deleteFolder(gridArea)},null]:[]),...noteTypeItems(pos,slot===null?null:{areaId:gridId,slot}),null,{icon:'folder',name:tr('Создать область здесь…','Create area here…'),run:()=>areaDialog(null,{point:pos})},
       {icon:'slots',name:tr('Создать сетку здесь…','Create grid here…'),run:()=>areaDialog(null,{point:pos,startAsGrid:true})},
       {icon:'track',name:tr('Создать дорожку этапов…','Create stage track…'),run:()=>areaDialog(null,{point:pos,startAsTrack:true})},
-      null,{icon:'fit',name:tr('Уместить карту','Fit map'),run:()=>graph.fit()}]);return;
+      null,{icon:'fit',name:tr('Уместить карту','Fit map'),run:()=>graph.fit()},...extensionMenuItems({x,y},null,pos)]);return;
   }
   const group=showingMap()?graph.selectedIds:listSelection;
   if(group.size>1 && group.has(id)){
@@ -1628,7 +1646,8 @@ function context(id,x,y,gridId=null,openNote=edit){
   selected=id;graph.select(id);renderSelection();
   menu({x,y},[{icon:isProtectedNote(n)?'lock':'edit',name:tr('Открыть заметку','Open note'),run:()=>openNote(id)},
     ...(isProtectedNote(n)?[]:[{icon:'appearance',name:tr('Внешний вид','Appearance'),run:()=>appearance(n)},metricAction(n,'note',{x,y})]),{icon:inSlot(n)?'slots':'pin',name:pinLabel(n),run:()=>pin(n)},
-    {icon:'link',name:tr('Связать с заметкой','Link to another note'),run:()=>chooseTool('link')},...(sizeAction?[sizeAction]:[]),null,{icon:'trash',name:tr('Удалить заметку','Delete note'),run:()=>removeNotes([id])}]);
+    {icon:'link',name:tr('Связать с заметкой','Link to another note'),run:()=>chooseTool('link')},...(sizeAction?[sizeAction]:[]),
+    ...(isProtectedNote(n)?[]:extensionMenuItems({x,y},n)),null,{icon:'trash',name:tr('Удалить заметку','Delete note'),run:()=>removeNotes([id])}]);
 }
 function renderSelection(){
   const s=$('selection'),n=byId(selected);s.hidden=!n||tool==='link';
@@ -1979,6 +1998,27 @@ function saveExtensions(items,changed){
     dirty({settings:['plugins']});
   }
 }
+function launchExtensions(command=null,position=null){
+  const spaceId=library.active, session=folderSession;
+  function getWorkspace(){
+    if(!ready || library.active!==spaceId || folderSession!==session || lockScreen || closingApp ||
+        reviewing || editorMerge || spaceOperation || policyWrite || openingNote || editor)return null;
+    return workspace();
+  }
+  if(!getWorkspace())return;
+  openExtensions({workspace:workspace(),getWorkspace,hasWorkspace:!!spaceId,plugins:[...library.plugins,...(library.languagePacks??[])],
+    command,onSavePlugins:saveExtensions,onSelectLanguage:chooseLanguage,notify,
+    onOpenNote:id=>{
+      const space=getWorkspace(),note=space?.notes.find(n=>n.id===id);
+      if(note && !isProtectedNote(note))edit(id);
+    },
+    onRequest:(method,params,{noteId})=>{
+      const space=getWorkspace();
+      if(!spaceId || !space)throw Error(tr('Пространство сейчас недоступно.','The workspace is currently unavailable.'));
+      return applyExtensionNoteRequest(space,method,params,{noteId,position:position??graph.worldCenter(),
+        onChange:note=>{dirty({notes:[note]});render()}});
+    }});
+}
 function bindUI(){
   $('sync-review').onclick=async()=>{
     if(lockScreen || !folderSession || reviewing)return;
@@ -2024,8 +2064,7 @@ function bindUI(){
     })));
   };
   $('help').onclick=showHelp;$('search').onclick=()=>search();$('settings').onclick=settings;
-  $('extensions').onclick=()=>openExtensions({workspace:workspace(),plugins:[...library.plugins,...(library.languagePacks??[])],
-    onSavePlugins:saveExtensions,onSelectLanguage:chooseLanguage,onOpenNote:edit,notify});
+  $('extensions').onclick=()=>launchExtensions();
   document.addEventListener('keydown',e=>{
     const find=e.code==='KeyF' && e.shiftKey, save=e.code==='KeyS' && !e.shiftKey && editor && !editor.element.inert;
     if(!(find||save)||!primaryCommand(e)||e.isComposing||e.keyCode===229||e.defaultPrevented)return;
