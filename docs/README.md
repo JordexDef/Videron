@@ -4,6 +4,7 @@
 | --- | --- |
 | [Getting started and downloads](../README.md) | [Начало работы и загрузки](../README.ru.md) |
 | [User guide](guide.md) | [Руководство пользователя](guide.ru.md) |
+| [AI agents and notes](guide.md#ai-agents-and-notes) | [ИИ-агенты и заметки](guide.ru.md#ии-агенты-и-заметки) |
 | [Extensions and examples](guide.md#extensions) | [Расширения и примеры](guide.ru.md#расширения) |
 | [Encryption](guide.md#encryption) | [Шифрование](guide.ru.md#шифрование) |
 | [Host your own sync server](server-setup.md) | [Установка своего сервера синхронизации](server-setup.ru.md) |

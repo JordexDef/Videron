@@ -11,6 +11,7 @@ test('protected notes require a vault-aware reader until the last one is removed
   assert.equal(JSON.parse(saved).version,2)
   assert.equal(readLibrary(saved).spaces.demo.notes[0].sealed,'opaque')
   assert.throws(()=>readLibrary(saved.replace('"plain":""','"plain":"stray preview"')))
+  assert.throws(()=>readLibrary(saved.replace('"plain":""','"plain":"","agentTask":{"result":"stray result"}')))
   lib.spaces.demo.notes.length=0
   assert.equal(JSON.parse(serializeLibrary(lib)).version,1)
 })
@@ -62,6 +63,21 @@ test('data note language and full document stay inside the envelope across edits
   assert.equal(session.note.dataText,'{"value":"updated"}')
   assert.equal(session.note.dataLanguage,'json')
   assert.ok(await session.beforeClose())
+})
+
+test('sealing an open task keeps progress reported since the editor opened', async () => {
+  const f = fixture()
+  f.record.agentTask = {rootId:'idea',key:'draft',weight:2,status:'working',result:''}
+  const session = await f.open()
+  f.record.agentTask = {...f.record.agentTask,status:'done',result:'Verified result'}
+  await session.manageProtection()
+  session.changed({title:'Updated title'})
+  assert.ok(await session.beforeClose())
+  assert.doesNotMatch(JSON.stringify(f.record),/agentTask|Verified result/)
+  const reopened = await f.open()
+  assert.equal(reopened.note.agentTask.status,'done')
+  assert.equal(reopened.note.agentTask.result,'Verified result')
+  assert.ok(await reopened.beforeClose())
 })
 
 test('a task state edit survives local saves, workspace deltas and a note lock', async () => {

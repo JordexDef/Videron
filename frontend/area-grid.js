@@ -164,7 +164,7 @@ function seat(note, area, slot) {
 
 // Share reservations across folders during file repair, including when two
 // full grids both send overflow into the same parent.
-export function gridReservations(byId) {
+export function gridReservations(byId, {firstStageOnly = false} = {}) {
   const seats = new Map();
   function occupancy(area) {
     if (!seats.has(area.id)) seats.set(area.id, {used:new Set(), firstFree:0});
@@ -189,12 +189,14 @@ export function gridReservations(byId) {
         else unseated.push(n);
       }
       pending = [];
+      const stride = firstStageOnly && area.grid.stages ? area.grid.cols : 1;
       for (const n of unseated) {
-        while (state.used.has(state.firstFree)) state.firstFree++;
+        while (state.used.has(state.firstFree)) state.firstFree += stride;
         if (state.firstFree >= capacity) pending.push(n);
         else {
           state.used.add(state.firstFree);
-          seat(n,area,state.firstFree++);
+          seat(n,area,state.firstFree);
+          state.firstFree += stride;
         }
       }
       if (!pending.length) return;
@@ -208,10 +210,10 @@ export function gridReservations(byId) {
   return {reserve, settle};
 }
 
-export function settleAreaNotes(space, notes, areaId) {
+export function settleAreaNotes(space, notes, areaId, options) {
   if (!notes.length) return;
   const byId = new Map(space.areas.map(area => [area.id,area]));
-  const seats = gridReservations(byId);
+  const seats = gridReservations(byId, options);
   if (byId.get(areaId)?.grid) {
     const moving = new Set(notes.map(n => n.id));
     for (const n of space.notes) {

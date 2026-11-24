@@ -98,6 +98,12 @@ h1{font-size:clamp(23px,2vw,29px);font-weight:540;line-height:1.25;letter-spacin
 .map-selection-count{border-left:1px solid var(--focus-border,#565656);padding-left:7px;color:var(--fg-soft,#bdbdbd);font-variant-numeric:tabular-nums}
 #graph{display:block;width:100%;height:100%;touch-action:none}
 .map-return-cue{position:absolute;transform:translate(-50%,-50%);border:1px solid var(--return-ring,#efefefa6);border-radius:50%;box-shadow:0 0 8px var(--return-glow,#ededed24);pointer-events:none}
+.map-agent-pulse{position:absolute;pointer-events:none;transform:translate(-50%,-50%);border-radius:50%;border:1px solid #9aaed0;opacity:.55}
+:root[data-theme="light"] .map-agent-pulse{border-color:#516a97}
+@media(prefers-reduced-motion:no-preference){
+  .map-agent-pulse{animation:map-agent-breathe 1.8s ease-in-out infinite}
+  @keyframes map-agent-breathe{0%,100%{transform:translate(-50%,-50%) scale(.99);opacity:.3}50%{transform:translate(-50%,-50%) scale(1.07);opacity:.78}}
+}
 @media(prefers-reduced-motion:no-preference){
   .map-return-cue{animation:map-return-fade 650ms ease-out both}
   @keyframes map-return-fade{0%,25%{opacity:1}100%{opacity:0}}

@@ -30,7 +30,7 @@ const validBoard=board=>[1,2].includes(board?.version)&&Array.isArray(board.elem
 export function checkNote(note){
   if(typeof note?.id!=='string'||typeof note.title!=='string'||!Array.isArray(note.body)||!Array.isArray(note.links)||!Array.isArray(note.tags))
     throw new Error(tr('Некорректная запись заметки.', 'The workspace contains an invalid note.'));
-  if(Object.hasOwn(note,'sealed')&&(typeof note.sealed!=='string'||!note.sealed||note.title||note.plain||note.body.length||note.tags.length||note.board||Object.hasOwn(note,'dataText')||Object.hasOwn(note,'dataLanguage')||Object.hasOwn(note,'dataHasHeader')))
+  if(Object.hasOwn(note,'sealed')&&(typeof note.sealed!=='string'||!note.sealed||note.title||note.plain||note.body.length||note.tags.length||note.board||['dataText','dataLanguage','dataHasHeader','agentTask'].some(key=>Object.hasOwn(note,key))))
     throw new Error(tr('Повреждена запись зашифрованной заметки.','The encrypted note record is damaged.'));
   if(note.type==='data' && (typeof note.dataText!=='string' || (note.dataLanguage!==undefined && typeof note.dataLanguage!=='string') || (note.dataHasHeader!==undefined && typeof note.dataHasHeader!=='boolean')))
     throw new Error(tr('Повреждено содержимое заметки с данными.','This data note contains invalid content.'));

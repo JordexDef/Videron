@@ -14,6 +14,8 @@ import (
 )
 
 type App struct {
+	noteAccess           agentAccess
+	agentRuns            acpRuns
 	mu                   sync.Mutex
 	serverMu             sync.Mutex
 	serverTickets        syncServerTickets
@@ -44,9 +46,10 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) sessionLocked(ctx context.Context) {
-	a.serverTickets.reset()
 	a.revokingFolderKeys.Store(true)
 	a.sessionLockPending.Store(true)
+	a.ResetAgentConnections()
+	a.serverTickets.reset()
 	if a.sessionLockListening.Load() {
 		go runtime.EventsEmit(ctx, "videron:session-lock")
 	}
@@ -63,6 +66,7 @@ func (a *App) ConsumeSessionLock() bool {
 }
 
 func (a *App) shutdown(context.Context) {
+	a.ResetAgentConnections()
 	a.sessionLockListening.Store(false)
 	a.mu.Lock()
 	stop := a.stopSessionMonitor

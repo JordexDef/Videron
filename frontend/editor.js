@@ -1,4 +1,5 @@
 import { tr, getLanguage } from './i18n.js'
+import { mountAgentTaskList } from './agent-task-list.js'
 import { isLightTheme } from './theme.js'
 import { areaTreeRows, planAreaNotes } from './areas.js'
 import { fullGridIds } from './area-grid.js'
@@ -357,7 +358,7 @@ async function finishNoteSession(root, beforeClose) {
   }
 }
 
-function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator}){
+function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator,agentButton,agentTaskActions}){
   const previousFocus=document.activeElement
   const root=el('section','vd-editor ve-canvas-editor'), head=el('header','ve-head')
   root.setAttribute('role','dialog');root.setAttribute('aria-modal','true')
@@ -391,9 +392,11 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   const back=button(backLabel,'back',goBack,true)
   head.append(back,el('span','ve-head-divider'),crumb,title,saveIndicator ?? el('span','ve-spacer'))
   if(onSearch)head.append(noteSearchButton(onSearch))
+  if(agentButton)head.append(agentButton)
   if(manageProtection)head.append(notePrivacyButton(manageProtection,isProtected))
   head.append(details.toggle)
-  workspace.append(host,details.panel);root.append(head,workspace);document.body.append(root)
+  const tasks=mountAgentTaskList(note.id,notes,{...agentTaskActions,openNote:navigateTo})
+  workspace.append(host,details.panel);root.append(head,workspace,tasks.element);document.body.append(root)
   const board=mountBoard(host,{document:boardDoc,onFileMenu:openBoardFiles,textAreaDefaults,
     mountRichText:(host,options)=>openEditor({
       note:{id:note.id,body:options.body,plain:options.text},notes,
@@ -440,7 +443,7 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
     keepTabInEditor(e,root)
   })
   details.sync();details.setTags(noteTags(title.value,summary.tagText));focus()
-  return {element:root,focus,close,commitDraft,prepareClose:close,revealSearchMatch(target){
+  return {element:root,focus,close,commitDraft,prepareClose:close,refreshAgentTasks:tasks.refresh,revealSearchMatch(target){
     if(target?.kind==='canvasText')board.revealTextBlock(target.id,target.match)
     else if(target?.kind==='canvasLabel')board.revealTextBlock(target.id,target)
     else if(target?.kind==='tableCell')board.revealTableCell(target.id,target.address)
@@ -448,8 +451,8 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   }}
 }
 
-export function openEditor({note, notes = [], areas = [], onChange, onClose, onOpenNote, onSearch, onReturn, beforeClose, manageProtection, isProtected, textAreaDefaults, saveIndicator, embed, backLabel=tr('К карте','Back to map')}) {
-  if(note.type==='canvas')return canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator})
+export function openEditor({note, notes = [], areas = [], onChange, onClose, onOpenNote, onSearch, onReturn, beforeClose, manageProtection, isProtected, textAreaDefaults, saveIndicator, agentButton, agentTaskActions, embed, backLabel=tr('К карте','Back to map')}) {
+  if(note.type==='canvas')return canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator,agentButton,agentTaskActions})
   let body = Array.isArray(note.body) && note.body.length ? note.body :
     (note.plain || '').split('\n').map(s => ({type:'paragraph',runs:s ? [{text:s}] : []}))
   if (!body.length) body = [paragraph()]
@@ -1504,9 +1507,11 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   crumb.append(icon('file'),el('span','',tr('Заметка','Note')))
   head.append(button(backLabel,'back',goBack,true),el('span','ve-head-divider'),crumb,saveIndicator ?? el('span','ve-spacer'),message,count)
   if(onSearch)head.append(noteSearchButton(onSearch))
+  if(agentButton)head.append(agentButton)
   if(manageProtection)head.append(notePrivacyButton(manageProtection,isProtected))
   head.append(details.toggle)
-  main.append(titleBox,toolbar,content)
+  const tasks=mountAgentTaskList(note.id,notes,{...agentTaskActions,openNote:navigateTo})
+  main.append(titleBox,toolbar,content,tasks.element)
   layout.append(main,details.panel);scroll.append(layout);root.append(head,scroll,filePicker)
   document.body.append(root);sizeObserver.observe(titleBox);sizeObserver.observe(toolbar);document.addEventListener('selectionchange',syncTools)
   render();details.sync();indicators(meta());resizeTitle()
@@ -1533,5 +1538,5 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(target?.kind==='body')details.uncoverNote()
     searchReveal.reveal(target)
   }
-  return {element:root,close,focus,commitDraft:()=>flush(false),prepareClose,revealSearchMatch}
+  return {element:root,close,focus,commitDraft:()=>flush(false),prepareClose,refreshAgentTasks:tasks.refresh,revealSearchMatch}
 }

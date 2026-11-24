@@ -178,6 +178,28 @@ Videron encrypts the title, text, searchable copy, tags, code, drawings, tables 
 
 Use a long, unique passphrase and store it in your password manager. Recovering access requires the password. The desktop app encrypts data with AES-256-GCM and derives the key with Argon2id using 64 MiB of memory, three passes and four threads. Each new password setup receives a random salt and each write uses a fresh random nonce. Earlier backups and separately exported files keep the form in which you saved them. [Argon2id parameters in RFC 9106](https://www.rfc-editor.org/rfc/rfc9106.html#section-4)
 
+## AI agents and notes
+
+Open the idea you want to share and click **AI** in the note editor. You can also right-click the note on the map. Choose **Copy for AI** for a snapshot or **Work with an agent…** for a live session.
+
+**Paste a snapshot into a chat.** Choose **Copy for AI** and paste into the conversation. The Markdown includes headings, nested checklists, code with its language and the full contents of data notes. Each drawing describes the positions of shapes, paths, labels and arrow connections. Tables include cell addresses, formulas and their calculated values. Charts identify their source table and range.
+
+Rich paste can also carry embedded images and drawing previews. A chat that accepts only plain text receives image captions and drawing geometry. Attach the original image separately if the agent needs to inspect its pixels. Copying an individually encrypted note requires opening it with its password first. The system clipboard then contains the readable copy.
+
+**Connect an agent you already use.** Choose **Connect an existing agent (MCP)** and select **Read only** or **Read and manage tasks**. Click **Share note → Copy MCP configuration**. In your **local** MCP client, add the generated `videron` entry under `mcpServers`. If your client uses another configuration format, transfer its command, arguments and environment variables. The command launches Videron with `--agent-mcp` on the same computer. Keep Videron open. The configuration contains a temporary credential that expires when you choose **End session**, switch spaces or lock the app. Generate a fresh configuration for a later session.
+
+Read-only agents can call `read_idea` and `list_tasks`. Task management also enables `create_tasks` and `update_task` for that idea. An agent can reopen the selected idea in pages and follow its task list. Other notes, including notes reached through ordinary links or tags, stay outside the grant. Individually password-protected notes support manual copying after unlocking. Live connections require an idea without an individual password and an unlocked space.
+
+Each task is a separate note. Use space encryption to protect the idea and all its task notes together.
+
+**Start an agent from the note.** Install and sign in to the ACP-compatible agent or adapter you want to use on this computer. Videron includes launch profiles for OpenCode (`opencode acp`), Qwen Code (`qwen --acp`), Claude Agent ACP (`claude-agent-acp`) and Codex ACP (`codex-acp`). For another adapter, enter its executable and arguments. Model selection, accounts and local inference are configured in the adapter.
+
+Choose the working folder explicitly if the agent should implement the idea in an existing project. With the folder left empty, the agent starts in a temporary directory that is removed when the run ends. The selected folder is the process's working directory. Its access to files and network follows the installed adapter's own permissions. Enter an instruction such as “Split this idea into tasks, implement the first in the selected project and record how you tested it.” Start the run and respond to any permission requests from the adapter in Videron.
+
+A run starts a fresh conversation by default. If the adapter supports resuming, **Continue the previous conversation in its working folder** reopens the last conversation for the same idea, adapter profile, folder and access level.
+
+With task management enabled, the agent can create linked notes and report progress. Open a task from the checklist in the idea to see its description and result. A working task pulses on the map while the connection is active. A finished task turns green and its checkbox fills. The area containing the idea shows progress by estimated effort. Completing a task of weight 3 contributes three times as much as completing a task of weight 1. Adding work can lower the percentage, and cancelled tasks leave the calculation.
+
 ## Extensions
 
 **English** · [Русский](guide.ru.md#расширения)

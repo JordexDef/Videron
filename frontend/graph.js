@@ -1,5 +1,6 @@
 import { tr } from './i18n.js';
 import { defaultMapView } from './data.js';
+import { agentTaskInfo, isAgentPlanLive } from './agent-tasks.js';
 import { areaTreeRows } from './areas.js';
 import { gridRowSpacing, gridSpacing, planGridSlots, slotPoint, validSlot } from './area-grid.js';
 import { slotAt, slotGridBounds, gridMarqueeBounds, gridFocusCamera, drawSlotGrid, drawGridGrip, draggedGridSpacing, stageHandleAt, stageTitleAt } from './map-slots.js';
@@ -376,8 +377,10 @@ export class Graph {
       const layoutKey = JSON.stringify([tags, links, !!note.pinned, note.areaId, seated, r, appearance.shape]);
       const heatTarget = 1 - Math.exp(-Math.max(0, Number(note.opens) || 0) / 10);
       const title = note.title || tr('Без названия', 'Untitled');
+      const task = agentTaskInfo(note);
       const appearanceAndLayout = {
         index, title, inputX: x, inputY: y,
+        taskRoot:task?.rootId, taskStatus:task?.status,
         r, naturalRadius, pinned: !!note.pinned, areaId:note.areaId ?? null, slot:note.slot, seated, tags, links, layoutKey,
         geometry: geometryFor(appearance.shape), icon: appearance.icon, customColor: !!appearance.color,
         tint: appearance.color ? rgb(appearance.color) : group?.tint || rgb(note.color),
@@ -1310,6 +1313,7 @@ export class Graph {
     if (visible) this.repaint();
     else {
       this.clearReturnCue();
+      this.clearAgentPulses();
       this.zoomPreview?.reset();
       this.cancelDrag();
       if (this.frame) cancelAnimationFrame(this.frame);
@@ -1317,6 +1321,31 @@ export class Graph {
       this.lastTime = null;
       this.accumulator = 0;
     }
+  }
+
+  clearAgentPulses(visible) {
+    if (!this.agentPulses) return;
+    for (const [id, ring] of this.agentPulses) {
+      if (visible?.has(id)) continue;
+      ring.remove();
+      this.agentPulses.delete(id);
+    }
+  }
+
+  placeAgentPulse(id, x, y, radius) {
+    this.agentPulses ??= new Map();
+    let ring = this.agentPulses.get(id);
+    if (!ring) {
+      ring = this.canvas.ownerDocument.createElement('span');
+      ring.className = 'map-agent-pulse';
+      ring.setAttribute('aria-hidden','true');
+      this.canvas.after(ring);
+      this.agentPulses.set(id,ring);
+    }
+    const size = radius*2+6;
+    ring.style.left = x+'px';
+    ring.style.top = y+'px';
+    ring.style.width = ring.style.height = size+'px';
   }
 
   tick(time) {
@@ -1380,6 +1409,7 @@ export class Graph {
       !this.hover && !this.selectedIds.size && !this.groups.some(group => group.grid) &&
       !this.canvas.parentElement?.dataset?.routeMode;
     if (plainOverview && zoomFrame && preview.show(this.camera,this.width,this.height)) {
+      this.clearAgentPulses();
       this.callbacks.onMapFrame?.(this);
     } else {
       preview?.reset();
@@ -1497,9 +1527,15 @@ export class Graph {
     const overview = this.nodes.size >= 1000;
     const layer = dragPaintLayer(this,selected,palette);
     let bounds = null;
+    let visiblePulses;
     for (const n of this.nodes.values()) {
       const x = n.screenX, y = n.screenY, r = n.r * z;
       if (x + r < -70 || x - r > w + 70 || y + r < -28 || y - r > h + 28) continue;
+      if (n.taskStatus === 'working' && r > 7 && z >= .22 && isAgentPlanLive(n.taskRoot)) {
+        visiblePulses ??= new Set();
+        visiblePulses.add(n.id);
+        this.placeAgentPulse(n.id,x,y,r);
+      }
       if (this.view.labels && z >= 0.22) {
         const obstacle = { x, y, r };
         for (let ix = Math.floor((x-r) / 96); ix <= Math.floor((x+r) / 96); ix++)
@@ -1530,6 +1566,7 @@ export class Graph {
       });
     }
     const view={ox,oy,zoom:z,width:w,height:h};
+    this.clearAgentPulses(visiblePulses);
     const resizing=this.drag?.resizeGrid;
     const gripArea=resizing ? this.drag.grid : this.callbacks.onGridSpacing && !this.drag && !this.linking && this.tool==='select' && !this.spacePan && !this.callbacks.recordingRoute?.() && this.hoverGridArea;
     if (resizing) {
@@ -1596,6 +1633,7 @@ export class Graph {
 
   destroy() {
     this.clearReturnCue();
+    this.clearAgentPulses();
     this.zoomPreview?.reset();
     this.cancelDrag();
     this.flushPositions();

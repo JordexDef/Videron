@@ -109,6 +109,26 @@
 .ve-layout { display: grid; width: min(1264px,100%); margin: 0 auto; padding: clamp(38px,7vh,74px) clamp(32px,5vw,70px) 100px; grid-template-columns: minmax(0,1fr); }
 .ve-with-details .ve-layout { width: min(1472px,100%); grid-template-columns: minmax(0,1fr) 212px; gap: clamp(28px,4vw,60px); }
 .ve-main { min-width: 0; }
+.ve-agent-tasks { --agent-done:#98c4a4; border-top:1px solid var(--ve-line); color:var(--ve-text); font-size:13px; padding-block:14px; }
+:root[data-theme="light"] .ve-agent-tasks { --agent-done:#346d49; }
+.ve-agent-tasks[hidden] { display:none; }
+.ve-canvas-editor > .ve-agent-tasks, .ve-data-editor .ve-agent-tasks { flex:none; max-height:min(28vh,220px); overflow:auto; padding:10px 24px; }
+.ve-main > .ve-agent-tasks { margin-top:1.25em; }
+.ve-main:has(> .ve-agent-tasks:not([hidden])) > .ve-content { min-height:4.5em; }
+.ve-agent-plan > summary { cursor:pointer; font-weight:600; line-height:1.8; }
+.ve-agent-rows { display:grid; gap:4px; margin:6px 0 0 1em; }
+.ve-agent-task, .ve-agent-parent { display:flex; align-items:baseline; gap:8px; min-width:0; }
+.ve-agent-check { align-self:center; margin:0; accent-color:var(--agent-done); cursor:pointer; }
+.ve-agent-link { font:inherit; border:0; background:transparent; color:inherit; text-align:start; padding:2px 0; cursor:pointer; overflow-wrap:anywhere; }
+.ve-agent-link:hover, .ve-agent-parent > .ve-agent-link { text-decoration:underline; text-underline-offset:3px; }
+.ve-agent-task[data-status="done"] > .ve-agent-link, .ve-agent-task[data-status="cancelled"] > .ve-agent-link { text-decoration:line-through; color:var(--ve-muted); }
+.ve-agent-status, .ve-agent-parent > span, .ve-agent-percent { font-size:12px; font-weight:400; color:var(--ve-muted); }
+.ve-agent-parent { flex-wrap:wrap; padding-block:2px; }
+.ve-agent-parent .ve-agent-task { margin-inline-start:auto; }
+.ve-agent-parent + .ve-agent-plan, .ve-agent-result + .ve-agent-plan { margin-top:12px; }
+.ve-agent-progress { width:64px; height:5px; margin-inline:12px 6px; vertical-align:middle; accent-color:var(--agent-done); }
+.ve-agent-result { margin-top:12px; }
+.ve-agent-result p { margin:4px 0 0; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; }
 .vd-editor .ve-title { width: 100%; display: block; resize: none; border: 0; outline: 0; padding: 0; margin: 0 0 27px; overflow: hidden; appearance: none; box-shadow: none; background: transparent; font: 580 clamp(32px,3.4vw,50px)/1.19 "Inter","Segoe UI",sans-serif; color: var(--ve-accent); letter-spacing: -.052em; }
 .ve-title::placeholder { color: var(--ve-placeholder,#7c7c7c); opacity: 1; }
 .ve-toolbar { display: flex; align-items: center; gap: 2px; }

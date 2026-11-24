@@ -79,7 +79,7 @@ func validateMergeNote(n mergeObject) bool {
 		if !ok || sealed == "" || title != "" || mergeTruthy(n["plain"]) || len(body) != 0 || len(tags) != 0 || mergeTruthy(n["board"]) {
 			return false
 		}
-		for _, k := range []string{"dataText", "dataLanguage", "dataHasHeader"} {
+		for _, k := range []string{"dataText", "dataLanguage", "dataHasHeader", "agentTask"} {
 			if _, ex := n[k]; ex {
 				return false
 			}

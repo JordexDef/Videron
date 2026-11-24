@@ -76,6 +76,31 @@ export function paintNoteBody(ctx, node, x, y, r, selected, hovered, dpr, overvi
 
 export function paintMapNote(c,n,x,y,r,z,select,hover,seated,dpr,overview,palette=mapPalette()) {
   paintNoteBody(c,n,x,y,r,select,hover,dpr,overview,palette);
+  if (n.taskStatus && n.taskStatus !== 'pending') {
+    const light = palette === lightMap;
+    c.save();
+    traceOutline(c,n.geometry,x,y,r);
+    if (n.taskStatus === 'done') {
+      c.fillStyle = light ? 'rgba(68,136,90,.16)' : 'rgba(118,191,141,.14)';
+      c.fill();
+      c.strokeStyle = light ? '#47805a' : '#8dba9a';
+    } else if (n.taskStatus === 'working') c.strokeStyle = light ? '#536da0' : '#a0b4dc';
+    else {
+      c.strokeStyle = n.taskStatus === 'blocked' ? palette.warning : palette.caption;
+      c.setLineDash([3,3]);
+    }
+    c.lineWidth = 1.7;
+    c.stroke();
+    if (n.taskStatus === 'done' && r > 12) {
+      // Leave the centre free for the user's icon and the upper right for a pin.
+      const offset = edgeRadius(n,-Math.SQRT1_2,Math.SQRT1_2)*z*Math.SQRT1_2;
+      c.translate(x-offset,y+offset);
+      c.beginPath(); c.arc(0,0,5.5,0,Math.PI*2); c.fillStyle = palette.badge; c.fill();
+      c.beginPath(); c.moveTo(-2.7,0); c.lineTo(-.7,2); c.lineTo(2.9,-2.3);
+      c.lineCap = c.lineJoin = 'round'; c.stroke();
+    }
+    c.restore();
+  }
   if (select) {
     c.lineJoin='round';
     traceOutline(c,n.geometry,x,y,r + 4);

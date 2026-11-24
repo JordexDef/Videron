@@ -98,6 +98,8 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
     onPrivacyChange?.()
   }
   async function protect({password}) {
+    // Include task status updates that arrived while this editor was open.
+    Object.assign(note,record)
     preparingSeal = (async () => {
       if (pendingSeal) await pendingSeal
       const saving = revision

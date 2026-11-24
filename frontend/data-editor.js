@@ -16,6 +16,7 @@ import { transformDataLines } from './data-transform.js'
 import { lineEndingSupport, sourceSlice, insertedEndings, tableTransformEndings, editorOffset } from './data-line-endings.js'
 import { textDocument, buildDataDocument } from './data-document.js'
 import { mountDelimitedGrid } from './delimited-grid.js'
+import { mountAgentTaskList } from './agent-task-list.js'
 
 function element(tag, className, label) {
   const node = document.createElement(tag)
@@ -127,7 +128,7 @@ function readTextFile(file,signal) {
 }
 
 export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNote,onSearch,onReturn,
-  beforeClose,manageProtection,isProtected,saveIndicator,backLabel=tr('К карте','Back to map')}) {
+  beforeClose,manageProtection,isProtected,saveIndicator,agentButton,agentTaskActions,backLabel=tr('К карте','Back to map')}) {
   const previousFocus = document.activeElement
   const root = element('section','vd-editor ve-data-editor')
   root.setAttribute('role','dialog'); root.setAttribute('aria-modal','true')
@@ -158,6 +159,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   header.append(editorButton(backLabel,'back',goBack,true),element('span','ve-head-divider'),
     element('span','ve-crumb',tr('Данные','Data')),title,saveIndicator ?? element('span','ve-spacer'))
   if (onSearch) header.append(noteSearchButton(() => {flush(); onSearch()}))
+  if (agentButton) header.append(agentButton)
   if (manageProtection) header.append(notePrivacyButton(() => {flush(); return manageProtection()},isProtected))
   header.append(details.toggle)
 
@@ -221,7 +223,8 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     control.setAttribute('aria-keyshortcuts',shortcutAria(chord))
   }
   footer.append(lines,element('span','ve-spacer'),message,cancel,cursor)
-  main.append(bar,host,tableHost,footer); workspace.append(main,details.panel); root.append(header,workspace); document.body.append(root)
+  const tasks = mountAgentTaskList(note.id, notes, {openNote:navigateTo,...agentTaskActions})
+  main.append(bar,tasks.element,host,tableHost,footer); workspace.append(main,details.panel); root.append(header,workspace); document.body.append(root)
   tagNav.trackTitle(title)
   const numbers = new Intl.NumberFormat(getLanguage())
   function status(state) {
@@ -474,5 +477,5 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     clearTimeout(flashTimer); flashTimer = setTimeout(() => view.dispatch({effects:flash.of(Decoration.none)}),2200)
   }
   focus()
-  return {element:root,focus,close,prepareClose:close,flush,revealSearchMatch}
+  return {element:root,focus,close,prepareClose:close,flush,revealSearchMatch,refreshAgentTasks:tasks.refresh}
 }

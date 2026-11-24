@@ -1,6 +1,7 @@
 import { noteWorkbooks } from './board-tables.js';
 import { addressOf, normalizeTable, parseAddress, uniqueTableName } from './table-engine.js';
 import { isProtectedNote } from './note-vault.js';
+import { agentAreaProgress } from './agent-tasks.js';
 
 // Table IDs belong to a board. Two independently imported blocks can have the
 // same table ID and name, and moving a block changes its index in the note.
@@ -80,7 +81,7 @@ export function readMetric(binding, kind, entry, workbook) {
 }
 
 export function resolveMapMetrics(space) {
-  const areas = new Map(), notes = new Map();
+  const areas = agentAreaProgress(space), notes = new Map();
   let catalogue;
   function resolve(target, kind, destination) {
     const binding = target.mapMetric;
@@ -91,7 +92,12 @@ export function resolveMapMetrics(space) {
     const result = readMetric(binding, kind, entry, catalogue.workbook(binding.sourceId, entry.group));
     if (result) destination.set(target.id, result);
   }
-  for (const area of space.areas) resolve(area, 'area', areas);
+  for (const area of space.areas) {
+    if (area.mapMetric) {
+      areas.delete(area.id);
+      resolve(area, 'area', areas);
+    }
+  }
   for (const note of space.notes) if (!isProtectedNote(note)) resolve(note, 'note', notes);
   return {areas, notes};
 }

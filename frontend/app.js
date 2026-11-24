@@ -36,6 +36,9 @@ import { isProtectedNote, protectedNoteTitle, openNoteSession } from './note-vau
 import { openVaultSettings, openVaultPassword, showVaultUnlock, interruptVaultDialogs } from './vault-ui.js';
 import { createIdleLock, normalizeIdleMinutes } from './idle-lock.js';
 import { showLockScreen } from './lock-screen.js';
+import { createAgentSession } from './agent-session.js';
+import { applyAgentTaskRequest } from './agent-tasks.js';
+import { agentStatus, openAgentPanel } from './agent-panel.js';
 
 const $ = id => document.getElementById(id);
 const element = (tag, className, text) => {
@@ -81,6 +84,76 @@ function byId(id){
 const areaById=id=>workspace().areas.find(a=>a.id===id);
 const gridRecords=id=>({areas:[areaById(id)],notes:workspace().notes.filter(note=>note.areaId===id)});
 const showingMap=()=>page==='map';
+let agentPanel=null;
+const agentContext=()=>ready && library.active && !lockScreen && !closingApp ?
+  {id:library.active,folder:folderSession,space:workspace()} : null;
+async function commitAgentDraft(noteId){
+  const current=editor;
+  if(!current || (noteId && noteSession?.note.id!==noteId))return;
+  current.flush?.();
+  if(await current.commitDraft?.()===false || editor!==current)throw Error(tr('Закончите редактирование блока и повторите.','Finish editing the block and try again.'));
+}
+async function persistAgentTasks(changed){
+  if(changed.notes.length){
+    const ids=new Set(changed.notes);
+    dirty({notes:workspace().notes.filter(n=>ids.has(n.id))});
+    render();
+  }
+  await flush();
+}
+const agents=createAgentSession({bridge:()=>native,context:agentContext,
+  canEdit:()=>!spaceOperation && !reviewing && !editorMerge && !notePrivacyChange && !locking,
+  commitDraft:commitAgentDraft,persist:persistAgentTasks,
+  onChange(s){
+    const status=$('agent-session');status.hidden=!s;
+    status.querySelector('span').textContent=s?agentStatus(s.snapshot.status):'';
+    if(!s)agentPanel?.close();else agentPanel?.update();
+    syncIdle();
+  },
+  onLive(){graph?.repaint();editor?.refreshAgentTasks?.(workspace().notes)}
+});
+function endAgentAccess(){agentPanel?.close();agents.reset()}
+function showAgent(rootId){
+  if(!agentContext() || !native?.OpenAgentAccess)return;
+  // Reopen the existing session rather than silently changing its scope.
+  agentPanel?.close();
+  const id=agents.current?.rootId??rootId,record=byId(id);
+  if(!record || isProtectedNote(record))return;
+  const panel=openAgentPanel({rootId:id,title:noteTitle(record),session:agents,native,onClose(){if(agentPanel===panel)agentPanel=null}});
+  agentPanel=panel;
+}
+async function copyForAgent(id,session){
+  const current=agentContext();
+  try{
+    await commitAgentDraft(id);
+    const {copyNoteForAI}=await import('./ai-note-export.js');
+    if(!agentContext() || library.active!==current?.id || folderSession!==current.folder || (session && session!==noteSession))return;
+    const record=byId(id);
+    if(!record || (!session && isProtectedNote(record)))return;
+    const exported=await copyNoteForAI(session?.protected?session.note:record);
+    if(!agentContext())return;
+    notify(exported.images>exported.embedded?tr('Заметка скопирована. Картинки перечислены в тексте.','Note copied. Images are listed in the text.'):
+      tr('Заметка скопирована для ИИ.','Note copied for AI.'));
+  }catch(error){notify(storageErrorMessage(error))}
+}
+function agentMenuItems(record,session){
+  if(!session && isProtectedNote(record))return [];
+  return [{icon:'copy',name:tr('Скопировать для ИИ','Copy for AI'),run:()=>void copyForAgent(record.id,session)},
+    ...(!isProtectedNote(record) && native?.OpenAgentAccess?[{icon:'agent',name:tr('Работа с агентом…','Work with an agent…'),run:()=>showAgent(record.id)}]:[])];
+}
+function agentEditorButton(record,session){
+  const label=tr('ИИ','AI'),b=element('button','ve-agent-trigger');
+  b.type='button';b.title=tr('Действия с ИИ','AI actions');b.setAttribute('aria-label',b.title);
+  b.setAttribute('aria-haspopup','menu');b.append(iconEl('agent'),document.createTextNode(label));
+  b.onclick=()=>menu(b,agentMenuItems(record,session));return b;
+}
+async function manualTaskStatus(rootId,key,status){
+  try{
+    if(!agentContext() || editorMerge || spaceOperation || notePrivacyChange)return;
+    const {changed}=applyAgentTaskRequest(workspace(),rootId,'update_task',{key,status});
+    await persistAgentTasks(changed);
+  }catch(error){notify(storageErrorMessage(error))}
+}
 function syncMapVisibility(){
   graph?.setVisible(showingMap() && !document.hidden && !editor && !lockScreen);
 }
@@ -280,7 +353,7 @@ function hasOpenProtectedContent(){
   return projectProtected || folderSession?.encrypted || noteSession?.protected;
 }
 function syncIdle(){
-  idle?.configure(library.autoLockMinutes,ready && !lockScreen && (hasOpenProtectedContent() || suspendedSpaceIds.size>0 || reviewing));
+  idle?.configure(library.autoLockMinutes,ready && !lockScreen && (hasOpenProtectedContent() || suspendedSpaceIds.size>0 || reviewing || !!agents.current));
 }
 async function setIdleMinutes(minutes){
   const previous=normalizeIdleMinutes(library.autoLockMinutes);
@@ -293,6 +366,7 @@ async function setIdleMinutes(minutes){
 // encrypted write succeeds. The retry uses the same note even after its editor closed.
 function requestLock(){
   if(!native)return;
+  endAgentAccess();
   storageIndicator.close();
   clearSpacePassphrases(document);
   dismissWorkspaceConflicts();dismissWorkspaceServer();
@@ -788,6 +862,7 @@ function changeSpace(work,message){
   return spaceOperation;
 }
 function showSpace(next,session){
+  endAgentAccess();
   saveMapView();
   if(library.active && !Object.hasOwn(next.spaces,library.active))mapCameraMemory.forget(library.active);
   cancelNoteTransition();
@@ -1392,6 +1467,7 @@ async function openRecord(record,returnToResults,searchTarget,mapVisit,fromMap){
   const sameMap=()=>mapVisit && mapVisit.space===library.active && showingMap();
   const source=fromMap && sameMap() && !lockScreen?graph.noteViewportRect(id):null;
   editor=openEditor({note:session.note,notes:workspace().notes,areas:workspace().areas,saveIndicator:saveStatus.element,
+    agentButton:agentEditorButton(record,session),agentTaskActions:{setStatus:manualTaskStatus},
     textAreaDefaults:{style:library.view?.textAreaStyle,save(style){
       library.view={...library.view,textAreaStyle:style};dirty({settings:['view']})
     }},
@@ -1647,7 +1723,7 @@ function context(id,x,y,gridId=null,openNote=edit){
   menu({x,y},[{icon:isProtectedNote(n)?'lock':'edit',name:tr('Открыть заметку','Open note'),run:()=>openNote(id)},
     ...(isProtectedNote(n)?[]:[{icon:'appearance',name:tr('Внешний вид','Appearance'),run:()=>appearance(n)},metricAction(n,'note',{x,y})]),{icon:inSlot(n)?'slots':'pin',name:pinLabel(n),run:()=>pin(n)},
     {icon:'link',name:tr('Связать с заметкой','Link to another note'),run:()=>chooseTool('link')},...(sizeAction?[sizeAction]:[]),
-    ...(isProtectedNote(n)?[]:extensionMenuItems({x,y},n)),null,{icon:'trash',name:tr('Удалить заметку','Delete note'),run:()=>removeNotes([id])}]);
+    ...agentMenuItems(n),...(isProtectedNote(n)?[]:extensionMenuItems({x,y},n)),null,{icon:'trash',name:tr('Удалить заметку','Delete note'),run:()=>removeNotes([id])}]);
 }
 function renderSelection(){
   const s=$('selection'),n=byId(selected);s.hidden=!n||tool==='link';
@@ -1847,12 +1923,15 @@ function renderAreas(areas){
 const mapNote=n=>isProtectedNote(n)?{...n,title:protectedNoteTitle()}:n;
 function renderMapPlacement(states){
   const {notes,areas}=workspace();
+  if(states.some(state=>Object.hasOwn(state,'areaId')) && notes.some(n=>n.agentTask))mapMetrics=resolveMapMetrics(workspace());
   graph.setData(notes.map(mapNote),areas,new Set(states.map(state=>state.id)));
   $('pin-count').textContent=notes.filter(isPinned).length;
   renderAreas(areas);
   renderSelection();
 }
 function render(){
+  agents.reconcile();
+  editor?.refreshAgentTasks?.(workspace().notes);
   syncMapVisibility();
   const {notes,areas}=workspace(),map=showingMap(),area=areaById(currentArea);
   const views={map:tr('Карта заметок','Note map'),list:tr('Все заметки','All notes'),pinned:tr('Закреплённые','Pinned notes')};
@@ -2065,6 +2144,7 @@ function bindUI(){
   };
   $('help').onclick=showHelp;$('search').onclick=()=>search();$('settings').onclick=settings;
   $('extensions').onclick=()=>launchExtensions();
+  $('agent-session').onclick=()=>showAgent(agents.current?.rootId);
   document.addEventListener('keydown',e=>{
     const find=e.code==='KeyF' && e.shiftKey, save=e.code==='KeyS' && !e.shiftKey && editor && !editor.element.inert;
     if(!(find||save)||!primaryCommand(e)||e.isComposing||e.keyCode===229||e.defaultPrevented)return;
@@ -2137,6 +2217,7 @@ function bindUI(){
   });
 }
 async function loadDesktopLibrary(){
+  await native.ResetAgentConnections?.();
   // A WebView reload starts with a fresh idle timer and no remembered unlocks.
   await native.ForgetSuspendedFolderKeys?.();
   let resume='';
@@ -2197,6 +2278,7 @@ async function init(){
   if(!native&&(!/^https?:$/.test(location.protocol)||!['localhost','127.0.0.1','[::1]'].includes(location.hostname)))
     throw new Error(tr('Не удалось подключить локальное хранилище.','Could not connect to local storage.'));
   if(native&&window.runtime){
+    window.runtime.EventsOn('videron:agent-call',(g,r,tool,params)=>agents.handle(g,r,tool,params));
     idle=createIdleLock({onIdle:requestLock});
     async function consumeLock(){
       if(await native.ConsumeSessionLock())requestLock();
@@ -2212,7 +2294,7 @@ async function init(){
       if(closing)return;closing=true;
       try{
         saveMapView();
-        closingApp=true;dismissWorkspaceConflicts();dismissWorkspaceServer();
+        closingApp=true;endAgentAccess();dismissWorkspaceConflicts();dismissWorkspaceServer();
         if(folderPoll)await folderPoll.catch(()=>{});
         if(spaceOperation){await interruptVaultDialogs();await spaceOperation.catch(()=>{})}
         if(openingNote){await interruptVaultDialogs();await openingNote}

@@ -4,6 +4,7 @@ import (
 	"embed"
 	"io/fs"
 	"log"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -15,6 +16,13 @@ import (
 var files embed.FS
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--agent-mcp" {
+		if err := serveAgentStdio(os.Stdin, os.Stdout, os.Getenv("VIDERON_AGENT_ENDPOINT"), os.Getenv("VIDERON_AGENT_TOKEN")); err != nil {
+			log.Print(err)
+			os.Exit(1)
+		}
+		return
+	}
 	assets, err := fs.Sub(files, "frontend")
 	if err != nil {
 		log.Fatal(err)
