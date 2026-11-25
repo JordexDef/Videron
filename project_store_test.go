@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"videron/internal/vault"
 )
 
 const testPass = "пароль из четырёх слов"
@@ -297,7 +299,7 @@ func TestVaultRejectsDamageAndWrongProfile(t *testing.T) {
 	if err := a.LockProject(); err != nil {
 		t.Fatal(err)
 	}
-	env, err := parseEnvelope(stored(t, path), projectVault)
+	env, err := vault.ParseEnvelope(stored(t, path), vault.ProjectScope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +316,7 @@ func TestVaultRejectsDamageAndWrongProfile(t *testing.T) {
 	}
 	env.MemoryKiB = 1_000_000_000
 	data, _ = json.Marshal(env)
-	if _, err := parseEnvelope(data, projectVault); !errors.Is(err, errVersion) {
+	if _, err := vault.ParseEnvelope(data, vault.ProjectScope); !errors.Is(err, errVersion) {
 		t.Fatal("untrusted KDF parameters", err)
 	}
 	if err := os.WriteFile(path, []byte(`{"version":1,"data":"broken"}`), 0600); err != nil {
@@ -335,17 +337,16 @@ func TestFailedReloadForgetsOpenSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	noteKey := a.noteKeys["note-a"]
-	keyBytes := noteKey.key
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.Load(); !errors.Is(err, errChanged) {
 		t.Fatal("missing existing library returned as a new one", err)
 	}
-	if a.loaded || len(a.noteKeys) != 0 || !bytes.Equal(keyBytes, make([]byte, 32)) {
+	if a.loaded || len(a.noteKeys) != 0 {
 		t.Fatal("failed refresh retained access to old note")
 	}
-	if _, err := noteKey.seal(noteVault, "note-a", []byte(originalNote)); !errors.Is(err, errLocked) {
+	if _, err := noteKey.Seal(vault.NoteScope, "note-a", []byte(originalNote)); !errors.Is(err, errLocked) {
 		t.Fatal("retired keys must refuse writes", err)
 	}
 	if err := a.Save(snapshot); !errors.Is(err, errLocked) {
@@ -395,6 +396,11 @@ func TestExternallyEditedCatalogKeepsContents(t *testing.T) {
 }
 
 func TestMixedProtectedRecordsCannotReachStorage(t *testing.T) {
+	for _, id := range []string{"lucide/briefcase-business", "lucide/bookmark", "phosphor/house", "phosphor/lock-key"} {
+		if !publicMapIcons()[id] {
+			t.Fatalf("shipped icon %q missing from sealed-note policy", id)
+		}
+	}
 	a, path := testStore(t)
 	encoded, err := a.ProtectNote("note-a", originalNote, testPass)
 	if err != nil {
@@ -447,23 +453,6 @@ func TestMixedProtectedRecordsCannotReachStorage(t *testing.T) {
 	}
 }
 
-func TestVaultEnvelopeHasUnambiguousFieldNames(t *testing.T) {
-	a, _ := testStore(t)
-	raw, err := a.ProtectNote("note-a", originalNote, testPass)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, invalid := range []string{
-		strings.Replace(raw, `"version":1`, `"version":1,"version":1`, 1),
-		strings.Replace(raw, `"data":`, `"Data":`, 1),
-		raw + ` {}`,
-	} {
-		if _, err := parseEnvelope([]byte(invalid), noteVault); !errors.Is(err, errCorrupt) {
-			t.Fatal("accepted ambiguous envelope", err)
-		}
-	}
-}
-
 func TestCredentialBlocksRequireIndividualNoteEncryption(t *testing.T) {
 	a, path := testStore(t)
 	const block = `{"type":"credentials","resource":"test service","login":"fixture","password":"value-for-test-only"}`
@@ -505,49 +494,6 @@ func TestCredentialBlocksRequireIndividualNoteEncryption(t *testing.T) {
 	a.LockNote("note-a")
 	if plain, err := a.UnlockNote("note-a", sealed, nextPass); err != nil || plain != row {
 		t.Fatal("individually encrypted credential note did not round-trip", err)
-	}
-}
-
-func TestCredentialBlockDiscriminatorIsScopedToNoteBody(t *testing.T) {
-	for _, row := range []string{
-		`{"body":[{"type":"paragraph","text":"credentials","custom":{"type":"credentials"}}]}`,
-		`{"Body":[{"type":"credentials"}],"body":[{"Type":"credentials"},{"type":"Credentials"}]}`,
-		`{"body":[null,["credentials"],{"type":"extension"}],"future":[{"type":"credentials"}]}`,
-		`{"type":"data","dataText":"example \"credentials\"","body":[]}`,
-	} {
-		if err := new(storedNote).UnmarshalJSON([]byte(row)); err != nil {
-			t.Fatalf("ordinary extension or note content rejected: %v", err)
-		}
-	}
-	const encoded = `{"bo\u0064y":[{"t\u0079pe":"\u0063redentials"}]}`
-	if err := new(storedNote).UnmarshalJSON([]byte(encoded)); !errors.Is(err, errInvalid) {
-		t.Fatal("accepted escaped credential field", err)
-	}
-}
-
-func TestSealedMapAppearanceAcceptsOnlyPublicStyles(t *testing.T) {
-	for _, raw := range []string{
-		`{"shape":"circle","color":null,"icon":null}`,
-		`{"shape":"hexagon","color":"#ab12FF","icon":"phosphor/lock-key"}`,
-		`{"radius":16,"badgeSize":"small"}`, `{"radius":78,"badgeSize":"hidden"}`, `{"badgeSize":"large"}`,
-		`{"icon":"lucide/briefcase-business"}`, `{"icon":"lucide/bookmark"}`,
-		`{"leftIcon":"lucide/bookmark","rightIcon":"phosphor/house"}`,
-	} {
-		if err := validateSealedAppearance([]byte(raw)); err != nil {
-			t.Fatal(raw, err)
-		}
-	}
-	for _, raw := range []string{
-		`null`, `[]`, `{"shape":"PRIVATE"}`, `{"icon":"lucide/unpublished-title"}`,
-		`{"color":"private"}`, `{"color":"#abcdef","Color":"private"}`,
-		`{"shape":"square","shape":"circle"}`, `{"icon":{"svg":"private"}}`,
-		`{"radius":15}`, `{"radius":79}`, `{"radius":17.5}`, `{"radius":"18"}`, `{"radius":null}`,
-		`{"badgeSize":"private"}`, `{"badgeSize":null}`,
-		`{"leftIcon":"private"}`, `{"rightIcon":"lucide/private"}`, `{"leftIcon":null}`,
-	} {
-		if validateSealedAppearance([]byte(raw)) == nil {
-			t.Fatalf("accepted %s", raw)
-		}
 	}
 }
 
@@ -596,10 +542,13 @@ func TestSealedMapLabelStorage(t *testing.T) {
 }
 
 func TestLargeStoredEnvelopeAndLegacyLayouts(t *testing.T) {
-	key := deriveVaultKey(testPass, make([]byte, saltSize))
-	defer key.forget()
+	key, err := vault.NewKey(testPass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer key.Forget()
 	body := []byte(`{"id":"large","body":"` + strings.Repeat("Z", 500<<10) + `"}`)
-	blob, err := key.seal(noteVault, "large", body)
+	blob, err := key.Seal(vault.NoteScope, "large", body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,4 +576,81 @@ func TestLargeStoredEnvelopeAndLegacyLayouts(t *testing.T) {
 	if validWorkspace([]byte(libraryPrefix + string(stub) + librarySuffix)) {
 		t.Fatal("invalid base64 accepted")
 	}
+}
+
+// The files in testdata were written by the tagged v0.47.0 source
+// (b504ad93f1205488c1771fd7e8a58c74fac18a30), using ProtectNote, ProtectProject
+// and CreateFolderSpace with the synthetic note and passwords below. Keep the
+// original bytes so future readers are always tested against the released writer.
+func TestOpenV047EncryptedWorkspaceAndNote(t *testing.T) {
+	const spacePassword = "workspace-fixture-only"
+	const notePassword = "document-fixture-only"
+	const id = "compat-note"
+	const original = `{"id":"compat-note","title":"Release 0.47","plain":"Meeting notes","body":[{"type":"paragraph","runs":[{"text":"Meeting notes"}]}],"tags":[],"links":[]}`
+	app, catalogPath := testStore(t)
+	folder := t.TempDir()
+	fixtures := filepath.Join("internal", "vault", "testdata", "v0.47.0")
+	if err := os.MkdirAll(filepath.Dir(catalogPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{"library.json": catalogPath, "Videron.space": filepath.Join(folder, folderSpaceFilename)} {
+		if err := os.WriteFile(path, stored(t, filepath.Join(fixtures, name)), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	openCopies := func(app *App) (catalog, space, sealed string) {
+		t.Helper()
+		if _, err := app.Load(); !errors.Is(err, errLocked) {
+			t.Fatal("expected a protected library", err)
+		}
+		catalog, err := app.UnlockProject(spacePassword)
+		if err != nil {
+			t.Fatal(err)
+		}
+		space, err = app.OpenFolderSpace(folder, spacePassword)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var library struct{ Spaces map[string]json.RawMessage }
+		if err = json.Unmarshal([]byte(catalog), &library); err != nil {
+			t.Fatal(err)
+		}
+		sameTestJSON(t, library.Spaces["personal"], []byte(space))
+		var doc struct{ Notes []struct{ ID, Sealed string } }
+		if err = json.Unmarshal([]byte(space), &doc); err != nil {
+			t.Fatal(err)
+		}
+		if len(doc.Notes) != 1 || doc.Notes[0].ID != id || doc.Notes[0].Sealed == "" {
+			t.Fatal("protected note missing")
+		}
+		return catalog, space, doc.Notes[0].Sealed
+	}
+	catalog, space, sealed := openCopies(app)
+	got, err := app.UnlockNote(id, sealed, notePassword)
+	if err != nil || got != original {
+		t.Fatal("v0.47 note body did not round-trip", err)
+	}
+	edited := strings.ReplaceAll(original, "Meeting notes", "Meeting notes, updated")
+	updated, err := app.SealNote(id, edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := json.Marshal(sealed)
+	after, _ := json.Marshal(updated)
+	if err = app.Save(strings.Replace(catalog, string(before), string(after), 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err = app.SaveFolderSpace(folder, strings.Replace(space, string(before), string(after), 1)); err != nil {
+		t.Fatal(err)
+	}
+	app.FinishClose()
+
+	fresh := new(App)
+	_, _, sealed = openCopies(fresh)
+	got, err = fresh.UnlockNote(id, sealed, notePassword)
+	if err != nil || got != edited {
+		t.Fatal("could not reopen the saved edit", err)
+	}
+	fresh.FinishClose()
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"videron/internal/vault"
 	"videron/internal/workspacemerge"
 )
 
@@ -118,7 +118,7 @@ func splitSpaceMeta(payload []byte) (spaceSyncMeta, []byte, error) {
 	data, err := json.Marshal(fields)
 	return m, data, err
 }
-func encodeTrackedSpace(payload string, meta spaceSyncMeta, key *vaultKey) ([]byte, error) {
+func encodeTrackedSpace(payload string, meta spaceSyncMeta, key *vault.Key) ([]byte, error) {
 	if !validSpacePayload([]byte(payload)) {
 		return nil, errInvalid
 	}
@@ -232,15 +232,12 @@ func (s *folderSpaceSession) graphDirs(create bool) error {
 	return nil
 }
 func (s *folderSpaceSession) recordID(kind string, data []byte) string {
-	var prefix = []byte(s.sync.meta.Lineage + "/" + kind + "/")
+	prefix := s.sync.meta.Lineage + "/" + kind + "/"
 	if s.key != nil {
-		mac := hmac.New(sha256.New, s.key.key)
-		mac.Write(prefix)
-		mac.Write(data)
-		return hex.EncodeToString(mac.Sum(nil))
+		return hex.EncodeToString(s.key.RecordMAC(prefix, data))
 	}
 	h := sha256.New()
-	h.Write(prefix)
+	h.Write([]byte(prefix))
 	h.Write(data)
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -260,12 +257,12 @@ func (s *folderSpaceSession) readRecord(kind, id string) ([]byte, error) {
 }
 func (s *folderSpaceSession) decodeRecord(kind, id string, raw []byte) ([]byte, error) {
 	if s.key != nil {
-		env, err := parseEnvelope(raw, syncScope)
+		env, err := vault.ParseEnvelope(raw, syncScope)
 		clear(raw)
 		if err != nil {
 			return nil, err
 		}
-		raw, err = s.key.open(env, s.sync.meta.Lineage+"/"+kind+"/"+id)
+		raw, err = s.key.Open(env, s.sync.meta.Lineage+"/"+kind+"/"+id)
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +289,7 @@ func (s *folderSpaceSession) putRecord(kind string, data []byte) (string, error)
 	} else if errors.Is(err, os.ErrNotExist) {
 		out := data
 		if s.key != nil {
-			out, err = s.key.seal(syncScope, s.sync.meta.Lineage+"/"+kind+"/"+id, data)
+			out, err = s.key.Seal(syncScope, s.sync.meta.Lineage+"/"+kind+"/"+id, data)
 			if err != nil {
 				return "", err
 			}
@@ -486,7 +483,7 @@ func (s *folderSpaceSession) mainPayload(raw []byte) (spaceSyncMeta, string, err
 		return spaceSyncMeta{}, "", errSpaceIdentity
 	}
 	if env != nil {
-		plain, err = s.key.open(env, "")
+		plain, err = s.key.Open(env, "")
 		if err != nil {
 			return spaceSyncMeta{}, "", err
 		}

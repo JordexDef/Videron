@@ -122,7 +122,7 @@ func (s *folderSpaceSession) newMergePlan(token, tip, base string) (*preparedFol
 				continue
 			}
 			raw, err := json.Marshal(item)
-			if err != nil || new(storedNote).UnmarshalJSON(raw) != nil {
+			if err != nil || storedNotes.Validate(raw) != nil {
 				return nil, errCorrupt
 			}
 		}

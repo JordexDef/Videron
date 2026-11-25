@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"videron/internal/vault"
 )
 
 const spaceFixture = `{"name":"PRIVATE-CLOUD","notes":[` + originalNote + `],"areas":[],"routes":[{"title":"PRIVATE-ROUTE"}]}`
@@ -155,8 +157,8 @@ func TestSuspendedFolderRejectsReplacedOrDamagedEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := stored(t, path)
-	mutate := func(change func(*envelope)) []byte {
-		env, err := parseEnvelope(raw, folderSpaceFormat)
+	mutate := func(change func(*vault.Envelope)) []byte {
+		env, err := vault.ParseEnvelope(raw, folderSpaceFormat)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -176,8 +178,8 @@ func TestSuspendedFolderRejectsReplacedOrDamagedEnvelope(t *testing.T) {
 		data []byte
 		want error
 	}{
-		{"different salt", mutate(func(e *envelope) { e.Salt[0] ^= 1 }), errLocked},
-		{"invalid authentication tag", mutate(func(e *envelope) { e.Data[len(e.Data)-1] ^= 1 }), errPassword},
+		{"different salt", mutate(func(e *vault.Envelope) { e.Salt[0] ^= 1 }), errLocked},
+		{"invalid authentication tag", mutate(func(e *vault.Envelope) { e.Data[len(e.Data)-1] ^= 1 }), errPassword},
 		{"invalid container", []byte("{"), errCorrupt},
 		{"plaintext downgrade", plain, errChanged},
 	} {
@@ -232,7 +234,7 @@ func TestSessionLockForgetsSuspendedKeysAndAllowsPendingEncryptedSave(t *testing
 	if !a.SuspendFolderSpace(away) {
 		t.Fatal("expected suspended key")
 	}
-	secret := a.suspendedFolderKeys[spaceSessionID(canonicalTestFolder(t, away))].key
+	suspended := a.suspendedFolderKeys[spaceSessionID(canonicalTestFolder(t, away))]
 	// A slow disk save holds the storage lock. The UI still needs to
 	// receive the OS lock immediately while the native cleanup waits.
 	a.mu.Lock()
@@ -251,8 +253,8 @@ func TestSessionLockForgetsSuspendedKeysAndAllowsPendingEncryptedSave(t *testing
 	if !notified {
 		t.Fatal("OS lock notification waited for a pending storage operation")
 	}
-	if !bytes.Equal(secret, make([]byte, len(secret))) {
-		t.Fatal("suspended key bytes not cleared")
+	if _, err := suspended.Seal(folderSpaceFormat, "", []byte(spaceFixture)); !errors.Is(err, errLocked) {
+		t.Fatal("suspended key still usable after OS lock", err)
 	}
 	if _, err := a.ResumeFolderSpace(away); !errors.Is(err, errLocked) {
 		t.Fatal("key survived OS lock", err)

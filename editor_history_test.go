@@ -36,6 +36,10 @@ func TestProtectedEditorHistoryFollowsUnlockAndSurvivesInterruptedOpen(t *testin
 	if got, err := a.ReadEditorHistory(foreign); got != "" || err != nil {
 		t.Fatal("project boundary", err)
 	}
+	a.noteKeys[ref.Note].Forget()
+	if _, err := a.ReadEditorHistory(ref); !errors.Is(err, errLocked) {
+		t.Fatal("forgotten key discarded a recoverable checkpoint", err)
+	}
 	a.LockNote(ref.Note)
 	if _, err := a.ReadEditorHistory(ref); !errors.Is(err, errLocked) {
 		t.Fatal("closed note exposed history", err)

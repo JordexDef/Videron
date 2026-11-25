@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"videron/internal/vault"
 )
 
 func TestColdIndexAcrossResponseLimitAndRestart(t *testing.T) {
@@ -223,7 +225,7 @@ func TestEncryptedSyncUploadBodies(t *testing.T) {
 				return nil, err
 			}
 			// The transfer layer receives only client-sealed envelopes.
-			if _, err = parseEnvelope(body, syncScope); err != nil {
+			if _, err = vault.ParseEnvelope(body, syncScope); err != nil {
 				t.Fatalf("unencrypted upload: %v", err)
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))

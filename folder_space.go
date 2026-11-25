@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"unicode/utf8"
+
+	"videron/internal/vault"
 )
 
 const folderSpaceFilename = "Videron.space"
@@ -31,7 +33,7 @@ type folderSpaceSession struct {
 	path                string
 	info                os.FileInfo
 	digest              [sha256.Size]byte
-	key                 *vaultKey
+	key                 *vault.Key
 	discardKeyOnSuspend bool
 	sync                spaceReplica
 	lastPatch           savePatchReceipt
@@ -116,7 +118,7 @@ func readSpaceFile(path string) ([]byte, os.FileInfo, error) {
 
 // File location is intentionally absent from the authenticated data: an
 // encrypted space must remain portable between folders, machines and OSes.
-func parseSpaceFile(raw []byte) (json.RawMessage, *envelope, error) {
+func parseSpaceFile(raw []byte) (json.RawMessage, *vault.Envelope, error) {
 	var header struct {
 		Vault string `json:"vault"`
 	}
@@ -124,7 +126,7 @@ func parseSpaceFile(raw []byte) (json.RawMessage, *envelope, error) {
 		return nil, nil, errCorrupt
 	}
 	if header.Vault != "" {
-		env, err := parseEnvelope(raw, folderSpaceFormat)
+		env, err := vault.ParseEnvelope(raw, folderSpaceFormat)
 		return nil, env, err
 	}
 	var doc folderSpaceDocument
@@ -171,7 +173,7 @@ func (a *App) InspectSpaceFolder(folder string) (SpaceFolderInfo, error) {
 	result.Exists = true
 	result.Encrypted = env != nil
 	if key := a.suspendedFolderKeys[id]; key != nil {
-		result.CanResume = env != nil && bytes.Equal(env.Salt, key.salt)
+		result.CanResume = env != nil && key.MatchesSalt(env.Salt)
 		if !result.CanResume {
 			a.forgetSuspendedFolder(id)
 		}
@@ -186,7 +188,7 @@ func (a *App) setSpaceSession(dir string, session *folderSpaceSession) {
 	id := spaceSessionID(dir)
 	a.forgetSuspendedFolder(id)
 	if old := a.folderSpaces[id]; old != nil {
-		old.key.forget()
+		old.key.Forget()
 	}
 	a.folderSpaces[id] = session
 }
@@ -211,7 +213,7 @@ func (a *App) openFolderSpace(folder, password string, resume bool) (string, err
 		return "", err
 	}
 	id := spaceSessionID(dir)
-	var key *vaultKey
+	var key *vault.Key
 	if resume {
 		key = a.suspendedFolderKeys[id]
 		if key == nil {
@@ -223,7 +225,7 @@ func (a *App) openFolderSpace(folder, password string, resume bool) (string, err
 	}
 	// Transfer ownership to the active session only after today's document
 	// and replica have both been authenticated and read successfully.
-	defer func() { key.forget() }()
+	defer func() { key.Forget() }()
 	path := filepath.Join(dir, folderSpaceFilename)
 	raw, info, err := readSpaceFile(path)
 	if err != nil {
@@ -242,15 +244,15 @@ func (a *App) openFolderSpace(folder, password string, resume bool) (string, err
 	if env != nil {
 		switch {
 		case resume:
-			if !bytes.Equal(key.salt, env.Salt) {
+			if !key.MatchesSalt(env.Salt) {
 				return "", errLocked
 			}
 		case password == "":
 			return "", errLocked
 		default:
-			key = deriveVaultKey(password, env.Salt)
+			key = vault.DeriveKey(password, env.Salt)
 		}
-		plain, err = key.open(env, "")
+		plain, err = key.Open(env, "")
 		if err != nil {
 			return "", err
 		}
@@ -272,14 +274,14 @@ func (a *App) openFolderSpace(folder, password string, resume bool) (string, err
 	return payload, nil
 }
 
-func encodeSpace(payload string, key *vaultKey) ([]byte, error) {
+func encodeSpace(payload string, key *vault.Key) ([]byte, error) {
 	data := []byte(payload)
 	defer clear(data)
 	if !validSpacePayload(data) {
 		return nil, errInvalid
 	}
 	if key != nil {
-		return key.seal(folderSpaceFormat, "", data)
+		return key.Seal(folderSpaceFormat, "", data)
 	}
 	return json.Marshal(folderSpaceDocument{Format: folderSpaceFormat, Version: 1, Space: data})
 }
@@ -300,9 +302,9 @@ func (a *App) CreateFolderSpace(folder, payload, password string) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("VD_READ|%w", err)
 	}
-	var key *vaultKey
+	var key *vault.Key
 	if password != "" {
-		key, err = newVaultKey(password)
+		key, err = vault.NewKey(password)
 		if err != nil {
 			return err
 		}
@@ -310,20 +312,20 @@ func (a *App) CreateFolderSpace(folder, payload, password string) error {
 	session := &folderSpaceSession{path: path, key: key}
 	lineage, err := newLineage()
 	if err != nil {
-		key.forget()
+		key.Forget()
 		return err
 	}
 	session.sync.meta.Lineage = lineage
 	session.sync.payload = payload
 	data, err := encodeTrackedSpace(payload, session.sync.meta, key)
 	if err != nil {
-		key.forget()
+		key.Forget()
 		return err
 	}
 	defer clear(data)
 	info, err := writeAtomicInDir(path, data, ".videron-space-*.tmp", publishNewSpaceFile)
 	if err != nil {
-		key.forget()
+		key.Forget()
 		if errors.Is(err, os.ErrExist) {
 			return errSpaceExists
 		}
@@ -429,7 +431,7 @@ func (a *App) folderKeyID(folder string) string {
 }
 
 func (a *App) forgetSuspendedFolder(id string) {
-	a.suspendedFolderKeys[id].forget()
+	a.suspendedFolderKeys[id].Forget()
 	delete(a.suspendedFolderKeys, id)
 }
 
@@ -462,14 +464,14 @@ func (a *App) SuspendFolderSpace(folder string) bool {
 	}
 	delete(a.folderSpaces, id)
 	if session.key == nil || session.discardKeyOnSuspend || a.revokingFolderKeys.Load() {
-		session.key.forget()
+		session.key.Forget()
 		return false
 	}
 	if a.suspendedFolderKeys == nil {
-		a.suspendedFolderKeys = make(map[string]*vaultKey)
+		a.suspendedFolderKeys = make(map[string]*vault.Key)
 	}
-	a.suspendedFolderKeys[id] = &vaultKey{salt: session.key.salt, key: bytes.Clone(session.key.key)}
-	session.key.forget()
+	a.suspendedFolderKeys[id] = session.key.Clone()
+	session.key.Forget()
 	return true
 }
 
@@ -479,7 +481,7 @@ func (a *App) CloseFolderSpace(folder string) {
 	id := a.folderKeyID(folder)
 	a.forgetSuspendedFolder(id)
 	if session := a.folderSpaces[id]; session != nil {
-		session.key.forget()
+		session.key.Forget()
 		delete(a.folderSpaces, id)
 	}
 }
@@ -530,7 +532,7 @@ func (a *App) DeleteFolderSpace(folder string) error {
 		session.sync.verifiedObjects = nil
 		return err
 	}
-	session.key.forget()
+	session.key.Forget()
 	id := spaceSessionID(filepath.Dir(session.path))
 	a.forgetSuspendedFolder(id)
 	delete(a.folderSpaces, id)

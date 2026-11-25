@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"videron/internal/vault"
 )
 
 var (
@@ -569,12 +571,12 @@ func (session *syncSession) transferRecord(dir, lineage, kind, id string) ([]byt
 	}
 	plain := raw
 	if s.key != nil {
-		env, err := parseEnvelope(raw, syncScope)
+		env, err := vault.ParseEnvelope(raw, syncScope)
 		if err != nil {
 			clear(raw)
 			return nil, err
 		}
-		plain, err = s.key.open(env, lineage+"/"+kind+"/"+id)
+		plain, err = s.key.Open(env, lineage+"/"+kind+"/"+id)
 		if err != nil {
 			clear(raw)
 			return nil, err

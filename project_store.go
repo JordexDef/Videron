@@ -9,11 +9,47 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"unicode/utf8"
+
+	"videron/internal/vault"
 )
 
-var errChanged = errors.New("VD_CHANGED")
+// Keep the desktop storage errors stable across the Wails bridge.
+var (
+	errChanged  = errors.New("VD_CHANGED")
+	errInvalid  = vault.ErrInvalid
+	errCorrupt  = vault.ErrCorrupt
+	errLocked   = vault.ErrLocked
+	errPassword = vault.ErrPassword
+	errWeak     = vault.ErrWeak
+	errVersion  = vault.ErrVersion
+)
+
+// Read IDs from the same shipped icon packs as the picker. Only a catalog ID,
+// never free-form text or SVG supplied by a note, can leave its envelope.
+var publicMapIcons = sync.OnceValue(func() map[string]bool {
+	icons := make(map[string]bool)
+	entry := regexp.MustCompile(`\[\s*"((?:lucide|phosphor)/[a-z0-9-]+)"\s*,`)
+	for _, pack := range []string{"vectors", "lucide-extra", "phosphor-extra"} {
+		data, _ := files.ReadFile("frontend/icons/" + pack + ".js")
+		for _, match := range entry.FindAllSubmatch(data, -1) {
+			icons[string(match[1])] = true
+		}
+	}
+	return icons
+})
+
+var storedNotes = vault.NewNoteValidator(func(icon string) bool { return publicMapIcons()[icon] })
+
+// storedNote applies the vault's policy when storage decodes a workspace.
+type storedNote struct{}
+
+func (*storedNote) UnmarshalJSON(data []byte) error {
+	return storedNotes.Validate(data)
+}
 
 type libraryHeader struct {
 	Vault   string                   `json:"vault"`
@@ -197,9 +233,9 @@ func (a *App) Load() (payload string, loadErr error) {
 	if !utf8.Valid(data) || json.Unmarshal(data, &h) != nil {
 		return "", errCorrupt
 	}
-	a.protected = h.Vault == projectVault
+	a.protected = h.Vault == vault.ProjectScope
 	if h.Vault != "" {
-		env, err := parseEnvelope(data, projectVault)
+		env, err := vault.ParseEnvelope(data, vault.ProjectScope)
 		if err != nil {
 			return "", err
 		}
@@ -212,10 +248,10 @@ func (a *App) Load() (payload string, loadErr error) {
 		if err = cleanWorkspaceTemps(path, true); err != nil {
 			return "", err
 		}
-		if a.projectKey == nil || !bytes.Equal(a.projectKey.salt, env.Salt) {
+		if a.projectKey == nil || !a.projectKey.MatchesSalt(env.Salt) {
 			return "", errLocked
 		}
-		plain, err := a.projectKey.open(env, "")
+		plain, err := a.projectKey.Open(env, "")
 		if err != nil {
 			return "", err
 		}
@@ -229,7 +265,7 @@ func (a *App) Load() (payload string, loadErr error) {
 	if !h.validLibrary() {
 		return "", errCorrupt
 	}
-	a.projectKey.forget()
+	a.projectKey.Forget()
 	a.projectKey = nil
 	a.loaded = true
 	return string(data), nil
@@ -248,19 +284,19 @@ func (a *App) UnlockProject(password string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	env, err := parseEnvelope(data, projectVault)
+	env, err := vault.ParseEnvelope(data, vault.ProjectScope)
 	if err != nil {
 		return "", err
 	}
-	key := deriveVaultKey(password, env.Salt)
-	plain, err := key.open(env, "")
+	key := vault.DeriveKey(password, env.Salt)
+	plain, err := key.Open(env, "")
 	if err != nil {
-		key.forget()
+		key.Forget()
 		return "", err
 	}
 	defer clear(plain)
 	if !validWorkspace(plain) {
-		key.forget()
+		key.Forget()
 		return "", errCorrupt
 	}
 	a.dropKeys()
@@ -334,7 +370,7 @@ func (a *App) verifyCatalog(path string) error {
 
 // All saves and policy changes share the mutex and the same atomic replacement.
 // A new key or plaintext policy is committed only after the file is replaced.
-func (a *App) writeSnapshot(payload string, key *vaultKey) error {
+func (a *App) writeSnapshot(payload string, key *vault.Key) error {
 	if !a.loaded {
 		return errLocked
 	}
@@ -350,13 +386,13 @@ func (a *App) writeSnapshot(payload string, key *vaultKey) error {
 	return nil
 }
 
-func (a *App) writeCatalogBytes(data []byte, key *vaultKey) error {
+func (a *App) writeCatalogBytes(data []byte, key *vault.Key) error {
 	path, err := workspacePath()
 	if err != nil {
 		return err
 	}
 	if key != nil {
-		data, err = key.seal(projectVault, "", data)
+		data, err = key.Seal(vault.ProjectScope, "", data)
 		if err != nil {
 			return err
 		}
@@ -400,15 +436,15 @@ func (a *App) Save(payload string) error {
 }
 
 func (a *App) projectPassword(payload, password string) error {
-	key, err := newVaultKey(password)
+	key, err := vault.NewKey(password)
 	if err != nil {
 		return err
 	}
 	if err := a.writeSnapshot(payload, key); err != nil {
-		key.forget()
+		key.Forget()
 		return err
 	}
-	a.projectKey.forget()
+	a.projectKey.Forget()
 	a.projectKey = key
 	a.protected = true
 	return nil
@@ -432,7 +468,7 @@ func (a *App) ChangeProjectPassword(payload, currentPassword, newPassword string
 	if !a.loaded || a.projectKey == nil {
 		return errLocked
 	}
-	if !a.projectKey.verify(currentPassword) {
+	if !a.projectKey.Verify(currentPassword) {
 		return errPassword
 	}
 	return a.projectPassword(payload, newPassword)
@@ -444,13 +480,13 @@ func (a *App) RemoveProjectPassword(payload, password string) error {
 	if !a.loaded || a.projectKey == nil {
 		return errLocked
 	}
-	if !a.projectKey.verify(password) {
+	if !a.projectKey.Verify(password) {
 		return errPassword
 	}
 	if err := a.writeSnapshot(payload, nil); err != nil {
 		return err
 	}
-	a.projectKey.forget()
+	a.projectKey.Forget()
 	a.projectKey = nil
 	a.protected = false
 	return nil

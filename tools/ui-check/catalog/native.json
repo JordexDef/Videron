@@ -181,7 +181,7 @@
       ],
       "expected": "The project file remains encrypted while protection is active; valid transitions preserve data and a wrong password does not overwrite it.",
       "test": "TestProjectVaultTransitions",
-      "source": "vault_test.go"
+      "source": "project_store_test.go"
     },
     {
       "id": "native.lock-edit",
@@ -198,7 +198,7 @@
       ],
       "expected": "A stale save cannot overwrite the protected copy; the project requires a password and the note navigation resumes once.",
       "test": "TestSessionLockForgetsKeysAndResumesOnce",
-      "source": "vault_test.go"
+      "source": "project_store_test.go"
     },
     {
       "id": "native.unlock-deadline",
@@ -230,7 +230,7 @@
       ],
       "expected": "Unsealed credential data is rejected by the tested save paths; the independently sealed note round-trips.",
       "test": "TestCredentialBlocksRequireIndividualNoteEncryption",
-      "source": "vault_test.go"
+      "source": "project_store_test.go"
     },
     {
       "id": "native.pair-revoke",

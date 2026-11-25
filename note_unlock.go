@@ -1,16 +1,18 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"time"
+	"unicode/utf8"
+
+	"videron/internal/vault"
 )
 
 // The editor's key and the grant for future opens have independent lifetimes.
 // Expiring the latter cannot interrupt sealing an outstanding edit.
 type rememberedNote struct {
 	spaceID string
-	key     *vaultKey
+	key     *vault.Key
 	until   time.Time
 	timer   *time.Timer
 }
@@ -25,8 +27,25 @@ func (a *App) canUnlockNote() bool {
 	return a.loaded && !a.sessionLockPending.Load() && !a.revokingFolderKeys.Load()
 }
 
-func openNoteContents(key *vaultKey, env *envelope, id string) ([]byte, error) {
-	plain, err := key.open(env, id)
+func validNote(id string, payload []byte) bool {
+	if id == "" || !utf8.Valid(payload) {
+		return false
+	}
+	// Use the same case-sensitive property as the editor and catalog index.
+	storedID, err := rowID(payload)
+	return err == nil && storedID == id
+}
+
+func (a *App) cacheNoteKey(id string, key *vault.Key) {
+	if a.noteKeys == nil {
+		a.noteKeys = make(map[string]*vault.Key)
+	}
+	a.noteKeys[id].Forget()
+	a.noteKeys[id] = key
+}
+
+func openNoteContents(key *vault.Key, env *vault.Envelope, id string) ([]byte, error) {
+	plain, err := key.Open(env, id)
 	if err != nil {
 		return nil, err
 	}
@@ -35,10 +54,6 @@ func openNoteContents(key *vaultKey, env *envelope, id string) ([]byte, error) {
 		return nil, errCorrupt
 	}
 	return plain, nil
-}
-
-func copyNoteKey(k *vaultKey) *vaultKey {
-	return &vaultKey{salt: k.salt, key: bytes.Clone(k.key)}
 }
 
 func (g *rememberedNote) result(plain string) UnlockedNote {
@@ -82,7 +97,7 @@ func (a *App) UnlockNoteFor(spaceID, id, sealed, password string, minutes int) (
 	if a.rememberedNotes == nil {
 		a.rememberedNotes = make(map[string]*rememberedNote)
 	}
-	g := &rememberedNote{spaceID: spaceID, key: copyNoteKey(a.noteKeys[id])}
+	g := &rememberedNote{spaceID: spaceID, key: a.noteKeys[id].Clone()}
 	a.rememberedNotes[id] = g
 	if minutes > 0 {
 		g.until = time.Now().Add(time.Duration(minutes) * time.Minute)
@@ -110,7 +125,7 @@ func (a *App) ResumeNote(spaceID, id, sealed string) (UnlockedNote, error) {
 		a.forgetRememberedNote(id)
 		return UnlockedNote{}, errLocked
 	}
-	env, err := parseEnvelope([]byte(sealed), noteVault)
+	env, err := vault.ParseEnvelope([]byte(sealed), vault.NoteScope)
 	if err != nil {
 		a.forgetRememberedNote(id)
 		return UnlockedNote{}, err
@@ -128,7 +143,7 @@ func (a *App) ResumeNote(spaceID, id, sealed string) (UnlockedNote, error) {
 		a.forgetRememberedNote(id)
 		return UnlockedNote{}, errLocked
 	}
-	a.cacheNoteKey(id, copyNoteKey(g.key))
+	a.cacheNoteKey(id, g.key.Clone())
 	return g.result(string(plain)), nil
 }
 
@@ -145,7 +160,7 @@ func (a *App) forgetRememberedNote(id string) {
 		if g.timer != nil {
 			g.timer.Stop()
 		}
-		g.key.forget()
+		g.key.Forget()
 		delete(a.rememberedNotes, id)
 	}
 }
@@ -161,4 +176,103 @@ func (a *App) ForgetRememberedNotes() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.forgetRememberedNotes()
+}
+
+func (a *App) ProtectNote(id, payload, password string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.loaded {
+		return "", errLocked
+	}
+	data := []byte(payload)
+	defer clear(data)
+	if !validNote(id, data) {
+		return "", errInvalid
+	}
+	key, err := vault.NewKey(password)
+	if err != nil {
+		return "", err
+	}
+	sealed, err := key.Seal(vault.NoteScope, id, data)
+	if err != nil {
+		key.Forget()
+		return "", err
+	}
+	a.forgetRememberedNote(id)
+	a.cacheNoteKey(id, key)
+	return string(sealed), nil
+}
+
+func (a *App) UnlockNote(id, sealed, password string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.readSealedNote(id, sealed, password, true)
+}
+
+// Comparison reads a historical copy without granting an editor session access
+// or replacing the key used to save another version of the same note.
+func (a *App) PreviewSealedNote(id, sealed, password string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.readSealedNote(id, sealed, password, false)
+}
+
+// The caller holds mu. A preview never changes the live editor or a remembered key.
+func (a *App) readSealedNote(id, sealed, password string, keepKey bool) (string, error) {
+	if !a.canUnlockNote() {
+		return "", errLocked
+	}
+	if id == "" {
+		return "", errInvalid
+	}
+	env, err := vault.ParseEnvelope([]byte(sealed), vault.NoteScope)
+	if err != nil {
+		return "", err
+	}
+	key := vault.DeriveKey(password, env.Salt)
+	plain, err := openNoteContents(key, env, id)
+	if err != nil {
+		key.Forget()
+		return "", err
+	}
+	defer clear(plain)
+	if !a.canUnlockNote() {
+		key.Forget()
+		return "", errLocked
+	}
+	if keepKey {
+		a.forgetRememberedNote(id)
+		a.cacheNoteKey(id, key)
+	} else {
+		key.Forget()
+	}
+	return string(plain), nil
+}
+
+func (a *App) SealNote(id, payload string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	key := a.noteKeys[id]
+	if !a.loaded || key == nil {
+		return "", errLocked
+	}
+	data := []byte(payload)
+	defer clear(data)
+	if !validNote(id, data) {
+		return "", errInvalid
+	}
+	sealed, err := key.Seal(vault.NoteScope, id, data)
+	return string(sealed), err
+}
+
+func (a *App) LockNote(id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.forgetRememberedNote(id)
+	a.closeNoteEditor(id)
+}
+
+func (a *App) closeNoteEditor(id string) {
+	a.noteKeys[id].Forget()
+	delete(a.noteKeys, id)
 }

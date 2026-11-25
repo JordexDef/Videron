@@ -1,13 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"videron/internal/vault"
 )
 
 func TestNoteUnlockFollowsWorkspaceAndCurrentEnvelope(t *testing.T) {
@@ -112,7 +113,7 @@ func TestNoteUnlockDeadlineIsAbsoluteAndPreservesFinalSave(t *testing.T) {
 		if err != nil || !start.Remembered || start.ExpiresAt != time.Now().Add(5*time.Minute).UnixMilli() {
 			t.Fatal("incorrect deadline", err)
 		}
-		keyBytes := a.rememberedNotes[id].key.key
+		remembered := a.rememberedNotes[id].key
 		a.CloseNoteEditor(id)
 		time.Sleep(4 * time.Minute)
 		got, err := a.ResumeNote(space, id, sealed)
@@ -121,8 +122,8 @@ func TestNoteUnlockDeadlineIsAbsoluteAndPreservesFinalSave(t *testing.T) {
 		}
 		time.Sleep(time.Minute)
 		synctest.Wait()
-		if len(a.rememberedNotes) != 0 || !bytes.Equal(keyBytes, make([]byte, len(keyBytes))) {
-			t.Fatal("timer did not wipe the retained key")
+		if _, err := remembered.Seal(vault.NoteScope, id, []byte(originalNote)); !errors.Is(err, errLocked) || len(a.rememberedNotes) != 0 {
+			t.Fatal("timer did not revoke the retained key", err)
 		}
 		if _, err := a.ResumeNote(space, id, sealed); !errors.Is(err, errLocked) {
 			t.Fatal("expired reuse accepted", err)

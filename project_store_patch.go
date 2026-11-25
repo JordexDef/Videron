@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"videron/internal/vault"
 )
 
 // Patches describe changes to JSON objects and to the ordered record lists in
@@ -94,7 +96,7 @@ func (e rowEdit) apply(raw json.RawMessage, note bool) (json.RawMessage, error) 
 	beginObject(&dst, updated)
 	dst.WriteByte('}')
 	result := dst.Bytes()
-	if note && (&storedNote{}).UnmarshalJSON(result) != nil {
+	if note && storedNotes.Validate(result) != nil {
 		return nil, errInvalid
 	}
 	return result, nil
@@ -241,7 +243,7 @@ func (e *recordEdits) apply(list *recordList, notes bool) (*recordList, error) {
 		if err != nil || touched[id] {
 			return nil, errInvalid
 		}
-		if notes && (&storedNote{}).UnmarshalJSON(raw) != nil {
+		if notes && storedNotes.Validate(raw) != nil {
 			return nil, errInvalid
 		}
 		if result.items[id] == nil {
@@ -549,11 +551,11 @@ func (a *App) SaveCatalogPatch(expectedRev, delta string) (string, error) {
 			return "", errChanged
 		}
 		if a.projectKey != nil {
-			env, err := parseEnvelope(raw, projectVault)
+			env, err := vault.ParseEnvelope(raw, vault.ProjectScope)
 			if err != nil {
 				return "", err
 			}
-			raw, err = a.projectKey.open(env, "")
+			raw, err = a.projectKey.Open(env, "")
 			if err != nil {
 				return "", err
 			}

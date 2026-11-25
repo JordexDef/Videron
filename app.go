@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"videron/internal/vault"
+
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -23,12 +25,12 @@ type App struct {
 	closeGuard           bool
 	loaded               bool
 	protected            bool
-	projectKey           *vaultKey
-	noteKeys             map[string]*vaultKey
+	projectKey           *vault.Key
+	noteKeys             map[string]*vault.Key
 	editorHistories      map[editorHistoryID]editorHistoryEntry
 	rememberedNotes      map[string]*rememberedNote
 	folderSpaces         map[string]*folderSpaceSession
-	suspendedFolderKeys  map[string]*vaultKey
+	suspendedFolderKeys  map[string]*vault.Key
 	resumeNote           string
 	disk                 os.FileInfo
 	diskDigest           [sha256.Size]byte
@@ -82,6 +84,28 @@ func (a *App) shutdown(context.Context) {
 	if stop != nil {
 		stop()
 	}
+}
+
+func (a *App) dropKeys() {
+	// Every grant belongs to the current library session, including during
+	// a reload that fails or discovers an externally replaced catalog.
+	a.ResetAgentConnections()
+	a.clearCatalogIndex()
+	// A pending connection carries a verified server credential. Expire it
+	// together with the vault session, including verifications still in flight.
+	a.serverTickets.reset()
+	a.projectKey.Forget()
+	a.projectKey = nil
+	a.forgetRememberedNotes()
+	for _, key := range a.noteKeys {
+		key.Forget()
+	}
+	clear(a.noteKeys)
+	a.forgetSuspendedFolderKeys()
+	for _, session := range a.folderSpaces {
+		session.key.Forget()
+	}
+	clear(a.folderSpaces)
 }
 
 func workspacePath() (string, error) {

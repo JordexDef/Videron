@@ -1,6 +1,11 @@
 package main
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+
+	"videron/internal/vault"
+)
 
 // Undo belongs to this process. Protected snapshots are sealed with the key
 // already unlocked for that note, folder or library. Nothing is written to disk.
@@ -26,14 +31,14 @@ func (r EditorHistoryRef) id() editorHistoryID {
 	return editorHistoryID{r.Space, folder, r.Note}
 }
 
-func (a *App) editorHistoryKey(r EditorHistoryRef) (*vaultKey, error) {
+func (a *App) editorHistoryKey(r EditorHistoryRef) (*vault.Key, error) {
 	if !a.loaded {
 		return nil, errLocked
 	}
 	if r.Space == "" || r.Note == "" || (r.Kind != "text" && r.Kind != "canvas" && r.Kind != "data") {
 		return nil, errInvalid
 	}
-	var key *vaultKey
+	var key *vault.Key
 	switch r.Protection {
 	case "note":
 		key = a.noteKeys[r.Note]
@@ -57,9 +62,11 @@ func (a *App) editorHistoryKey(r EditorHistoryRef) (*vaultKey, error) {
 	return key, nil
 }
 
-func historyAAD(r EditorHistoryRef) []byte {
+const editorHistoryScope = "videron.editor-history"
+
+func historyContextID(r EditorHistoryRef) string {
 	fields, _ := json.Marshal([]string{r.Space, r.id().folder, r.Note, r.Kind, r.Protection})
-	return associatedData("videron.editor-history", string(fields))
+	return string(fields)
 }
 
 func (a *App) StoreEditorHistory(r EditorHistoryRef, snapshot string) error {
@@ -73,11 +80,10 @@ func (a *App) StoreEditorHistory(r EditorHistoryRef, snapshot string) error {
 	data := []byte(snapshot)
 	if key != nil && len(data) > 0 {
 		defer clear(data)
-		cipher, err := key.aead()
+		data, err = key.SealBytes(editorHistoryScope, historyContextID(r), data)
 		if err != nil {
 			return err
 		}
-		data = cipher.Seal(nil, nil, data, historyAAD(r))
 	}
 	clear(a.editorHistories[id].data)
 	if len(data) == 0 {
@@ -116,12 +122,11 @@ func (a *App) ReadEditorHistory(r EditorHistoryRef) (string, error) {
 	if key == nil {
 		return string(entry.data), nil
 	}
-	cipher, err := key.aead()
+	plain, err := key.OpenBytes(editorHistoryScope, historyContextID(r), entry.data)
 	if err != nil {
-		return "", err
-	}
-	plain, err := cipher.Open(nil, nil, entry.data, historyAAD(r))
-	if err != nil {
+		if !errors.Is(err, vault.ErrPassword) {
+			return "", err
+		}
 		clear(entry.data)
 		delete(a.editorHistories, id)
 		return "", nil

@@ -1,39 +1,24 @@
-package main
+package vault
 
 import (
 	"encoding/json"
 	"regexp"
-	"sync"
 )
-
-// Read IDs from the same shipped icon packs as the picker. Only a catalog ID,
-// never free-form text or SVG supplied by a note, can leave its envelope.
-var publicMapIcons = sync.OnceValue(func() map[string]bool {
-	icons := make(map[string]bool)
-	entry := regexp.MustCompile(`\[\s*"((?:lucide|phosphor)/[a-z0-9-]+)"\s*,`)
-	for _, pack := range []string{"vectors", "lucide-extra", "phosphor-extra"} {
-		data, _ := files.ReadFile("frontend/icons/" + pack + ".js")
-		for _, match := range entry.FindAllSubmatch(data, -1) {
-			icons[string(match[1])] = true
-		}
-	}
-	return icons
-})
 
 var mapColor = regexp.MustCompile(`^#[a-fA-F0-9]{6}$`)
 
-func validateSealedAppearance(raw json.RawMessage) error {
+func (v *NoteValidator) validateSealedAppearance(raw json.RawMessage) error {
 	return readVaultObject(raw, func(field string, decoder *json.Decoder) error {
 		if field == "radius" {
 			var radius int
 			if decoder.Decode(&radius) == nil && radius >= 16 && radius <= 78 {
 				return nil
 			}
-			return errInvalid
+			return ErrInvalid
 		}
 		var value *string
 		if err := decoder.Decode(&value); err != nil {
-			return errInvalid
+			return ErrInvalid
 		}
 		switch field {
 		case "badgeSize":
@@ -48,11 +33,11 @@ func validateSealedAppearance(raw json.RawMessage) error {
 				}
 			}
 		case "icon":
-			if value == nil || publicMapIcons()[*value] {
+			if value == nil || v.allowedIcon != nil && v.allowedIcon(*value) {
 				return nil
 			}
 		case "leftIcon", "rightIcon":
-			if value != nil && publicMapIcons()[*value] {
+			if value != nil && v.allowedIcon != nil && v.allowedIcon(*value) {
 				return nil
 			}
 		case "color":
@@ -60,6 +45,6 @@ func validateSealedAppearance(raw json.RawMessage) error {
 				return nil
 			}
 		}
-		return errInvalid
+		return ErrInvalid
 	})
 }
