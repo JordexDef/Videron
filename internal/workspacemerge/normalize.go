@@ -1,7 +1,6 @@
-package main
+package workspacemerge
 
 import (
-	"encoding/json"
 	"maps"
 	"math"
 	"regexp"
@@ -10,6 +9,16 @@ import (
 )
 
 var mergeAreaColor = regexp.MustCompile("^(?i:#[a-f0-9]{6})$")
+
+// NormalizedCopy validates a revision and repairs grid placement, area nesting
+// and route fragments on a copy. Immutable note bodies are shared.
+func NormalizedCopy(doc map[string]any) (map[string]any, error) {
+	normalized := cloneMergeWorkspace(doc)
+	if err := normalizeMergeWorkspace(normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
 
 // Merging can repair map placement, incoming links and route fragments.
 // Only these containers need new ownership; large note bodies stay immutable.
@@ -173,19 +182,19 @@ func (g *mergeGrid) setPoint(note mergeObject, slot int) {
 }
 func normalizeMergeWorkspace(doc mergeObject) error {
 	if _, folder := doc["folder"]; folder {
-		return errInvalid
+		return ErrInvalid
 	}
 	name := mergeString(doc["name"])
 	if strings.TrimSpace(name) == "" || len([]rune(name)) > 80 {
-		return errInvalid
+		return ErrInvalid
 	}
 	notes, ok := doc["notes"].([]any)
 	if !ok {
-		return errInvalid
+		return ErrInvalid
 	}
 	areas, ok := doc["areas"].([]any)
 	if !ok {
-		return errInvalid
+		return ErrInvalid
 	}
 	byID := map[string]mergeObject{}
 	grids := map[string]*mergeGrid{}
@@ -194,7 +203,7 @@ func normalizeMergeWorkspace(doc mergeObject) error {
 		id := mergeString(a["id"])
 		_, named := a["name"].(string)
 		if id == "" || byID[id] != nil || !named || !mergeAreaColor.MatchString(mergeString(a["color"])) {
-			return errInvalid
+			return ErrInvalid
 		}
 		byID[id] = a
 		if g := readMergeGrid(a); g != nil {
@@ -229,7 +238,7 @@ func normalizeMergeWorkspace(doc mergeObject) error {
 		n := mergeMap(v)
 		id := mergeString(n["id"])
 		if !validateMergeNote(n) || ids[id] {
-			return errInvalid
+			return ErrInvalid
 		}
 		ids[id] = true
 		if _, protected := n["sealed"]; protected {
@@ -303,14 +312,4 @@ func normalizeMergeWorkspace(doc mergeObject) error {
 		}
 	}
 	return nil
-}
-
-func decodeMergeJSON(data string) (any, error) {
-	dec := json.NewDecoder(strings.NewReader(data))
-	dec.UseNumber()
-	var value any
-	if err := dec.Decode(&value); err != nil {
-		return nil, errCorrupt
-	}
-	return value, nil
 }

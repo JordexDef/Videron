@@ -1,8 +1,10 @@
-package main
+// Package workspacemerge reconciles edits to a workspace made on two devices.
+package workspacemerge
 
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"maps"
 	"math"
 	"math/big"
@@ -18,6 +20,10 @@ type mergeAbsent struct{}
 var absentField = mergeAbsent{}
 
 type mergeObject = map[string]any
+
+// ErrInvalid indicates malformed workspace data or an incomplete or unknown
+// conflict choice.
+var ErrInvalid = errors.New("invalid workspace or conflict choices")
 
 func mergeField(obj mergeObject, key string) any {
 	if value, exists := obj[key]; exists {
@@ -314,7 +320,8 @@ func indexMergeList(value any) (mergeIndex, bool) {
 	return index, true
 }
 
-type FolderMergeConflict struct {
+// Conflict contains the two versions available for a single decision.
+type Conflict struct {
 	Key    string `json:"key"`
 	Kind   string `json:"kind"`
 	ID     string `json:"id"`
@@ -326,14 +333,15 @@ type mergeDecision struct {
 	local, remote any
 }
 type mergeListTemplate []any
-type workspaceMergePlan struct {
-	token     string
-	local     mergeObject
+
+// Plan holds a three-way merge of normalized workspace snapshots. Its inputs
+// and returned values share unchanged data and must be treated as immutable.
+type Plan struct {
 	sources   [3]mergeObject
 	template  mergeObject
-	conflicts []FolderMergeConflict
+	conflicts []Conflict
 	ready     mergeObject
-	patch     FolderMergePatch
+	patch     Patch
 }
 
 func displayMergeValue(v any) any {
@@ -342,12 +350,12 @@ func displayMergeValue(v any) any {
 	}
 	return v
 }
-func (p *workspaceMergePlan) choose(kind, id string, local, remote any) any {
+func (p *Plan) choose(kind, id string, local, remote any) any {
 	key := kind + ":" + id
-	p.conflicts = append(p.conflicts, FolderMergeConflict{key, kind, id, displayMergeValue(local), displayMergeValue(remote)})
+	p.conflicts = append(p.conflicts, Conflict{key, kind, id, displayMergeValue(local), displayMergeValue(remote)})
 	return mergeDecision{key, local, remote}
 }
-func (p *workspaceMergePlan) mergeCollection(kind string, b, l, r mergeIndex) any {
+func (p *Plan) mergeCollection(kind string, b, l, r mergeIndex) any {
 	order := b.ids
 	if slices.Equal(l.ids, r.ids) || slices.Equal(r.ids, b.ids) {
 		order = l.ids
@@ -409,7 +417,10 @@ func compatibleInkMove(before, left, right mergeObject) bool {
 	_, ok := threeWayValue(mergeSubset(before, mergePointKey), mergeSubset(left, mergePointKey), mergeSubset(right, mergePointKey))
 	return ok
 }
-func mergeCollectionKind(key string) string {
+
+// CollectionKind returns the per-record conflict kind for a workspace field.
+// Other fields return an empty string and are treated as single values.
+func CollectionKind(key string) string {
 	switch key {
 	case "notes":
 		return "note"
@@ -422,31 +433,73 @@ func mergeCollectionKind(key string) string {
 	}
 	return ""
 }
-func newWorkspaceMergePlan(token string, b, l, r mergeObject) *workspaceMergePlan {
-	p := &workspaceMergePlan{token: token, local: l, sources: [3]mergeObject{b, l, r}, template: mergeObject{}}
-	for _, key := range sortedMergeKeys(b, l, r) {
-		base, local, remote := mergeField(b, key), mergeField(l, key), mergeField(r, key)
-		value, ok := threeWayValue(base, local, remote)
+
+// Prepare compares normalized base, local and remote revisions. A conflict-free
+// plan keeps only the final workspace and the patch against the local revision.
+func Prepare(base, local, remote map[string]any) (*Plan, error) {
+	p := &Plan{sources: [3]mergeObject{base, local, remote}, template: mergeObject{}}
+	for _, key := range sortedMergeKeys(base, local, remote) {
+		baseValue, localValue, remoteValue := mergeField(base, key), mergeField(local, key), mergeField(remote, key)
+		value, ok := threeWayValue(baseValue, localValue, remoteValue)
 		if !ok {
-			if kind := mergeCollectionKind(key); kind != "" {
-				old, bok := indexMergeList(base)
-				left, lok := indexMergeList(local)
-				right, rok := indexMergeList(remote)
-				if bok && lok && rok {
+			if kind := CollectionKind(key); kind != "" {
+				old, baseOK := indexMergeList(baseValue)
+				left, localOK := indexMergeList(localValue)
+				right, remoteOK := indexMergeList(remoteValue)
+				if baseOK && localOK && remoteOK {
 					value = p.mergeCollection(kind, old, left, right)
 					ok = true
 				}
 			}
 			if !ok {
-				value = p.choose("setting", key, local, remote)
+				value = p.choose("setting", key, localValue, remoteValue)
 			}
 		}
 		if value != absentField {
 			p.template[key] = value
 		}
 	}
-	return p
+	if len(p.conflicts) == 0 {
+		merged, err := p.resolve(nil)
+		if err != nil {
+			return nil, err
+		}
+		p.ready, p.patch = merged, Diff(local, merged)
+		p.sources = [3]mergeObject{}
+		p.template = nil
+	}
+	return p, nil
 }
+
+// Conflicts lists decisions needed before the merge can be applied.
+func (p *Plan) Conflicts() []Conflict { return p.conflicts }
+
+// ChangedNotes lists removed and updated note IDs for a conflict-free plan.
+func (p *Plan) ChangedNotes() []string {
+	notes := p.patch.Lists["notes"]
+	ids := slices.Clone(notes.Remove)
+	for _, note := range notes.Upsert {
+		ids = append(ids, mergeString(mergeMap(note)["id"]))
+	}
+	return ids
+}
+
+// Resolve applies one local or remote choice per conflict. The patch describes
+// changes relative to the local input and is suitable for a client update.
+func (p *Plan) Resolve(choices map[string]string) (map[string]any, Patch, error) {
+	if p.ready != nil {
+		if len(choices) != 0 {
+			return nil, Patch{}, ErrInvalid
+		}
+		return p.ready, p.patch, nil
+	}
+	merged, err := p.resolve(choices)
+	if err != nil {
+		return nil, Patch{}, err
+	}
+	return merged, Diff(p.sources[1], merged), nil
+}
+
 func resolveMergeDecision(v any, choices map[string]string) any {
 	if decision, ok := v.(mergeDecision); ok {
 		if choices[decision.key] == "remote" {
@@ -456,13 +509,13 @@ func resolveMergeDecision(v any, choices map[string]string) any {
 	}
 	return v
 }
-func (p *workspaceMergePlan) resolve(choices map[string]string) (mergeObject, error) {
+func (p *Plan) resolve(choices map[string]string) (mergeObject, error) {
 	if len(choices) != len(p.conflicts) {
-		return nil, errInvalid
+		return nil, ErrInvalid
 	}
 	for _, c := range p.conflicts {
 		if side := choices[c.Key]; side != "remote" && side != "local" {
-			return nil, errInvalid
+			return nil, ErrInvalid
 		}
 	}
 	out := mergeObject{}

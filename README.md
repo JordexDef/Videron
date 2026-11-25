@@ -73,6 +73,16 @@ go run -tags webkit2_41 github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -ta
 
 Keep one local desktop build at the path shown above. Close the running app before rebuilding and use the same filename each time. Stage release packages and checksums in a separate directory.
 
+### Source layout
+
+| Location | What lives there |
+| --- | --- |
+| Repository root | Desktop entry point, Wails bindings and local storage |
+| [frontend](frontend/) | Note editors, map and other desktop UI |
+| [internal/workspacemerge](internal/workspacemerge/) | Three-way workspace merge, conflict choices and their unit tests |
+| [cmd/videron-sync](cmd/videron-sync/) | Sync server entry point |
+| [internal/syncserver](internal/syncserver/) | Sync server implementation and tests |
+
 ## Run your own sync server
 
 Download Videron Sync for the computer that will host your projects. On Linux with systemd, unpack the server archive and run `sudo ./install.sh sync.example.net`, replacing the example domain with your address. The installer asks for a server password and starts the service. On Windows and macOS, you can run the server from a terminal. [Server setup, backups, and updates](docs/server-setup.md)

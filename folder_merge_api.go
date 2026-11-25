@@ -3,76 +3,52 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/json"
-	"slices"
 	"strings"
+
+	"videron/internal/workspacemerge"
 )
 
 type FolderMergeProposal struct {
-	Token        string                `json:"token"`
-	Prepared     bool                  `json:"prepared,omitempty"`
-	Conflicts    []FolderMergeConflict `json:"conflicts,omitempty"`
-	ChangedNotes []string              `json:"changedNotes,omitempty"`
+	Token        string                    `json:"token"`
+	Prepared     bool                      `json:"prepared,omitempty"`
+	Conflicts    []workspacemerge.Conflict `json:"conflicts,omitempty"`
+	ChangedNotes []string                  `json:"changedNotes,omitempty"`
 }
 
-type FolderMergeListPatch struct {
-	Upsert []any    `json:"upsert,omitempty"`
-	Remove []string `json:"remove,omitempty"`
-	Order  []string `json:"order,omitempty"`
+type FolderMergePatch workspacemerge.Patch
+
+type preparedFolderMerge struct {
+	token string
+	plan  *workspacemerge.Plan
 }
 
-type FolderMergePatch struct {
-	Head  string                          `json:"head"`
-	Set   map[string]any                  `json:"set,omitempty"`
-	Unset []string                        `json:"unset,omitempty"`
-	Lists map[string]FolderMergeListPatch `json:"lists,omitempty"`
-}
-
-func buildMergePatch(local, merged mergeObject) FolderMergePatch {
-	patch := FolderMergePatch{Set: map[string]any{}, Lists: map[string]FolderMergeListPatch{}}
-	for _, k := range sortedMergeKeys(local, merged) {
-		l, r := mergeField(local, k), mergeField(merged, k)
-		if mergeEqual(l, r) {
-			continue
-		}
-		if r == absentField {
-			patch.Unset = append(patch.Unset, k)
-			continue
-		}
-		if mergeCollectionKind(k) != "" && l != absentField {
-			old, ok := indexMergeList(l)
-			next, valid := indexMergeList(r)
-			if ok && valid {
-				change := FolderMergeListPatch{}
-				for _, id := range old.ids {
-					if _, found := next.records[id]; !found {
-						change.Remove = append(change.Remove, id)
-					}
-				}
-				for _, id := range next.ids {
-					if !mergeEqual(mergeField(old.records, id), next.records[id]) {
-						change.Upsert = append(change.Upsert, next.records[id])
-					}
-				}
-				if !slices.Equal(old.ids, next.ids) {
-					change.Order = next.ids
-				}
-				patch.Lists[k] = change
-				continue
-			}
-		}
-		patch.Set[k] = r
+func (p preparedFolderMerge) proposal() FolderMergeProposal {
+	return FolderMergeProposal{
+		Token:        p.token,
+		Prepared:     true,
+		Conflicts:    p.plan.Conflicts(),
+		ChangedNotes: p.plan.ChangedNotes(),
 	}
-	return patch
+}
+
+func decodeMergeJSON(data string) (any, error) {
+	dec := json.NewDecoder(strings.NewReader(data))
+	dec.UseNumber()
+	var value any
+	if err := dec.Decode(&value); err != nil {
+		return nil, errCorrupt
+	}
+	return value, nil
 }
 
 // Each revision refers to immutable object IDs. Seed the cache from the local
 // head: a one-note remote edit only needs to read the changed archived values.
-func (s *folderSpaceSession) newMergePlan(token, tip, base string) (*workspaceMergePlan, error) {
+func (s *folderSpaceSession) newMergePlan(token, tip, base string) (*preparedFolderMerge, error) {
 	current, err := decodeMergeJSON(s.sync.payload)
 	if err != nil {
 		return nil, err
 	}
-	localRaw := mergeMap(current)
+	localRaw, _ := current.(map[string]any)
 	localRev, err := s.readRevision(s.sync.meta.Head)
 	if err != nil {
 		return nil, err
@@ -109,12 +85,12 @@ func (s *folderSpaceSession) newMergePlan(token, tip, base string) (*workspaceMe
 		cache[id] = v
 		return v, nil
 	}
-	materialize := func(head string) (mergeObject, error) {
+	materialize := func(head string) (map[string]any, error) {
 		rev, err := s.readRevision(head)
 		if err != nil {
 			return nil, err
 		}
-		out := mergeObject{}
+		out := map[string]any{}
 		for k, id := range rev.Values {
 			v, err := read(id)
 			if err != nil {
@@ -139,8 +115,10 @@ func (s *folderSpaceSession) newMergePlan(token, tip, base string) (*workspaceMe
 		// A downloaded revision may reference objects that were never accepted
 		// by this device. Apply the vault's strict envelope and map-field checks
 		// before even offering either note to a conflict preview.
-		for _, item := range mergeArray(out["notes"]) {
-			if _, sealed := mergeMap(item)["sealed"]; !sealed {
+		notes, _ := out["notes"].([]any)
+		for _, item := range notes {
+			note, _ := item.(map[string]any)
+			if _, sealed := note["sealed"]; !sealed {
 				continue
 			}
 			raw, err := json.Marshal(item)
@@ -148,18 +126,18 @@ func (s *folderSpaceSession) newMergePlan(token, tip, base string) (*workspaceMe
 				return nil, errCorrupt
 			}
 		}
-		out = cloneMergeWorkspace(out)
 		if _, reserved := out[syncProperty]; reserved {
 			return nil, errCorrupt
 		}
-		if err = normalizeMergeWorkspace(out); err != nil {
-			return nil, err
+		normalized, err := workspacemerge.NormalizedCopy(out)
+		if err != nil {
+			return nil, errInvalid
 		}
-		return out, nil
+		return normalized, nil
 	}
-	local := cloneMergeWorkspace(localRaw)
-	if err = normalizeMergeWorkspace(local); err != nil {
-		return nil, err
+	local, err := workspacemerge.NormalizedCopy(localRaw)
+	if err != nil {
+		return nil, errInvalid
 	}
 	old := local
 	if base != s.sync.meta.Head {
@@ -172,7 +150,11 @@ func (s *folderSpaceSession) newMergePlan(token, tip, base string) (*workspaceMe
 	if err != nil {
 		return nil, err
 	}
-	return newWorkspaceMergePlan(token, old, local, remote), nil
+	plan, err := workspacemerge.Prepare(old, local, remote)
+	if err != nil {
+		return nil, errInvalid
+	}
+	return &preparedFolderMerge{token: token, plan: plan}, nil
 }
 
 func (a *App) PrepareFolderMerge(folder string, force bool, knownToken string) (FolderMergeProposal, error) {
@@ -195,34 +177,17 @@ func (a *App) PrepareFolderMerge(folder string, force bool, knownToken string) (
 	if token == knownToken {
 		return proposal, nil
 	}
-	plan := s.sync.mergePlan
-	if plan == nil || plan.token != token {
-		plan, err = s.newMergePlan(token, tip, base)
+	prepared := s.sync.mergePlan
+	if prepared == nil || prepared.token != token {
+		prepared, err = s.newMergePlan(token, tip, base)
 		if err != nil {
 			return proposal, err
 		}
-		if len(plan.conflicts) == 0 {
-			plan.ready, err = plan.resolve(nil)
-			if err != nil {
-				return proposal, err
-			}
-			plan.patch = buildMergePatch(plan.local, plan.ready)
-			// The commit needs only the resolved result for this pair of heads.
-			plan.local = nil
-			plan.sources = [3]mergeObject{}
-			plan.template = nil
-		}
-		s.sync.mergePlan = plan
+		s.sync.mergePlan = prepared
 	}
-	proposal.Prepared = true
-	proposal.Conflicts = plan.conflicts
-	notes := plan.patch.Lists["notes"]
-	proposal.ChangedNotes = slices.Clone(notes.Remove)
-	for _, item := range notes.Upsert {
-		proposal.ChangedNotes = append(proposal.ChangedNotes, mergeString(mergeMap(item)["id"]))
-	}
-	return proposal, nil
+	return prepared.proposal(), nil
 }
+
 func (a *App) CommitFolderMergeChoices(folder, token string, choices map[string]string) (FolderMergePatch, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -255,29 +220,26 @@ func (a *App) CommitFolderMergeChoices(folder, token string, choices map[string]
 		if err != nil {
 			return empty, err
 		}
-		if err := normalizeMergeWorkspace(mergeMap(local)); err != nil {
-			return empty, err
+		localDoc, _ := local.(map[string]any)
+		normalized, err := workspacemerge.NormalizedCopy(localDoc)
+		if err != nil {
+			return empty, errInvalid
 		}
 		current, err := decodeMergeJSON(s.sync.payload)
 		if err != nil {
 			return empty, err
 		}
-		patch := buildMergePatch(mergeMap(local), mergeMap(current))
+		currentDoc, _ := current.(map[string]any)
+		patch := workspacemerge.Diff(normalized, currentDoc)
 		patch.Head = receipt.to
-		return patch, nil
+		return FolderMergePatch(patch), nil
 	}
-	plan := s.sync.mergePlan
-	if plan == nil || plan.token != token {
+	prepared := s.sync.mergePlan
+	if prepared == nil || prepared.token != token {
 		return empty, errChanged
 	}
-	merged, patch := plan.ready, plan.patch
-	if merged == nil {
-		merged, err = plan.resolve(choices)
-		if err != nil {
-			return empty, err
-		}
-		patch = buildMergePatch(plan.local, merged)
-	} else if len(choices) != 0 {
+	merged, patch, err := prepared.plan.Resolve(choices)
+	if err != nil {
 		return empty, errInvalid
 	}
 	data, err := json.Marshal(merged)
@@ -298,5 +260,5 @@ func (a *App) CommitFolderMergeChoices(folder, token string, choices map[string]
 	patch.Head = s.sync.meta.Head
 	receipt.to = patch.Head
 	s.sync.lastMerge = receipt
-	return patch, nil
+	return FolderMergePatch(patch), nil
 }
