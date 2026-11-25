@@ -3,13 +3,12 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 
 	"videron/internal/vault"
+	"videron/internal/workspacestore"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -103,55 +102,9 @@ func (a *App) dropKeys() {
 	clear(a.noteKeys)
 	a.forgetSuspendedFolderKeys()
 	for _, session := range a.folderSpaces {
-		session.key.Forget()
+		session.Key().Forget()
 	}
 	clear(a.folderSpaces)
-}
-
-func workspacePath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("VD_CONFIG|%w", err)
-	}
-	return filepath.Join(dir, "Videron", "workspace.json"), nil
-}
-
-func writeAtomic(path string, data []byte, pattern string) (os.FileInfo, error) {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, err
-	}
-	return writeAtomicInDir(path, data, pattern, os.Rename)
-}
-
-// The caller chooses whether publication may replace an existing file. Folder
-// spaces also require an existing directory so an offline sync mount stays offline.
-func writeAtomicInDir(path string, data []byte, pattern string, publish func(string, string) error) (os.FileInfo, error) {
-	dir := filepath.Dir(path)
-	temp, err := os.CreateTemp(dir, pattern)
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(temp.Name())
-	_, err = temp.Write(data)
-	if err == nil {
-		err = temp.Sync()
-	}
-	var info os.FileInfo
-	if err == nil {
-		info, err = temp.Stat()
-	}
-	closeErr := temp.Close()
-	if err != nil {
-		return nil, err
-	}
-	if closeErr != nil {
-		return nil, closeErr
-	}
-	if err := publish(temp.Name(), path); err != nil {
-		return nil, err
-	}
-	return info, nil
 }
 
 func (a *App) EnableCloseGuard() {
@@ -182,7 +135,7 @@ func (a *App) SaveDrawing(payload, title string) (bool, error) {
 	if err != nil || path == "" {
 		return false, err
 	}
-	if _, err = writeAtomic(path, []byte(payload), ".drawing-*.tmp"); err != nil {
+	if _, err = workspacestore.WriteAtomic(path, []byte(payload), ".drawing-*.tmp"); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -200,7 +153,7 @@ func (a *App) SaveLanguageTemplate(title string) (bool, error) {
 	if err != nil || path == "" {
 		return false, err
 	}
-	_, err = writeAtomic(path, template, ".language-*.tmp")
+	_, err = workspacestore.WriteAtomic(path, template, ".language-*.tmp")
 	return err == nil, err
 }
 

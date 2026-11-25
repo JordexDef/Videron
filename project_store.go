@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 
 	"videron/internal/syncclient"
 	"videron/internal/vault"
+	"videron/internal/workspacestore"
 )
 
 // Keep the desktop storage errors stable across the Wails bridge.
@@ -119,30 +121,20 @@ func validWorkspace(data []byte) bool {
 
 // Read both data and identity through the same open handle.
 func readWorkspace() ([]byte, os.FileInfo, error) {
-	path, err := workspacePath()
+	path, err := workspacestore.CatalogPath()
 	if err != nil {
 		return nil, nil, err
 	}
-	file, info, err := openSpaceFile(path)
+	data, info, err := workspacestore.ReadFile(path)
 	if errors.Is(err, errSpaceMissing) {
 		return nil, nil, nil
 	}
-	if err != nil {
-		return nil, nil, err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, nil, fmt.Errorf("VD_READ|%w", err)
-	}
-	return data, info, nil
+	return data, info, err
 }
 
-func sameFileState(old, now os.FileInfo) bool {
-	if old == nil || now == nil {
-		return old == nil && now == nil
-	}
-	return old.Size() == now.Size() && old.ModTime().Equal(now.ModTime()) && os.SameFile(old, now)
+func hexID(data []byte) string {
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
 }
 
 // Previous releases used this exact os.CreateTemp pattern for atomic saves.
@@ -190,7 +182,7 @@ func cleanWorkspaceTemps(path string, lock bool) error {
 	}
 	if lock {
 		// A live writer owns its temporary file until publication.
-		if err := withSpaceWriteLock(path, remove); !errors.Is(err, errChanged) {
+		if err := workspacestore.WithWriteLock(path, remove); !errors.Is(err, errChanged) {
 			return err
 		}
 		return nil
@@ -217,7 +209,7 @@ func (a *App) Load() (payload string, loadErr error) {
 		return "", errChanged
 	}
 	digest := sha256.Sum256(data)
-	if a.loaded && (!sameFileState(a.disk, info) || a.diskDigest != digest) {
+	if a.loaded && (!workspacestore.SameFileState(a.disk, info) || a.diskDigest != digest) {
 		// Drop a prior session when an external backup or sync replaced its data.
 		a.dropKeys()
 	}
@@ -242,7 +234,7 @@ func (a *App) Load() (payload string, loadErr error) {
 		}
 		// Removing a password stages plaintext before replacing the envelope.
 		// Recover leftovers from an interrupted write even at the password prompt.
-		path, err := workspacePath()
+		path, err := workspacestore.CatalogPath()
 		if err != nil {
 			return "", err
 		}
@@ -345,7 +337,7 @@ func (a *App) TakeResumeNote() string {
 // size and modification time. Read through the checked handle; stream the old
 // bytes so saving a library with large attachments needs no extra full copy.
 func (a *App) verifyCatalog(path string) error {
-	file, info, err := openSpaceFile(path)
+	file, info, err := workspacestore.OpenFile(path)
 	if errors.Is(err, errSpaceMissing) {
 		if a.disk == nil {
 			return nil
@@ -356,7 +348,7 @@ func (a *App) verifyCatalog(path string) error {
 		return err
 	}
 	defer file.Close()
-	if !sameFileState(a.disk, info) {
+	if !workspacestore.SameFileState(a.disk, info) {
 		return errChanged
 	}
 	digest := sha256.New()
@@ -388,7 +380,7 @@ func (a *App) writeSnapshot(payload string, key *vault.Key) error {
 }
 
 func (a *App) writeCatalogBytes(data []byte, key *vault.Key) error {
-	path, err := workspacePath()
+	path, err := workspacestore.CatalogPath()
 	if err != nil {
 		return err
 	}
@@ -408,9 +400,9 @@ func (a *App) writeCatalogBytes(data []byte, key *vault.Key) error {
 		}
 		publish := os.Rename
 		if a.disk == nil {
-			publish = publishNewSpaceFile
+			publish = workspacestore.PublishNewFile
 		}
-		written, err := writeAtomicInDir(path, data, ".workspace-*.tmp", publish)
+		written, err := workspacestore.WriteAtomicInDir(path, data, ".workspace-*.tmp", publish)
 		if errors.Is(err, os.ErrExist) {
 			return errChanged
 		}
@@ -422,7 +414,7 @@ func (a *App) writeCatalogBytes(data []byte, key *vault.Key) error {
 		return nil
 	}
 	if a.disk != nil {
-		return withSpaceWriteLock(path, write)
+		return workspacestore.WithWriteLock(path, write)
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("VD_WRITE|%w", err)

@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"videron/internal/vault"
+	"videron/internal/workspacestore"
 )
 
 // Patches describe changes to JSON objects and to the ordered record lists in
@@ -314,7 +315,7 @@ func (e spaceEdits) apply(space *indexedSpace) (*indexedSpace, error) {
 	}
 	next := *space
 	var err error
-	next.fields, err = e.objectEdits.apply(space.fields, "notes", "areas", "mapInk", "folder", syncProperty)
+	next.fields, err = e.objectEdits.apply(space.fields, "notes", "areas", "mapInk", "folder", workspacestore.SyncProperty)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +528,7 @@ func (a *App) SaveCatalogPatch(expectedRev, delta string) (string, error) {
 		if a.lastCatalogPatch != (savePatchReceipt{from: expectedRev, to: current, digest: digest}) {
 			return "", errChanged
 		}
-		path, err := workspacePath()
+		path, err := workspacestore.CatalogPath()
 		if err != nil {
 			return "", err
 		}
@@ -547,7 +548,7 @@ func (a *App) SaveCatalogPatch(expectedRev, delta string) (string, error) {
 			return "", err
 		}
 		defer clear(raw)
-		if !sameFileState(a.disk, info) || hexID(raw) != expectedRev {
+		if !workspacestore.SameFileState(a.disk, info) || sha256.Sum256(raw) != a.diskDigest {
 			return "", errChanged
 		}
 		if a.projectKey != nil {

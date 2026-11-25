@@ -1,4 +1,4 @@
-package main
+package workspacestore
 
 import (
 	"bytes"
@@ -15,23 +15,15 @@ import (
 	"time"
 
 	"videron/internal/vault"
-	"videron/internal/workspacemerge"
 )
 
-const syncFolderName = ".videron-sync"
-const syncScope = "videron.space.sync"
-const syncProperty = "_videronSync"
+const HistoryDirName = ".videron-sync"
+const SyncScope = "videron.space.sync"
+const SyncProperty = "_videronSync"
 
-var errSyncPending = errors.New("VD_SYNC_PENDING")
-var errSpaceIdentity = errors.New("VD_SPACE_IDENTITY")
+var ErrSyncPending = errors.New("VD_SYNC_PENDING")
+var ErrSpaceIdentity = errors.New("VD_SPACE_IDENTITY")
 
-// An immutable manifest points to one object per note, area, route or other
-// top-level value. Autosaving a text note reuses all the untouched objects.
-type spaceRevision struct {
-	Parents []string            `json:"parents"`
-	Values  map[string]string   `json:"values"`
-	Lists   map[string][]string `json:"lists"`
-}
 type spaceSyncMeta struct {
 	Lineage string   `json:"lineage"`
 	Head    string   `json:"head,omitempty"`
@@ -56,7 +48,7 @@ type spaceReplica struct {
 	mergePlan       *preparedFolderMerge
 	lastMerge       savePatchReceipt
 }
-type FolderSpaceUpdate struct {
+type Update struct {
 	Token  string `json:"token"`
 	Base   string `json:"base,omitempty"`
 	Remote string `json:"remote,omitempty"`
@@ -114,12 +106,12 @@ func splitSpaceMeta(payload []byte) (spaceSyncMeta, []byte, error) {
 	if json.Unmarshal(payload, &fields) != nil {
 		return m, nil, errCorrupt
 	}
-	delete(fields, syncProperty)
+	delete(fields, SyncProperty)
 	data, err := json.Marshal(fields)
 	return m, data, err
 }
-func encodeTrackedSpace(payload string, meta spaceSyncMeta, key *vault.Key) ([]byte, error) {
-	if !validSpacePayload([]byte(payload)) {
+func (store *Store) encodeTrackedSpace(payload string, meta spaceSyncMeta, key *vault.Key) ([]byte, error) {
+	if !store.ValidPayload([]byte(payload)) {
 		return nil, errInvalid
 	}
 	m, _, err := splitSpaceMeta([]byte(payload))
@@ -131,19 +123,19 @@ func encodeTrackedSpace(payload string, meta spaceSyncMeta, key *vault.Key) ([]b
 		return nil, err
 	}
 	clean := strings.TrimSpace(payload)
-	return encodeSpace(clean[:len(clean)-1]+`,"_videronSync":`+string(raw)+"}", key)
+	return store.EncodeSpace(clean[:len(clean)-1]+`,"_videronSync":`+string(raw)+"}", key)
 }
-func (s *folderSpaceSession) graphPath() string {
-	return filepath.Join(filepath.Dir(s.path), syncFolderName, s.sync.meta.Lineage)
+func (s *Session) graphPath() string {
+	return filepath.Join(filepath.Dir(s.path), HistoryDirName, s.sync.meta.Lineage)
 }
-func (s *folderSpaceSession) cursorPath() (string, error) {
-	config, err := workspacePath()
+func (s *Session) cursorPath() (string, error) {
+	config, err := CatalogPath()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(config), "sync-state", hexID([]byte(spaceSessionID(s.path)))+".json"), nil
+	return filepath.Join(filepath.Dir(config), "sync-state", hexID([]byte(SessionID(s.path)))+".json"), nil
 }
-func (s *folderSpaceSession) storedCursor() string {
+func (s *Session) storedCursor() string {
 	p, err := s.cursorPath()
 	if err != nil {
 		return ""
@@ -155,7 +147,7 @@ func (s *folderSpaceSession) storedCursor() string {
 	}
 	return meta.Head
 }
-func (s *folderSpaceSession) advance(m spaceSyncMeta, data string) error {
+func (s *Session) advance(m spaceSyncMeta, data string) error {
 	p, err := s.cursorPath()
 	if err != nil {
 		return err
@@ -164,7 +156,7 @@ func (s *folderSpaceSession) advance(m spaceSyncMeta, data string) error {
 	if err != nil {
 		return err
 	}
-	if _, err = writeAtomic(p, b, ".sync-cursor-*.tmp"); err != nil {
+	if _, err = WriteAtomic(p, b, ".sync-cursor-*.tmp"); err != nil {
 		return fmt.Errorf("VD_WRITE|%w", err)
 	}
 	s.sync.mergePlan = nil
@@ -173,7 +165,7 @@ func (s *folderSpaceSession) advance(m spaceSyncMeta, data string) error {
 	s.sync.payload = data
 	return nil
 }
-func (s *folderSpaceSession) openReplica(plain []byte) (string, error) {
+func (s *Session) openReplica(plain []byte) (string, error) {
 	m, payload, err := splitSpaceMeta(plain)
 	if err != nil {
 		return "", err
@@ -188,7 +180,7 @@ func (s *folderSpaceSession) openReplica(plain []byte) (string, error) {
 		// device's saved branch. Opening it would replace our cursor on init.
 		if err = s.graphDirs(false); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return "", errSyncPending
+				return "", ErrSyncPending
 			}
 			return "", err
 		}
@@ -206,250 +198,10 @@ func (s *folderSpaceSession) openReplica(plain []byte) (string, error) {
 	}
 	return s.sync.payload, nil
 }
-func replicaDir(path string, create bool) error {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) && create {
-		if e := os.Mkdir(path, 0700); e != nil && !errors.Is(e, os.ErrExist) {
-			return e
-		}
-		info, err = os.Lstat(path)
-	}
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errInvalid
-	}
-	return nil
-}
-func (s *folderSpaceSession) graphDirs(create bool) error {
-	graph := s.graphPath()
-	for _, d := range []string{filepath.Dir(graph), graph, filepath.Join(graph, "objects"), filepath.Join(graph, "revisions")} {
-		if err := replicaDir(d, create); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-func (s *folderSpaceSession) recordID(kind string, data []byte) string {
-	prefix := s.sync.meta.Lineage + "/" + kind + "/"
-	if s.key != nil {
-		return hex.EncodeToString(s.key.RecordMAC(prefix, data))
-	}
-	h := sha256.New()
-	h.Write([]byte(prefix))
-	h.Write(data)
-	return hex.EncodeToString(h.Sum(nil))
-}
-func (s *folderSpaceSession) readRecord(kind, id string) ([]byte, error) {
-	if !validSyncID(id) {
-		return nil, errCorrupt
-	}
-	p := filepath.Join(s.graphPath(), kind, id+".json")
-	raw, _, err := readSpaceFile(p)
-	if errors.Is(err, errSpaceMissing) {
-		return nil, errSyncPending
-	}
-	if err != nil {
-		return nil, err
-	}
-	return s.decodeRecord(kind, id, raw)
-}
-func (s *folderSpaceSession) decodeRecord(kind, id string, raw []byte) ([]byte, error) {
-	if s.key != nil {
-		env, err := vault.ParseEnvelope(raw, syncScope)
-		clear(raw)
-		if err != nil {
-			return nil, err
-		}
-		raw, err = s.key.Open(env, s.sync.meta.Lineage+"/"+kind+"/"+id)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if s.recordID(kind, raw) != id {
-		clear(raw)
-		return nil, errCorrupt
-	}
-	return raw, nil
-}
-func (s *folderSpaceSession) putRecord(kind string, data []byte) (string, error) {
-	id := s.recordID(kind, data)
-	if kind == "objects" {
-		if _, ok := s.sync.verifiedObjects[id]; ok {
-			return id, nil
-		}
-	}
-	p := filepath.Join(s.graphPath(), kind, id+".json")
-	_, err := os.Lstat(p)
-	if err == nil {
-		raw, e := s.readRecord(kind, id)
-		clear(raw)
-		err = e
-	} else if errors.Is(err, os.ErrNotExist) {
-		out := data
-		if s.key != nil {
-			out, err = s.key.Seal(syncScope, s.sync.meta.Lineage+"/"+kind+"/"+id, data)
-			if err != nil {
-				return "", err
-			}
-			defer clear(out)
-		}
-		_, err = writeAtomicInDir(p, out, ".sync-*.tmp", publishNewSpaceFile)
-		if errors.Is(err, os.ErrExist) {
-			var existing []byte
-			existing, err = s.readRecord(kind, id)
-			clear(existing)
-		}
-	}
-	if err != nil {
-		return "", err
-	}
-	if kind == "objects" {
-		if s.sync.verifiedObjects == nil {
-			s.sync.verifiedObjects = map[string]struct{}{}
-		}
-		s.sync.verifiedObjects[id] = struct{}{}
-	}
-	return id, nil
-}
-
-// Refresh cached object presence in one directory pass if a cloud provider
-// changed the archive, including providers that preserve directory timestamps.
-func (s *folderSpaceSession) refreshObjectCache(dir string) error {
-	if len(s.sync.verifiedObjects) == 0 {
-		s.sync.lastObjectScan = time.Now()
-		return nil
-	}
-	info, err := os.Stat(dir)
-	if err != nil {
-		return err
-	}
-	if s.sync.objectDirTime.Equal(info.ModTime()) && time.Since(s.sync.lastObjectScan) < time.Minute {
-		return nil
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	present := make(map[string]struct{}, len(s.sync.verifiedObjects))
-	for _, entry := range entries {
-		id, ok := strings.CutSuffix(entry.Name(), ".json")
-		if _, known := s.sync.verifiedObjects[id]; ok && known && entry.Type().IsRegular() {
-			present[id] = struct{}{}
-		}
-	}
-	s.sync.verifiedObjects = present
-	s.sync.lastObjectScan = time.Now()
-	return nil
-}
-
-func (s *folderSpaceSession) manifest(data string, parents []string) (spaceRevision, error) {
-	r := spaceRevision{Parents: parents, Values: map[string]string{}, Lists: map[string][]string{}}
-	if !validSpacePayload([]byte(data)) {
-		return r, errInvalid
-	}
-	var fields map[string]json.RawMessage
-	if json.Unmarshal([]byte(data), &fields) != nil || fields[syncProperty] != nil {
-		return r, errInvalid
-	}
-	dir := filepath.Join(s.graphPath(), "objects")
-	if err := s.refreshObjectCache(dir); err != nil {
-		return r, err
-	}
-	for k, v := range fields {
-		var cells []json.RawMessage
-		if workspacemerge.CollectionKind(k) != "" && json.Unmarshal(v, &cells) == nil && cells != nil {
-			ids := make([]string, 0, len(cells))
-			for _, cell := range cells {
-				id, err := s.storeValue(cell)
-				if err != nil {
-					return r, err
-				}
-				ids = append(ids, id)
-			}
-			r.Lists[k] = ids
-		} else {
-			id, err := s.storeValue(v)
-			if err != nil {
-				return r, err
-			}
-			r.Values[k] = id
-		}
-	}
-	// Remember our own writes so an ordinary edit needn't enumerate all
-	// archived objects on the next save.
-	info, err := os.Stat(dir)
-	if err != nil {
-		return r, err
-	}
-	s.sync.objectDirTime = info.ModTime()
-	return r, nil
-}
-func (s *folderSpaceSession) putRevision(r spaceRevision) (spaceSyncMeta, error) {
-	raw, err := json.Marshal(r)
-	if err != nil {
-		return spaceSyncMeta{}, err
-	}
-	id, err := s.putRecord("revisions", raw)
-	if err != nil {
-		return spaceSyncMeta{}, err
-	}
-	if s.sync.parents == nil {
-		s.sync.parents = map[string][]string{}
-	}
-	s.sync.parents[id] = r.Parents
-	return spaceSyncMeta{s.sync.meta.Lineage, id, r.Parents}, nil
-}
-func (s *folderSpaceSession) readRevision(id string) (spaceRevision, error) {
-	var r spaceRevision
-	raw, err := s.readRecord("revisions", id)
-	if err != nil {
-		return r, err
-	}
-	defer clear(raw)
-	if json.Unmarshal(raw, &r) != nil || !validParents(r.Parents) || r.Values == nil || r.Lists == nil {
-		return r, errCorrupt
-	}
-	return r, nil
-}
-func (s *folderSpaceSession) materialize(r spaceRevision) (string, error) {
-	fields := map[string]json.RawMessage{}
-	for k, id := range r.Values {
-		v, err := s.readValue(id)
-		if err != nil {
-			return "", err
-		}
-		fields[k] = v
-	}
-	for k, ids := range r.Lists {
-		if _, ok := fields[k]; ok {
-			return "", errCorrupt
-		}
-		list := make([]json.RawMessage, 0, len(ids))
-		for _, id := range ids {
-			v, err := s.readValue(id)
-			if err != nil {
-				return "", err
-			}
-			list = append(list, v)
-		}
-		raw, err := json.Marshal(list)
-		if err != nil {
-			return "", errCorrupt
-		}
-		fields[k] = raw
-	}
-	doc, err := json.Marshal(fields)
-	if err != nil || !validSpacePayload(doc) {
-		return "", errCorrupt
-	}
-	return string(doc), nil
-}
 
 // Publish every object before the manifest becomes visible. A cloud client can
 // deliver those files in another order; readers retry until the objects arrive.
-func (s *folderSpaceSession) initReplica() error {
+func (s *Session) initReplica() error {
 	if err := s.graphDirs(true); err != nil {
 		return err
 	}
@@ -474,13 +226,13 @@ func (s *folderSpaceSession) initReplica() error {
 	s.sync.initialized = true
 	return nil
 }
-func (s *folderSpaceSession) mainPayload(raw []byte) (spaceSyncMeta, string, error) {
-	plain, env, err := parseSpaceFile(raw)
+func (s *Session) mainPayload(raw []byte) (spaceSyncMeta, string, error) {
+	plain, env, err := s.store.ParseFile(raw)
 	if err != nil {
 		return spaceSyncMeta{}, "", err
 	}
 	if (s.key != nil) != (env != nil) {
-		return spaceSyncMeta{}, "", errSpaceIdentity
+		return spaceSyncMeta{}, "", ErrSpaceIdentity
 	}
 	if env != nil {
 		plain, err = s.key.Open(env, "")
@@ -494,19 +246,19 @@ func (s *folderSpaceSession) mainPayload(raw []byte) (spaceSyncMeta, string, err
 		return m, "", err
 	}
 	if m.Lineage != "" && m.Lineage != s.sync.meta.Lineage {
-		return m, "", errSpaceIdentity
+		return m, "", ErrSpaceIdentity
 	}
 	return m, string(data), nil
 }
-func (s *folderSpaceSession) importMain(force bool) error {
+func (s *Session) importMain(force bool) error {
 	info, err := os.Lstat(s.path)
 	if err != nil {
 		return err
 	}
-	if !force && s.sync.diskHead != "" && sameFileState(s.info, info) && time.Since(s.sync.fullRead) < time.Minute {
+	if !force && s.sync.diskHead != "" && SameFileState(s.info, info) && time.Since(s.sync.fullRead) < time.Minute {
 		return nil
 	}
-	raw, info, err := readSpaceFile(s.path)
+	raw, info, err := ReadFile(s.path)
 	if err != nil {
 		return err
 	}
@@ -544,7 +296,7 @@ func (s *folderSpaceSession) importMain(force bool) error {
 	s.sync.fullRead = time.Now()
 	return nil
 }
-func (s *folderSpaceSession) scan(force bool) error {
+func (s *Session) scan(force bool) error {
 	dir := filepath.Join(s.graphPath(), "revisions")
 	st, err := os.Stat(dir)
 	if err != nil {
@@ -639,7 +391,7 @@ func commonBase(ours, theirs map[string]bool, graph map[string][]string) string 
 	}
 	return ""
 }
-func (s *folderSpaceSession) candidate() (string, string, error) {
+func (s *Session) candidate() (string, string, error) {
 	// Only compare branch tips. A remote tip that already includes our current
 	// head is a fast-forward. Merges retain both parents, so no tip repeats.
 	tips := make(map[string]bool, len(s.sync.parents))
@@ -670,17 +422,17 @@ func (s *folderSpaceSession) candidate() (string, string, error) {
 		}
 	}
 	if len(pending) > 0 {
-		return "", "", errSyncPending
+		return "", "", ErrSyncPending
 	}
 	return "", "", nil
 }
-func (s *folderSpaceSession) publishMain(data string, m spaceSyncMeta) error {
-	raw, err := encodeTrackedSpace(data, m, s.key)
+func (s *Session) publishMain(data string, m spaceSyncMeta) error {
+	raw, err := s.store.encodeTrackedSpace(data, m, s.key)
 	if err != nil {
 		return err
 	}
 	defer clear(raw)
-	info, err := writeAtomicInDir(s.path, raw, ".videron-space-*.tmp", func(temp, path string) error {
+	info, err := WriteAtomicInDir(s.path, raw, ".videron-space-*.tmp", func(temp, path string) error {
 		if err := s.verifyCurrent(); err != nil {
 			return err
 		}
@@ -696,14 +448,16 @@ func (s *folderSpaceSession) publishMain(data string, m spaceSyncMeta) error {
 	s.sync.mainStamped = true
 	return nil
 }
-func (a *App) FolderSpaceLineage(folder string) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	s, err := a.currentSpaceSession(folder)
-	if err != nil {
-		return "", err
-	}
-	err = withSpaceWriteLock(s.path, func() error {
+
+// Lineage identifies this workspace without modifying the archive.
+func (s *Session) Lineage() string { return s.sync.meta.Lineage }
+
+// Head returns the current local revision ID, or an empty ID before initialization.
+func (s *Session) Head() string { return s.sync.meta.Head }
+
+// EnsureLineage publishes the initial revision and stamps older workspaces when needed.
+func (s *Session) EnsureLineage() (string, error) {
+	err := WithWriteLock(s.path, func() error {
 		if err := s.initReplica(); err != nil {
 			return err
 		}
@@ -717,29 +471,17 @@ func (a *App) FolderSpaceLineage(folder string) (string, error) {
 	})
 	return s.sync.meta.Lineage, err
 }
-func (a *App) PollFolderSpace(folder string, force bool) (FolderSpaceUpdate, error) {
-	return a.pollFolderSpace(folder, force, "")
-}
 
-// CheckFolderSpace omits the snapshots when the caller already has both heads.
-func (a *App) CheckFolderSpace(folder, knownToken string) (FolderSpaceUpdate, error) {
-	return a.pollFolderSpace(folder, false, knownToken)
-}
-
-func (a *App) pollFolderSpace(folder string, force bool, knownToken string) (FolderSpaceUpdate, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	var u FolderSpaceUpdate
-	s, err := a.currentSpaceSession(folder)
-	if err != nil {
-		return u, err
-	}
+// Poll discovers a peer revision. If knownToken still describes both heads,
+// the caller can keep the snapshots it already has.
+func (s *Session) Poll(force bool, knownToken string) (Update, error) {
+	var u Update
 	token, tip, base, err := s.pollCandidate(force)
 	if err != nil || token == "" {
 		return u, err
 	}
 	if token == knownToken {
-		return FolderSpaceUpdate{Token: token}, nil
+		return Update{Token: token}, nil
 	}
 	r, err := s.readRevision(tip)
 	if err != nil {
@@ -762,9 +504,9 @@ func (a *App) pollFolderSpace(folder string, force bool, knownToken string) (Fol
 			return u, err
 		}
 	}
-	return FolderSpaceUpdate{token, previous, remote}, nil
+	return Update{token, previous, remote}, nil
 }
-func (s *folderSpaceSession) pollCandidate(force bool) (token, tip, base string, err error) {
+func (s *Session) pollCandidate(force bool) (token, tip, base string, err error) {
 	if err := s.initReplica(); err != nil {
 		return "", "", "", err
 	}
@@ -784,7 +526,7 @@ func (s *folderSpaceSession) pollCandidate(force bool) (token, tip, base string,
 			// its immutable branch and atomically replacing Videron.space, or
 			// after a sync client re-delivers an older ancestor.
 			if s.sync.diskHead != s.sync.meta.Head && ancestorOf(s.sync.diskHead, s.sync.meta.Head, s.sync.parents) {
-				if e := withSpaceWriteLock(s.path, func() error { return s.publishMain(s.sync.payload, s.sync.meta) }); e != nil {
+				if e := WithWriteLock(s.path, func() error { return s.publishMain(s.sync.payload, s.sync.meta) }); e != nil {
 					return "", "", "", e
 				}
 			}
@@ -795,26 +537,20 @@ func (s *folderSpaceSession) pollCandidate(force bool) (token, tip, base string,
 	}
 	return s.sync.meta.Head + ":" + tip, tip, base, nil
 }
-func (a *App) SaveFolderBranch(folder, payload string) error {
-	return a.commitFolderBranch(folder, "", payload)
+
+func (s *Session) SaveBranch(data string) error {
+	return s.commitBranch("", data, false)
 }
-func (a *App) CommitFolderMerge(folder, token, payload string) error {
+
+func (s *Session) CommitMerge(token, data string) error {
 	if token == "" {
 		return errInvalid
 	}
-	return a.commitFolderBranch(folder, token, payload)
-}
-func (a *App) commitFolderBranch(folder, token, data string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	s, err := a.currentSpaceSession(folder)
-	if err != nil {
-		return err
-	}
 	return s.commitBranch(token, data, false)
 }
-func (s *folderSpaceSession) commitBranch(token, data string, strict bool) error {
-	return withSpaceWriteLock(s.path, func() error {
+
+func (s *Session) commitBranch(token, data string, strict bool) error {
+	return WithWriteLock(s.path, func() error {
 		if strict {
 			if err := s.verifyCurrent(); err != nil {
 				return err
@@ -884,7 +620,7 @@ func ancestorOf(older, newer string, parents map[string][]string) bool {
 	return older == newer || slices.Contains(parents[newer], older) || ancestors(newer, parents)[older]
 }
 
-func (s *folderSpaceSession) deleteReplica() error {
+func (s *Session) deleteReplica() error {
 	if s.sync.meta.Lineage == "" {
 		return nil
 	}
@@ -896,7 +632,7 @@ func (s *folderSpaceSession) deleteReplica() error {
 	}
 	// Verify the entire archive before deleting anything. Do not truncate a
 	// healthy history just because an unrelated or damaged file was found later.
-	var records []folderSpaceSession
+	var records []Session
 	for _, kind := range []string{"revisions", "objects"} {
 		dir := filepath.Join(graph, kind)
 		entries, err := os.ReadDir(dir)
@@ -909,11 +645,11 @@ func (s *folderSpaceSession) deleteReplica() error {
 				continue
 			}
 			path := filepath.Join(dir, entry.Name())
-			raw, info, e := readSpaceFile(path)
+			raw, info, e := ReadFile(path)
 			if e != nil {
 				return e
 			}
-			record := folderSpaceSession{path: path, info: info, digest: sha256.Sum256(raw)}
+			record := Session{path: path, info: info, digest: sha256.Sum256(raw)}
 			plain, e := s.decodeRecord(kind, id, raw)
 			clear(plain)
 			clear(raw)

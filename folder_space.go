@@ -1,60 +1,28 @@
 package main
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
-	"unicode/utf8"
 
 	"videron/internal/syncclient"
 	"videron/internal/vault"
+	"videron/internal/workspacestore"
 )
 
-const folderSpaceFilename = "Videron.space"
-const folderSpaceFormat = "videron.space"
+const folderSpaceFilename = workspacestore.Filename
+const folderSpaceFormat = workspacestore.Format
 
-var errSpaceMissing = syncclient.ErrSpaceMissing
-var errSpaceExists = errors.New("VD_SPACE_EXISTS")
+var errSpaceMissing = workspacestore.ErrMissing
+var errSpaceExists = workspacestore.ErrExists
+var folderStore = workspacestore.New[storedNote]()
 
-type SpaceFolderInfo struct {
-	Folder    string `json:"folder"`
-	Exists    bool   `json:"exists"`
-	Encrypted bool   `json:"encrypted"`
-	CanResume bool   `json:"canResume"`
-}
+type SpaceFolderInfo = workspacestore.SpaceFolderInfo
 
+// Folder grants and network caches belong to this desktop session.
 type folderSpaceSession struct {
-	path                string
-	info                os.FileInfo
-	digest              [sha256.Size]byte
-	key                 *vault.Key
+	*workspacestore.Session
 	discardKeyOnSuspend bool
-	sync                spaceReplica
-	lastPatch           savePatchReceipt
 	serverIndex         *syncclient.IndexCache
-}
-
-type folderSpaceDocument struct {
-	Format  string          `json:"format"`
-	Version int             `json:"version"`
-	Space   json.RawMessage `json:"space"`
-}
-
-func validSpacePayload(data []byte) bool {
-	var shape struct {
-		Name   string          `json:"name"`
-		Notes  []storedNote    `json:"notes"`
-		Areas  []struct{}      `json:"areas"`
-		Folder json.RawMessage `json:"folder"`
-	}
-	return utf8.Valid(data) && json.Unmarshal(data, &shape) == nil && strings.TrimSpace(shape.Name) != "" && utf8.RuneCountInString(shape.Name) <= 80 && shape.Notes != nil && shape.Areas != nil && shape.Folder == nil
 }
 
 func spaceDir(folder string) (string, error) {
@@ -69,80 +37,6 @@ func spaceDir(folder string) (string, error) {
 	return dir, nil
 }
 
-func spaceSessionID(folder string) string {
-	path := filepath.Clean(folder)
-	if runtime.GOOS == "windows" {
-		return strings.ToLower(path)
-	}
-	return path
-}
-
-func openSpaceFile(path string) (*os.File, os.FileInfo, error) {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil, errSpaceMissing
-	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("VD_READ|%w", err)
-	}
-	if !supportedSpaceFile(path, info) {
-		return nil, nil, errInvalid
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("VD_READ|%w", err)
-	}
-	opened, err := file.Stat()
-	if err != nil {
-		file.Close()
-		return nil, nil, fmt.Errorf("VD_READ|%w", err)
-	}
-	if !os.SameFile(info, opened) {
-		file.Close()
-		return nil, nil, errChanged
-	}
-	return file, opened, nil
-}
-
-func readSpaceFile(path string) ([]byte, os.FileInfo, error) {
-	file, info, err := openSpaceFile(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer file.Close()
-	raw, err := io.ReadAll(file)
-	if err != nil {
-		return nil, nil, fmt.Errorf("VD_READ|%w", err)
-	}
-	return raw, info, nil
-}
-
-// File location is intentionally absent from the authenticated data: an
-// encrypted space must remain portable between folders, machines and OSes.
-func parseSpaceFile(raw []byte) (json.RawMessage, *vault.Envelope, error) {
-	var header struct {
-		Vault string `json:"vault"`
-	}
-	if !utf8.Valid(raw) || json.Unmarshal(raw, &header) != nil {
-		return nil, nil, errCorrupt
-	}
-	if header.Vault != "" {
-		env, err := vault.ParseEnvelope(raw, folderSpaceFormat)
-		return nil, env, err
-	}
-	var doc folderSpaceDocument
-	if json.Unmarshal(raw, &doc) != nil || doc.Format != folderSpaceFormat {
-		return nil, nil, errCorrupt
-	}
-	if doc.Version != 1 {
-		return nil, nil, errVersion
-	}
-	if !validSpacePayload(doc.Space) {
-		return nil, nil, errCorrupt
-	}
-	return doc.Space, nil, nil
-}
-
 func (a *App) InspectSpaceFolder(folder string) (SpaceFolderInfo, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -152,44 +46,26 @@ func (a *App) InspectSpaceFolder(folder string) (SpaceFolderInfo, error) {
 	}
 	dir, err := spaceDir(folder)
 	if err != nil {
-		a.forgetSuspendedFolder(spaceSessionID(folder))
+		a.forgetSuspendedFolder(workspacestore.SessionID(folder))
 		return result, err
 	}
-	result.Folder = dir
-	id := spaceSessionID(dir)
-	raw, _, err := readSpaceFile(filepath.Join(dir, folderSpaceFilename))
-	if err != nil {
+
+	id := workspacestore.SessionID(dir)
+	result, err = folderStore.Inspect(dir, a.suspendedFolderKeys[id])
+	if !result.CanResume || err != nil {
 		a.forgetSuspendedFolder(id)
-		if errors.Is(err, errSpaceMissing) {
-			return result, nil
-		}
-		return result, err
 	}
-	defer clear(raw)
-	_, env, err := parseSpaceFile(raw)
-	if err != nil {
-		a.forgetSuspendedFolder(id)
-		return result, err
-	}
-	result.Exists = true
-	result.Encrypted = env != nil
-	if key := a.suspendedFolderKeys[id]; key != nil {
-		result.CanResume = env != nil && key.MatchesSalt(env.Salt)
-		if !result.CanResume {
-			a.forgetSuspendedFolder(id)
-		}
-	}
-	return result, nil
+	return result, err
 }
 
 func (a *App) setSpaceSession(dir string, session *folderSpaceSession) {
 	if a.folderSpaces == nil {
 		a.folderSpaces = make(map[string]*folderSpaceSession)
 	}
-	id := spaceSessionID(dir)
+	id := workspacestore.SessionID(dir)
 	a.forgetSuspendedFolder(id)
 	if old := a.folderSpaces[id]; old != nil {
-		old.key.Forget()
+		old.Key().Forget()
 	}
 	a.folderSpaces[id] = session
 }
@@ -210,10 +86,10 @@ func (a *App) openFolderSpace(folder, password string, resume bool) (string, err
 	}
 	dir, err := spaceDir(folder)
 	if err != nil {
-		a.forgetSuspendedFolder(spaceSessionID(folder))
+		a.forgetSuspendedFolder(workspacestore.SessionID(folder))
 		return "", err
 	}
-	id := spaceSessionID(dir)
+	id := workspacestore.SessionID(dir)
 	var key *vault.Key
 	if resume {
 		key = a.suspendedFolderKeys[id]
@@ -224,67 +100,17 @@ func (a *App) openFolderSpace(folder, password string, resume bool) (string, err
 	} else {
 		a.forgetSuspendedFolder(id)
 	}
-	// Transfer ownership to the active session only after today's document
-	// and replica have both been authenticated and read successfully.
-	defer func() { key.Forget() }()
-	path := filepath.Join(dir, folderSpaceFilename)
-	raw, info, err := readSpaceFile(path)
-	if err != nil {
-		return "", err
-	}
-	defer clear(raw)
-	plain, env, err := parseSpaceFile(raw)
-	if err != nil {
-		return "", err
-	}
-	// The caller expects an encrypted file. A cloud writer may have
-	// replaced it since inspection; never continue in plaintext.
-	if env == nil && (password != "" || resume) {
-		return "", errChanged
-	}
-	if env != nil {
-		switch {
-		case resume:
-			if !key.MatchesSalt(env.Salt) {
-				return "", errLocked
-			}
-		case password == "":
-			return "", errLocked
-		default:
-			key = vault.DeriveKey(password, env.Salt)
-		}
-		plain, err = key.Open(env, "")
-		if err != nil {
-			return "", err
-		}
-		defer clear(plain)
-		if !validSpacePayload(plain) {
-			return "", errCorrupt
-		}
-	}
-	session := &folderSpaceSession{path: path, info: info, digest: sha256.Sum256(raw), key: key}
-	payload, err := session.openReplica(plain)
+
+	opened, payload, err := folderStore.Open(dir, password, key)
 	if err != nil {
 		return "", err
 	}
 	if resume && a.revokingFolderKeys.Load() {
+		opened.Key().Forget()
 		return "", errLocked
 	}
-	a.setSpaceSession(dir, session)
-	key = nil
+	a.setSpaceSession(dir, &folderSpaceSession{Session: opened})
 	return payload, nil
-}
-
-func encodeSpace(payload string, key *vault.Key) ([]byte, error) {
-	data := []byte(payload)
-	defer clear(data)
-	if !validSpacePayload(data) {
-		return nil, errInvalid
-	}
-	if key != nil {
-		return key.Seal(folderSpaceFormat, "", data)
-	}
-	return json.Marshal(folderSpaceDocument{Format: folderSpaceFormat, Version: 1, Space: data})
 }
 
 func (a *App) CreateFolderSpace(folder, payload, password string) error {
@@ -297,43 +123,12 @@ func (a *App) CreateFolderSpace(folder, payload, password string) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, folderSpaceFilename)
-	if _, err = os.Lstat(path); err == nil {
-		return errSpaceExists
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("VD_READ|%w", err)
-	}
-	var key *vault.Key
-	if password != "" {
-		key, err = vault.NewKey(password)
-		if err != nil {
-			return err
-		}
-	}
-	session := &folderSpaceSession{path: path, key: key}
-	lineage, err := newLineage()
+
+	opened, err := folderStore.Create(dir, payload, password)
 	if err != nil {
-		key.Forget()
 		return err
 	}
-	session.sync.meta.Lineage = lineage
-	session.sync.payload = payload
-	data, err := encodeTrackedSpace(payload, session.sync.meta, key)
-	if err != nil {
-		key.Forget()
-		return err
-	}
-	defer clear(data)
-	info, err := writeAtomicInDir(path, data, ".videron-space-*.tmp", publishNewSpaceFile)
-	if err != nil {
-		key.Forget()
-		if errors.Is(err, os.ErrExist) {
-			return errSpaceExists
-		}
-		return fmt.Errorf("VD_WRITE|%w", err)
-	}
-	session.info, session.digest = info, sha256.Sum256(data)
-	a.setSpaceSession(dir, session)
+	a.setSpaceSession(dir, &folderSpaceSession{Session: opened})
 	return nil
 }
 
@@ -345,49 +140,11 @@ func (a *App) currentSpaceSession(folder string) (*folderSpaceSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	session := a.folderSpaces[spaceSessionID(dir)]
+	session := a.folderSpaces[workspacestore.SessionID(dir)]
 	if session == nil {
 		return nil, errLocked
 	}
 	return session, nil
-}
-
-// Cloud clients may change the bytes in place with preserved timestamps,
-// or replace the file altogether. Check both identity and content.
-func (s *folderSpaceSession) verifyFile(file *os.File, info os.FileInfo) error {
-	if !os.SameFile(s.info, info) || s.info.Size() != info.Size() {
-		return errChanged
-	}
-	h := sha256.New()
-	if _, err := io.Copy(h, file); err != nil {
-		return fmt.Errorf("VD_READ|%w", err)
-	}
-	if !bytes.Equal(h.Sum(nil), s.digest[:]) {
-		return errChanged
-	}
-	return nil
-}
-
-func (s *folderSpaceSession) verifyCurrent() error {
-	f, info, err := openSpaceFile(s.path)
-	if errors.Is(err, errSpaceMissing) || errors.Is(err, errInvalid) {
-		return errChanged
-	}
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return s.verifyFile(f, info)
-}
-
-// Serialize compare-and-replace for other Videron writers on the same volume.
-func (s *folderSpaceSession) publishEdit(temp, path string) error {
-	return withSpaceWriteLock(path, func() error {
-		if err := s.verifyCurrent(); err != nil {
-			return err
-		}
-		return os.Rename(temp, path)
-	})
 }
 
 func (a *App) SaveFolderSpace(folder, payload string) error {
@@ -397,35 +154,16 @@ func (a *App) SaveFolderSpace(folder, payload string) error {
 	if err != nil {
 		return err
 	}
-	// Keep the original compare-and-replace contract for existing callers.
-	// Once version history is initialized the write must also extend that graph.
-	if session.sync.initialized {
-		return session.commitBranch("", payload, true)
-	}
-	meta := spaceSyncMeta{Lineage: session.sync.meta.Lineage}
-	data, err := encodeTrackedSpace(payload, meta, session.key)
-	if err != nil {
-		return err
-	}
-	defer clear(data)
-	info, err := writeAtomicInDir(session.path, data, ".videron-space-*.tmp", session.publishEdit)
-	if err != nil {
-		if errors.Is(err, errChanged) {
-			return err
-		}
-		return fmt.Errorf("VD_WRITE|%w", err)
-	}
-	session.info, session.digest = info, sha256.Sum256(data)
-	session.sync = spaceReplica{payload: payload, meta: meta}
-	return nil
+
+	return session.Save(payload)
 }
 
 func (a *App) folderKeyID(folder string) string {
 	// The canonical path returned by InspectSpaceFolder also works offline.
-	id := spaceSessionID(folder)
+	id := workspacestore.SessionID(folder)
 	if a.folderSpaces[id] == nil && a.suspendedFolderKeys[id] == nil {
 		if dir, err := spaceDir(folder); err == nil {
-			id = spaceSessionID(dir)
+			id = workspacestore.SessionID(dir)
 		}
 	}
 	return id
@@ -464,15 +202,15 @@ func (a *App) SuspendFolderSpace(folder string) bool {
 		return a.suspendedFolderKeys[id] != nil
 	}
 	delete(a.folderSpaces, id)
-	if session.key == nil || session.discardKeyOnSuspend || a.revokingFolderKeys.Load() {
-		session.key.Forget()
+	if session.Key() == nil || session.discardKeyOnSuspend || a.revokingFolderKeys.Load() {
+		session.Key().Forget()
 		return false
 	}
 	if a.suspendedFolderKeys == nil {
 		a.suspendedFolderKeys = make(map[string]*vault.Key)
 	}
-	a.suspendedFolderKeys[id] = session.key.Clone()
-	session.key.Forget()
+	a.suspendedFolderKeys[id] = session.Key().Clone()
+	session.Key().Forget()
 	return true
 }
 
@@ -482,7 +220,7 @@ func (a *App) CloseFolderSpace(folder string) {
 	id := a.folderKeyID(folder)
 	a.forgetSuspendedFolder(id)
 	if session := a.folderSpaces[id]; session != nil {
-		session.key.Forget()
+		session.Key().Forget()
 		delete(a.folderSpaces, id)
 	}
 }
@@ -496,50 +234,70 @@ func (a *App) DeleteFolderSpace(folder string) error {
 	if err != nil {
 		return err
 	}
-	if err = withSpaceWriteLock(session.path, func() error {
-		if err := session.verifyCurrent(); err != nil {
-			return err
-		}
-		if _, statErr := os.Lstat(session.graphPath()); statErr == nil {
-			// The cloud may have delivered a branch while the app was closed.
-			// Deletion has to see the same history as the first sync poll.
-			if err := session.initReplica(); err != nil {
-				return err
-			}
-			if err := session.importMain(true); err != nil {
-				return err
-			}
-			if err := session.scan(true); err != nil {
-				return err
-			}
-			tip, _, err := session.candidate()
-			if err != nil {
-				return err
-			}
-			if tip != "" {
-				return errChanged
-			}
-		} else if !errors.Is(statErr, os.ErrNotExist) {
-			return statErr
-		}
-		// Keep the usable main document until all of its archived data can
-		// be removed. Failed cleanup can be retried from the same open space.
-		if err := session.deleteReplica(); err != nil {
-			return err
-		}
-		return deleteSpaceFile(session)
-	}); err != nil {
-		session.sync.initialized = false
-		session.sync.verifiedObjects = nil
+
+	if err = session.Delete(); err != nil {
 		return err
 	}
-	session.key.Forget()
-	id := spaceSessionID(filepath.Dir(session.path))
+	id := workspacestore.SessionID(filepath.Dir(session.Path()))
 	a.forgetSuspendedFolder(id)
 	delete(a.folderSpaces, id)
-	if path, e := profilePath(filepath.Dir(session.path)); e == nil {
+	if path, e := profilePath(filepath.Dir(session.Path())); e == nil {
 		// The document is already deleted. A credentials cleanup failure cannot roll back the file deletion.
 		_ = os.Remove(path)
 	}
 	return nil
+}
+
+type FolderSpaceUpdate = workspacestore.Update
+
+func (a *App) FolderSpaceLineage(folder string) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s, err := a.currentSpaceSession(folder)
+	if err != nil {
+		return "", err
+	}
+	return s.EnsureLineage()
+}
+
+func (a *App) PollFolderSpace(folder string, force bool) (FolderSpaceUpdate, error) {
+	return a.pollFolderSpace(folder, force, "")
+}
+
+// CheckFolderSpace omits the snapshots when the caller already has both heads.
+func (a *App) CheckFolderSpace(folder, knownToken string) (FolderSpaceUpdate, error) {
+	return a.pollFolderSpace(folder, false, knownToken)
+}
+
+func (a *App) pollFolderSpace(folder string, force bool, knownToken string) (FolderSpaceUpdate, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	s, err := a.currentSpaceSession(folder)
+	if err != nil {
+		return FolderSpaceUpdate{}, err
+	}
+	return s.Poll(force, knownToken)
+}
+
+func (a *App) SaveFolderBranch(folder, payload string) error {
+	return a.commitFolderBranch(folder, "", payload)
+}
+func (a *App) CommitFolderMerge(folder, token, payload string) error {
+	if token == "" {
+		return errInvalid
+	}
+	return a.commitFolderBranch(folder, token, payload)
+}
+func (a *App) commitFolderBranch(folder, token, data string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s, err := a.currentSpaceSession(folder)
+	if err != nil {
+		return err
+	}
+	if token == "" {
+		return s.SaveBranch(data)
+	}
+	return s.CommitMerge(token, data)
 }

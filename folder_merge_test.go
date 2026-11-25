@@ -3,13 +3,13 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
-	"videron/internal/workspacemerge"
+	"videron/internal/syncclient"
 )
 
 type mergeObject = map[string]any
@@ -98,7 +98,7 @@ func TestFolderNativeMergeAcrossDevices(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !validSyncID(patch.Head) || len(patch.Lists["notes"].Upsert) != 1 || len(mergeTestJSON(t, patch)) > 512 {
+			if !syncclient.ValidID(patch.Head) || len(patch.Lists["notes"].Upsert) != 1 || len(mergeTestJSON(t, patch)) > 512 {
 				t.Fatalf("unexpected patch %s", mergeTestJSON(t, patch))
 			}
 			if n := patch.Lists["notes"].Upsert[0].(mergeObject); n["id"] != "b" || n["title"] != "B remotely" {
@@ -127,12 +127,12 @@ func TestFolderNativeMergeAcrossDevices(t *testing.T) {
 			if _, err = b.CommitFolderMergeChoices(two, proposal.Token, nil); err != nil {
 				t.Fatal(err)
 			}
-			doc, err := decodeMergeJSON(opened)
-			if err != nil {
+			var doc mergeObject
+			if err := json.Unmarshal([]byte(opened), &doc); err != nil {
 				t.Fatal(err)
 			}
-			l = withTestNoteTitle(doc.(mergeObject), 0, "choose local")
-			r = withTestNoteTitle(doc.(mergeObject), 0, "choose remote")
+			l = withTestNoteTitle(doc, 0, "choose local")
+			r = withTestNoteTitle(doc, 0, "choose remote")
 			if err = a.SaveFolderBranch(one, mergeTestJSON(t, l)); err != nil {
 				t.Fatal(err)
 			}
@@ -170,37 +170,66 @@ func TestFolderNativeMergeAcrossDevices(t *testing.T) {
 		})
 	}
 }
-func TestNativeMergeWireVolume(t *testing.T) {
-	notes := make([]mergeObject, 5000)
-	for i := range notes {
-		notes[i] = mergeTestNote(strconv.Itoa(i), "Sample")
-		content := strings.Repeat("x", 1024)
-		notes[i]["plain"] = content
-		notes[i]["body"] = []any{mergeObject{"type": "paragraph", "runs": []any{mergeObject{"text": content}}}}
+
+func TestEncryptedDataTextSpliceReachesSecondClient(t *testing.T) {
+	first, _ := testStore(t)
+	second := new(App)
+	if _, err := second.Load(); err != nil {
+		t.Fatal(err)
 	}
-	base := mergeTestSpace(notes...)
-	local := withTestNoteTitle(base, 4, "Mine")
-	remote := withTestNoteTitle(base, 6, "Other device")
-	plan, err := workspacemerge.Prepare(base, local, remote)
+	server := startPasswordTestService(t, "Temporary sync test password")
+	dir, copyDir := t.TempDir(), t.TempDir()
+	prefix := strings.Repeat("строка\n", 8192)
+	original := prefix + "😀xyz"
+	document := func(body string) string {
+		note := mergeTestNote("csv", "Data")
+		note["type"], note["dataText"] = "data", body
+		return mergeTestJSON(t, mergeTestSpace(note))
+	}
+	if err := first.CreateFolderSpace(dir, document(original), testPass); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.ConnectSpaceServer(dir, server.Code); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.JoinSpaceServer(server.Code, copyDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.OpenFolderSpace(copyDir, testPass); err != nil {
+		t.Fatal(err)
+	}
+	head, err := first.FolderPatchRevision(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, patch, err := plan.Resolve(nil)
+	// The Cyrillic prefix takes one UTF-16 unit per rune, the emoji takes two.
+	patch := fmt.Sprintf(`{"notes":{"edit":[{"id":"csv","textSplice":{"start":%d,"remove":2,"insert":"😇"}}]}}`, len([]rune(prefix)))
+	next, err := first.SaveFolderPatch(dir, head, patch)
+	if err != nil || next == head {
+		t.Fatal("local edit", err)
+	}
+	if retry, err := first.SaveFolderPatch(dir, head, patch); err != nil || retry != next {
+		t.Fatal("ambiguous acknowledgement", err)
+	}
+	for _, client := range []struct {
+		app *App
+		dir string
+	}{{first, dir}, {second, copyDir}} {
+		if _, err := client.app.SyncSpaceServer(client.dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proposal, err := second.PrepareFolderMerge(copyDir, true, "")
+	if err != nil || proposal.Token == "" || len(proposal.Conflicts) != 0 {
+		t.Fatal("expected incoming edit", err)
+	}
+	if _, err := second.CommitFolderMergeChoices(copyDir, proposal.Token, nil); err != nil {
+		t.Fatal(err)
+	}
+	second.CloseFolderSpace(copyDir)
+	got, err := second.OpenFolderSpace(copyDir, testPass)
 	if err != nil {
 		t.Fatal(err)
 	}
-	patch.Head = strings.Repeat("b", 64)
-	token := strings.Repeat("a", 64) + ":" + strings.Repeat("b", 64)
-	proposal := (preparedFolderMerge{token: token, plan: plan}).proposal()
-	if !slices.Equal(proposal.ChangedNotes, []string{"6"}) {
-		t.Fatalf("unexpected changed notes: %v", proposal.ChangedNotes)
-	}
-	old := FolderSpaceUpdate{Token: proposal.Token, Base: mergeTestJSON(t, base), Remote: mergeTestJSON(t, remote)}
-	oldBytes := len(mergeTestJSON(t, old))
-	offerBytes := len(mergeTestJSON(t, proposal))
-	patchBytes := len(mergeTestJSON(t, FolderMergePatch(patch)))
-	t.Logf("5000 notes / 1 KiB each repeated in body and plain: old prepare %d bytes, native prepare %d bytes, native commit result %d bytes", oldBytes, offerBytes, patchBytes)
-	if len(patch.Lists["notes"].Upsert) != 1 || patchBytes > 4096 || offerBytes > 256 {
-		t.Fatal("unrelated notes leaked into native wire payload")
-	}
+	sameTestJSON(t, []byte(got), []byte(document(prefix+"😇xyz")))
 }

@@ -2,65 +2,14 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"videron/internal/syncclient"
+	"videron/internal/workspacestore"
 )
-
-// Called with a.mu held. Read the current document even if the folder has an
-// open session: it may have been replaced since the last poll. Neither a saved
-// profile nor an old history directory proves the identity of today's main.
-func (a *App) serverFolderSession(dir, lineage string) (*folderSpaceSession, error) {
-	if !a.loaded {
-		return nil, errLocked
-	}
-	path := filepath.Join(dir, folderSpaceFilename)
-	raw, info, err := readSpaceFile(path)
-	if errors.Is(err, errSpaceMissing) {
-		return nil, syncclient.ErrFolder
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer clear(raw)
-	if session := a.folderSpaces[spaceSessionID(dir)]; session != nil {
-		if session.sync.meta.Lineage != lineage {
-			return nil, syncclient.ErrSpace
-		}
-		m, _, err := session.mainPayload(raw)
-		if errors.Is(err, errSpaceIdentity) || errors.Is(err, errPassword) {
-			return nil, syncclient.ErrSpace
-		}
-		if err != nil {
-			return nil, err
-		}
-		// openReplica identifies an unstamped legacy document by its exact
-		// bytes. Apply that same check when the document is already open.
-		if m.Lineage != lineage && !(m.Lineage == "" && hexID(raw) == lineage) {
-			return nil, syncclient.ErrSpace
-		}
-		return session, nil
-	}
-	plain, env, err := parseSpaceFile(raw)
-	if err != nil {
-		return nil, err
-	}
-	if env != nil {
-		return nil, errLocked
-	}
-	session := &folderSpaceSession{path: path, info: info, digest: sha256.Sum256(raw)}
-	if _, err = session.openReplica(plain); err != nil {
-		return nil, err
-	}
-	if session.sync.meta.Lineage != lineage {
-		return nil, syncclient.ErrSpace
-	}
-	return session, nil
-}
 
 // These are suggestions from small local markers. Reading the main document
 // here can hydrate large cloud files. Join verifies the selected document.
@@ -92,7 +41,7 @@ func (a *App) MatchingServerFolders(code string, folders []string) ([]string, er
 	}
 	open := make(map[string]string, len(a.folderSpaces))
 	for id, s := range a.folderSpaces {
-		open[id] = s.sync.meta.Lineage
+		open[id] = s.Lineage()
 	}
 	a.mu.Unlock()
 	seen := make(map[string]bool)
@@ -101,14 +50,14 @@ func (a *App) MatchingServerFolders(code string, folders []string) ([]string, er
 		if err != nil {
 			continue
 		}
-		id := spaceSessionID(dir)
+		id := workspacestore.SessionID(dir)
 		if seen[id] || open[id] != "" && open[id] != p.Lineage {
 			continue
 		}
 		seen[id] = true
 		main := filepath.Join(dir, folderSpaceFilename)
 		info, err := os.Lstat(main)
-		if err != nil || !supportedSpaceFile(main, info) {
+		if err != nil || !workspacestore.SupportedFile(main, info) {
 			continue
 		}
 		profile, err := loadProfile(dir)
@@ -145,23 +94,16 @@ func (session *syncSession) rejoinServerFolder(p *syncclient.Profile, c *http.Cl
 		a.mu.Unlock()
 		return err
 	}
-	id := spaceSessionID(dir)
-	temporary := a.folderSpaces[id] == nil
-	var s *folderSpaceSession
-	err := withSpaceWriteLock(path, func() error {
-		var err error
-		s, err = a.serverFolderSession(dir, m.Lineage)
-		if err != nil {
-			return err
-		}
-		// Capture both the local cursor and any independent edits to the main
-		// document as immutable revisions before exchanging history.
-		if err := s.initReplica(); err != nil {
-			return err
-		}
-		return s.importMain(true)
-	})
+	id := workspacestore.SessionID(dir)
+	s := a.folderSpaces[id]
+	var current *workspacestore.Session
+	if s != nil {
+		current = s.Session
+	}
+	opened, err := folderStore.PrepareRejoin(dir, m.Lineage, current)
+	temporary := s == nil
 	if err == nil && temporary {
+		s = &folderSpaceSession{Session: opened}
 		a.setSpaceSession(dir, s)
 	}
 	a.mu.Unlock()
@@ -177,7 +119,7 @@ func (session *syncSession) rejoinServerFolder(p *syncclient.Profile, c *http.Cl
 			}
 		}()
 	}
-	if err = p.Exchange(c, dir, m, session.transferRecord, publishNewSpaceFile); err != nil {
+	if err = p.Exchange(c, dir, m, session.transferRecord, workspacestore.PublishNewFile); err != nil {
 		return err
 	}
 	a.mu.Lock()
@@ -185,7 +127,12 @@ func (session *syncSession) rejoinServerFolder(p *syncclient.Profile, c *http.Cl
 	if err = session.check(); err != nil {
 		return err
 	}
-	if _, err = a.serverFolderSession(dir, m.Lineage); err != nil {
+	// A project switch or a replacement during the transfer must be reflected here.
+	current = nil
+	if active := a.folderSpaces[id]; active != nil {
+		current = active.Session
+	}
+	if _, err = folderStore.MatchFolder(dir, m.Lineage, current); err != nil {
 		return err
 	}
 	return saveSuccessfulSync(dir, p)

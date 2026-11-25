@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"videron/internal/syncclient"
+	"videron/internal/workspacestore"
 )
 
 func pairedTestStore(t *testing.T) *App {
@@ -302,7 +303,7 @@ func TestPairedAgentRevokedByFailedCatalogReload(t *testing.T) {
 	}
 	t.Cleanup(a.ResetAgentConnections)
 	grant := a.noteAccess.current
-	if _, err := writeAtomic(workspace, []byte("invalid catalog"), ".test-*.tmp"); err != nil {
+	if _, err := workspacestore.WriteAtomic(workspace, []byte("invalid catalog"), ".test-*.tmp"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.Load(); err == nil {

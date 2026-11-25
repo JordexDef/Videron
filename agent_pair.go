@@ -12,6 +12,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"videron/internal/workspacestore"
 )
 
 var (
@@ -103,7 +105,7 @@ func saveAgentClients(clients []agentClient) error {
 		return errAgentClientStore
 	}
 	defer clear(data)
-	if _, err = writeAtomic(path, data, ".clients-*.tmp"); err != nil {
+	if _, err = workspacestore.WriteAtomic(path, data, ".clients-*.tmp"); err != nil {
 		return errAgentClientStore
 	}
 	return nil

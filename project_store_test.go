@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"videron/internal/vault"
+	"videron/internal/workspacestore"
 )
 
 const testPass = "пароль из четырёх слов"
@@ -25,7 +26,7 @@ func testStore(t *testing.T) (*App, string) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
 	a := new(App)
-	path, err := workspacePath()
+	path, err := workspacestore.CatalogPath()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestProjectVaultTransitions(t *testing.T) {
 	if err := os.WriteFile(orphan, []byte(snapshot), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := withSpaceWriteLock(path, func() error {
+	if err := workspacestore.WithWriteLock(path, func() error {
 		if _, err := other.Load(); !errors.Is(err, errLocked) {
 			t.Fatalf("locked read during a write: %v", err)
 		}
@@ -381,7 +382,7 @@ func TestExternallyEditedCatalogKeepsContents(t *testing.T) {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
-	if err != nil || !sameFileState(a.disk, info) {
+	if err != nil || !workspacestore.SameFileState(a.disk, info) {
 		t.Fatal("expected equal size, timestamp and identity", err)
 	}
 	if err := a.Save(original); !errors.Is(err, errChanged) {
@@ -437,7 +438,7 @@ func TestMixedProtectedRecordsCannotReachStorage(t *testing.T) {
 			if err := a.Save(libraryPrefix + string(record) + librarySuffix); !errors.Is(err, errInvalid) {
 				t.Fatal("catalog accepted mixed sealed/cleartext record", err)
 			}
-			if validSpacePayload([]byte(`{"name":"Notes","notes":[` + string(record) + `],"areas":[]}`)) {
+			if folderStore.ValidPayload([]byte(`{"name":"Notes","notes":[` + string(record) + `],"areas":[]}`)) {
 				t.Fatal("folder storage accepted mixed record")
 			}
 			if got := string(stored(t, path)); got != snapshot {
@@ -473,7 +474,7 @@ func TestCredentialBlocksRequireIndividualNoteEncryption(t *testing.T) {
 			t.Fatal("accepted an individually unsealed credential block", err)
 		}
 	}
-	if validSpacePayload([]byte(`{"name":"Shared","notes":[` + row + `],"areas":[]}`)) {
+	if folderStore.ValidPayload([]byte(`{"name":"Shared","notes":[` + row + `],"areas":[]}`)) {
 		t.Fatal("folder accepted an individually unsealed credential block")
 	}
 	edit := rowEdit{ID: "note-a", objectEdits: objectEdits{Set: map[string]json.RawMessage{"body": json.RawMessage("[" + block + "]")}}}
@@ -514,7 +515,7 @@ func TestSealedMapLabelStorage(t *testing.T) {
 		return string(b)
 	}
 	folderAccepts := func(row string) bool {
-		return validSpacePayload([]byte(`{"name":"Notes","notes":[` + row + `],"areas":[]}`))
+		return folderStore.ValidPayload([]byte(`{"name":"Notes","notes":[` + row + `],"areas":[]}`))
 	}
 	for _, label := range []string{strings.Repeat("🌳", 120), "Проект №2", ""} {
 		if label == "" {

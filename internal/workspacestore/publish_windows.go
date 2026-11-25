@@ -1,4 +1,4 @@
-package main
+package workspacestore
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func supportedSpaceFile(path string, info os.FileInfo) bool {
+func SupportedFile(path string, info os.FileInfo) bool {
 	if info.Mode().IsRegular() {
 		return true
 	}
@@ -34,7 +34,7 @@ func supportedSpaceFile(path string, info os.FileInfo) bool {
 
 // With no REPLACE_EXISTING flag this is an atomic, no-clobber publication,
 // including on volumes that do not support hard links.
-func publishNewSpaceFile(temp, path string) error {
+func PublishNewFile(temp, path string) error {
 	source, err := windows.UTF16PtrFromString(temp)
 	if err != nil {
 		return err
@@ -49,7 +49,7 @@ func publishNewSpaceFile(temp, path string) error {
 // Keep the document itself closed at replacement time: FAT and some cloud
 // drivers cannot atomically replace an open target. The marker has no content,
 // is created exclusively and is removed by Windows even if the process exits.
-func withSpaceWriteLock(path string, action func() error) error {
+func WithWriteLock(path string, action func() error) error {
 	name, err := windows.UTF16PtrFromString(filepath.Join(filepath.Dir(path), "~$"+filepath.Base(path)+".lock.tmp"))
 	if err != nil {
 		return err
@@ -66,7 +66,7 @@ func withSpaceWriteLock(path string, action func() error) error {
 	return action()
 }
 
-func deleteSpaceFile(session *folderSpaceSession) error {
+func deleteSpaceFile(session *Session) error {
 	path, err := windows.UTF16PtrFromString(session.path)
 	if err != nil {
 		return errInvalid
@@ -78,7 +78,7 @@ func deleteSpaceFile(session *folderSpaceSession) error {
 	if err != nil {
 		return fmt.Errorf("VD_READ|%w", err)
 	}
-	if !supportedSpaceFile(session.path, info) {
+	if !SupportedFile(session.path, info) {
 		return errChanged
 	}
 	// Hold write and rename exclusion through verification, then delete the

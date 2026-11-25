@@ -21,6 +21,7 @@ import (
 	"videron/internal/syncclient"
 	"videron/internal/syncclient/synctest"
 	"videron/internal/vault"
+	"videron/internal/workspacestore"
 )
 
 type uploadRecorder func(*http.Request) (*http.Response, error)
@@ -92,7 +93,7 @@ func TestJoinCommitsOnlyInOriginalSession(t *testing.T) {
 			if err := a.ProtectProject(libraryPrefix+originalNote+librarySuffix, testPass); err != nil {
 				t.Fatal(err)
 			}
-			raw, err := encodeSpace(syncDoc("project", "remote"), nil)
+			raw, err := folderStore.EncodeSpace(syncDoc("project", "remote"), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -217,7 +218,7 @@ func TestEncryptedAttachmentThroughServer(t *testing.T) {
 	const name = "PRIVATE-FOLDER-NAME"
 	const imageMarker = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo1"
 	const title = "PRIVATE-ATTACHMENT-TITLE"
-	image := "data:image/png;base64," + strings.Repeat(imageMarker, separateStringBytes/len(imageMarker)+2)
+	image := "data:image/png;base64," + strings.Repeat(imageMarker, (256<<10)/len(imageMarker)+2)
 	doc := func(caption string) string {
 		data, err := json.Marshal(map[string]any{
 			"name": name, "areas": []any{}, "notes": []any{map[string]any{
@@ -305,7 +306,9 @@ func TestSyncSaveDuringObjectUpload(t *testing.T) {
 		}
 		if strings.HasPrefix(path, prefix+"revisions/") {
 			revisions++
-			var r spaceRevision
+			var r struct {
+				Lists map[string][]string `json:"lists"`
+			}
 			if err := json.NewDecoder(req.Body).Decode(&r); err != nil {
 				t.Fatal(err)
 			}
@@ -322,7 +325,7 @@ func TestSyncSaveDuringObjectUpload(t *testing.T) {
 	})}
 	for pass := 1; pass <= 2; pass++ {
 		m := syncclient.Manifest{Lineage: lineage, Files: maps.Clone(files)}
-		if err := p.Exchange(client, folder, m, a.syncSession().transferRecord, publishNewSpaceFile); err != nil {
+		if err := p.Exchange(client, folder, m, a.syncSession().transferRecord, workspacestore.PublishNewFile); err != nil {
 			t.Fatal(err)
 		}
 		if revisions != pass {
@@ -648,11 +651,24 @@ func TestRejoinWorkingFolder(t *testing.T) {
 				t.Fatal(err)
 			}
 			main := filepath.Join(copyDir, folderSpaceFilename)
-			edit, err := encodeTrackedSpace(syncDoc("uncaptured edit", "second"), s.sync.meta, s.key)
+			plain, env, err := folderStore.ParseFile(stored(t, main))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err = writeAtomic(main, edit, ".test-main-*"); err != nil {
+			if env != nil {
+				plain, err = s.Key().Open(env, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !bytes.Contains(plain, []byte("local branch")) {
+				t.Fatal("expected local edit in the published main")
+			}
+			edit, err := folderStore.EncodeSpace(strings.Replace(string(plain), "local branch", "uncaptured edit", 1), s.Key())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = workspacestore.WriteAtomic(main, edit, ".test-main-*"); err != nil {
 				t.Fatal(err)
 			}
 			b.CloseFolderSpace(copyDir)
@@ -680,7 +696,7 @@ func TestRejoinWorkingFolder(t *testing.T) {
 			t.Cleanup(func() { b.DiscardSyncServerTicket(verified.Ticket) })
 			profileDir := canonicalTestFolder(t, copyDir)
 			candidates, err := b.MatchingServerFolders(verified.Ticket, []string{unrelated, copyDir, profileDir, t.TempDir()})
-			if err != nil || len(candidates) != 1 || spaceSessionID(candidates[0]) != spaceSessionID(profileDir) {
+			if err != nil || len(candidates) != 1 || workspacestore.SessionID(candidates[0]) != workspacestore.SessionID(profileDir) {
 				t.Fatal("expected only the disconnected working folder", candidates, err)
 			}
 			if tc.password != "" {
@@ -764,7 +780,7 @@ func TestRejoinChecksCurrentServerAndDocument(t *testing.T) {
 	main := filepath.Join(dir, folderSpaceFilename)
 	local := stored(t, main)
 	foreign := stored(t, filepath.Join(other, folderSpaceFilename))
-	if _, err = writeAtomic(main, foreign, ".replacement-*"); err != nil {
+	if _, err = workspacestore.WriteAtomic(main, foreign, ".replacement-*"); err != nil {
 		t.Fatal(err)
 	}
 	if err = a.JoinSpaceServer(ticket.Ticket, dir); !errors.Is(err, syncclient.ErrSpace) {
@@ -774,7 +790,7 @@ func TestRejoinChecksCurrentServerAndDocument(t *testing.T) {
 	if err != nil || !maps.Equal(original.Files, after.Files) || !bytes.Equal(foreign, stored(t, main)) {
 		t.Fatal("failed join changed data", err)
 	}
-	if _, err = writeAtomic(main, local, ".restored-*"); err != nil {
+	if _, err = workspacestore.WriteAtomic(main, local, ".restored-*"); err != nil {
 		t.Fatal(err)
 	}
 	server.Stop()
@@ -842,7 +858,7 @@ func TestEncryptedSyncUploadBodies(t *testing.T) {
 				return nil, err
 			}
 			// The transfer layer receives only client-sealed envelopes.
-			if _, err = vault.ParseEnvelope(body, syncScope); err != nil {
+			if _, err = vault.ParseEnvelope(body, workspacestore.SyncScope); err != nil {
 				t.Fatalf("unencrypted upload: %v", err)
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
@@ -861,7 +877,7 @@ func TestEncryptedSyncUploadBodies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = p.Exchange(client, profileDir, m, a.syncSession().transferRecord, publishNewSpaceFile); err != nil {
+		if err = p.Exchange(client, profileDir, m, a.syncSession().transferRecord, workspacestore.PublishNewFile); err != nil {
 			t.Fatal(err)
 		}
 	}

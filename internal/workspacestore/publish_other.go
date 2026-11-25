@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package workspacestore
 
 import (
 	"errors"
@@ -11,17 +11,17 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func supportedSpaceFile(_ string, info os.FileInfo) bool { return info.Mode().IsRegular() }
+func SupportedFile(_ string, info os.FileInfo) bool { return info.Mode().IsRegular() }
 
-// Both names are in the same directory. writeAtomicInDir removes the temporary
+// Both names are in the same directory. WriteAtomicInDir removes the temporary
 // name after this link publishes the complete file without replacing anything.
-func publishNewSpaceFile(temp, path string) error {
+func PublishNewFile(temp, path string) error {
 	return os.Link(temp, path)
 }
 
-func withSpaceWriteLock(path string, action func() error) error {
-	file, _, err := openSpaceFile(path)
-	if errors.Is(err, errSpaceMissing) || errors.Is(err, errInvalid) {
+func WithWriteLock(path string, action func() error) error {
+	file, _, err := OpenFile(path)
+	if errors.Is(err, ErrMissing) || errors.Is(err, errInvalid) {
 		return errChanged
 	}
 	if err != nil {
@@ -37,7 +37,7 @@ func withSpaceWriteLock(path string, action func() error) error {
 	return action()
 }
 
-func deleteSpaceFile(session *folderSpaceSession) error {
+func deleteSpaceFile(session *Session) error {
 	if err := session.verifyCurrent(); err != nil {
 		return err
 	}
@@ -62,14 +62,14 @@ func deleteSpaceFile(session *folderSpaceSession) error {
 	captured := *session
 	captured.path = name
 	if err = captured.verifyCurrent(); err != nil {
-		if restore := publishNewSpaceFile(name, session.path); restore != nil {
+		if restore := PublishNewFile(name, session.path); restore != nil {
 			return fmt.Errorf("VD_CHANGED|%s", name)
 		}
 		os.Remove(name)
 		return errChanged
 	}
 	if err = os.Remove(name); err != nil {
-		if restore := publishNewSpaceFile(name, session.path); restore == nil {
+		if restore := PublishNewFile(name, session.path); restore == nil {
 			os.Remove(name)
 		}
 		return fmt.Errorf("VD_WRITE|%w", err)

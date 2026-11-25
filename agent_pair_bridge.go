@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"videron/internal/syncclient"
+	"videron/internal/workspacestore"
 )
 
 type pairedNoteGrant struct {
@@ -123,7 +124,7 @@ func (g *noteGrant) preparePairedListener(listener net.Listener, c agentClient) 
 	if err != nil {
 		return nil, err
 	}
-	if _, err = writeAtomic(path, payload, ".active-*.tmp"); err != nil {
+	if _, err = workspacestore.WriteAtomic(path, payload, ".active-*.tmp"); err != nil {
 		return nil, errAgentClientStore
 	}
 	g.pair = &pairedNoteGrant{clientID: c.ID, discoveryPath: path, workScope: rand.Text()}

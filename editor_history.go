@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"videron/internal/vault"
+	"videron/internal/workspacestore"
 )
 
 // Undo belongs to this process. Protected snapshots are sealed with the key
@@ -26,7 +27,7 @@ type editorHistoryEntry struct {
 func (r EditorHistoryRef) id() editorHistoryID {
 	folder := r.Folder
 	if folder != "" {
-		folder = spaceSessionID(folder)
+		folder = workspacestore.SessionID(folder)
 	}
 	return editorHistoryID{r.Space, folder, r.Note}
 }
@@ -44,7 +45,7 @@ func (a *App) editorHistoryKey(r EditorHistoryRef) (*vault.Key, error) {
 		key = a.noteKeys[r.Note]
 	case "folder":
 		if s := a.folderSpaces[r.id().folder]; s != nil {
-			key = s.key
+			key = s.Key()
 		}
 	case "project":
 		key = a.projectKey

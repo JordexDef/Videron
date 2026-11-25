@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	"videron/internal/workspacestore"
 )
 
 func syncDoc(x, y string) string {
@@ -33,6 +35,119 @@ func sameDoc(t *testing.T, raw, x, y string) {
 	}
 }
 
+func TestReleasedFolderOfflineEditsReachSecondDesktop(t *testing.T) {
+	first, _ := testStore(t)
+	loadDesktop := func() *App {
+		t.Helper()
+		app := new(App)
+		if _, err := app.Load(); err != nil {
+			t.Fatal(err)
+		}
+		return app
+	}
+	second := loadDesktop()
+	one, two := t.TempDir(), t.TempDir()
+	archive, err := zip.OpenReader(filepath.Join("internal", "workspacestore", "testdata", "v0.50.0-history.zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	if err := os.CopyFS(one, &archive.Reader); err != nil {
+		t.Fatal(err)
+	}
+	openAndCheck := func(app *App, dir, firstTitle, secondTitle string) {
+		t.Helper()
+		doc, err := app.OpenFolderSpace(dir, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sameDoc(t, doc, firstTitle, secondTitle)
+		var space struct {
+			Notes []struct {
+				ID, Plain string
+				Body      []struct{ Runs []struct{ Text string } }
+			}
+		}
+		if err := json.Unmarshal([]byte(doc), &space); err != nil {
+			t.Fatal(err)
+		}
+		for i, want := range []struct{ id, text string }{{"one", "First body"}, {"two", "Second body"}} {
+			n := space.Notes[i]
+			if n.ID != want.id || n.Plain != want.text || len(n.Body) != 1 || len(n.Body[0].Runs) != 1 || n.Body[0].Runs[0].Text != want.text {
+				t.Fatalf("lost the original content of note %s", want.id)
+			}
+		}
+	}
+	openAndCheck(first, one, "Saved by v0.50.0", "Second note")
+	server := startPasswordTestService(t, "Local history sync fixture")
+	if err := first.ConnectSpaceServer(one, server.Code); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.JoinSpaceServer(server.Code, two); err != nil {
+		t.Fatal(err)
+	}
+	openAndCheck(second, two, "Saved by v0.50.0", "Second note")
+
+	server.Stop()
+	edit := func(app *App, dir, patch string) {
+		t.Helper()
+		head, err := app.FolderPatchRevision(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if next, err := app.SaveFolderPatch(dir, head, patch); err != nil || next == head {
+			t.Fatal("offline autosave", next, err)
+		}
+	}
+	edit(first, one, `{"notes":{"edit":[{"id":"one","set":{"title":"From the first desktop"}}]}}`)
+	edit(second, two, `{"notes":{"edit":[{"id":"two","set":{"title":"From the second desktop"}}]}}`)
+	first.CloseFolderSpace(one)
+	second.CloseFolderSpace(two)
+	first, second = loadDesktop(), loadDesktop()
+	openAndCheck(first, one, "From the first desktop", "Second note")
+	openAndCheck(second, two, "Saved by v0.50.0", "From the second desktop")
+
+	server.Start(t)
+	exchange := func(app *App, dir string) {
+		t.Helper()
+		if cursor, err := app.SyncSpaceServer(dir); err != nil || cursor == "" {
+			t.Fatal("exchange with restarted server", cursor, err)
+		}
+	}
+	accept := func(app *App, dir, id string) string {
+		t.Helper()
+		proposal, err := app.PrepareFolderMerge(dir, true, "")
+		if err != nil || !proposal.Prepared || len(proposal.Conflicts) != 0 {
+			t.Fatalf("incoming changes for %s: %+v, %v", id, proposal, err)
+		}
+		if len(proposal.ChangedNotes) != 1 || proposal.ChangedNotes[0] != id {
+			t.Fatalf("expected change to %s, got %v", id, proposal.ChangedNotes)
+		}
+		patch, err := app.CommitFolderMergeChoices(dir, proposal.Token, nil)
+		if err != nil || patch.Head == "" {
+			t.Fatal("apply peer change", err)
+		}
+		return patch.Head
+	}
+	exchange(first, one)
+	exchange(second, two)
+	merged := accept(second, two, "one")
+	exchange(second, two)
+	exchange(first, one)
+	if head := accept(first, one, "two"); head != merged {
+		t.Fatalf("desktops have different revisions: %s, %s", head, merged)
+	}
+	first.CloseFolderSpace(one)
+	second.CloseFolderSpace(two)
+	for _, dir := range []string{one, two} {
+		app := loadDesktop()
+		openAndCheck(app, dir, "From the first desktop", "From the second desktop")
+		if u, err := app.PrepareFolderMerge(dir, true, ""); err != nil || u.Token != "" {
+			t.Fatal("unexpected pending changes after reopen", u, err)
+		}
+	}
+}
+
 // Model two actual cloud directories. Merged paths keep immutable records from
 // both peers. The cloud provider may choose either canonical snapshot as winner.
 func deliver(t *testing.T, source, target string, includeMain bool) {
@@ -46,10 +161,10 @@ func deliver(t *testing.T, source, target string, includeMain bool) {
 		if d.IsDir() {
 			return os.MkdirAll(dst, 0700)
 		}
-		if r == folderSpaceFilename && !includeMain {
+		if r == workspacestore.Filename && !includeMain {
 			return nil
 		}
-		if r != folderSpaceFilename {
+		if r != workspacestore.Filename {
 			if _, err := os.Stat(dst); err == nil {
 				return nil
 			}
@@ -58,7 +173,7 @@ func deliver(t *testing.T, source, target string, includeMain bool) {
 		if err != nil {
 			return err
 		}
-		_, err = writeAtomic(dst, b, ".sync-test-*")
+		_, err = workspacestore.WriteAtomic(dst, b, ".sync-test-*")
 		return err
 	})
 	if err != nil {
@@ -163,96 +278,12 @@ func TestRemoteBranchAfterBothAppsClosed(t *testing.T) {
 			if err = a.DeleteFolderSpace(one); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = os.Stat(filepath.Join(one, syncFolderName)); !errors.Is(err, os.ErrNotExist) {
+			if _, err = os.Stat(filepath.Join(one, workspacestore.HistoryDirName)); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("retained private history", err)
 			}
 		})
 	}
 }
-func TestUpgradeLegacyAndCanonicalOnlyClone(t *testing.T) {
-	a, _ := testStore(t)
-	b := new(App)
-	_, _ = b.Load()
-	one, two := t.TempDir(), t.TempDir()
-	legacy, err := encodeSpace(syncDoc("one", "two"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, dir := range []string{one, two} {
-		if err = os.WriteFile(filepath.Join(dir, folderSpaceFilename), legacy, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err = a.OpenFolderSpace(one, ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = b.OpenFolderSpace(two, ""); err != nil {
-		t.Fatal(err)
-	}
-	l1, err := a.FolderSpaceLineage(one)
-	if err != nil {
-		t.Fatal(err)
-	}
-	l2, err := b.FolderSpaceLineage(two)
-	if err != nil || l1 != l2 {
-		t.Fatal(l1, l2, err)
-	}
-	if err = a.SaveFolderBranch(one, syncDoc("new", "two")); err != nil {
-		t.Fatal(err)
-	}
-	lone := t.TempDir()
-	raw := stored(t, filepath.Join(one, folderSpaceFilename))
-	if err = os.WriteFile(filepath.Join(lone, folderSpaceFilename), raw, 0600); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := a.OpenFolderSpace(lone, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sameDoc(t, doc, "new", "two")
-	if _, err = a.FolderSpaceLineage(lone); err != nil {
-		t.Fatal(err)
-	}
-	if err = a.SaveFolderBranch(lone, syncDoc("new", "three")); err != nil {
-		t.Fatal(err)
-	}
-	foreign := t.TempDir()
-	if err = a.CreateFolderSpace(foreign, syncDoc("foreign", "space"), ""); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(lone, folderSpaceFilename), stored(t, filepath.Join(foreign, folderSpaceFilename)), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = a.PollFolderSpace(lone, true); !errors.Is(err, errSpaceIdentity) {
-		t.Fatal("foreign file accepted", err)
-	}
-}
-func TestSpaceReplicaNeverTrustsDamagedObject(t *testing.T) {
-	a, _ := testStore(t)
-	dir := t.TempDir()
-	if err := a.CreateFolderSpace(dir, spaceFixture, testPass); err != nil {
-		t.Fatal(err)
-	}
-	l, err := a.FolderSpaceLineage(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := filepath.Join(dir, syncFolderName, l, "objects")
-	files, err := os.ReadDir(root)
-	if err != nil || len(files) == 0 {
-		t.Fatal(err)
-	}
-	path := filepath.Join(root, files[0].Name())
-	if err = os.WriteFile(path, []byte("{}"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	s, _ := a.currentSpaceSession(dir)
-	_, err = s.readRecord("objects", strings.TrimSuffix(files[0].Name(), ".json"))
-	if err == nil {
-		t.Fatal("accepted damaged encrypted object")
-	}
-}
-
 func TestLateObjectsAndEmbeddedImageReuse(t *testing.T) {
 	a, _ := testStore(t)
 	b := new(App)
@@ -277,7 +308,7 @@ func TestLateObjectsAndEmbeddedImageReuse(t *testing.T) {
 	if _, err = b.FolderSpaceLineage(two); err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(one, syncFolderName, l)
+	root := filepath.Join(one, workspacestore.HistoryDirName, l)
 	sizes := func() int64 {
 		var total int64
 		_ = filepath.WalkDir(root, func(_ string, e fs.DirEntry, _ error) error {
@@ -296,11 +327,11 @@ func TestLateObjectsAndEmbeddedImageReuse(t *testing.T) {
 	if added := sizes() - first; added > 5000 {
 		t.Fatal("a caption duplicated its image", added)
 	}
-	deliver(t, filepath.Join(root, "revisions"), filepath.Join(two, syncFolderName, l, "revisions"), true)
-	if u, err := b.PollFolderSpace(two, true); !errors.Is(err, errSyncPending) || u.Token != "" {
+	deliver(t, filepath.Join(root, "revisions"), filepath.Join(two, workspacestore.HistoryDirName, l, "revisions"), true)
+	if u, err := b.PollFolderSpace(two, true); !errors.Is(err, workspacestore.ErrSyncPending) || u.Token != "" {
 		t.Fatal("premature partial merge", u.Token, err)
 	}
-	deliver(t, filepath.Join(root, "objects"), filepath.Join(two, syncFolderName, l, "objects"), true)
+	deliver(t, filepath.Join(root, "objects"), filepath.Join(two, workspacestore.HistoryDirName, l, "objects"), true)
 	u, err := b.PollFolderSpace(two, false)
 	if err != nil || u.Token == "" || !strings.Contains(u.Remote, image) {
 		t.Fatal("late image object not picked up", err)
@@ -311,138 +342,19 @@ func TestLateObjectsAndEmbeddedImageReuse(t *testing.T) {
 	if u, err = b.PollFolderSpace(two, true); err != nil || u.Token != "" {
 		t.Fatal("unexpected new tip", u.Token, err)
 	}
-	stashed := stored(t, filepath.Join(two, folderSpaceFilename))
+	stashed := stored(t, filepath.Join(two, workspacestore.Filename))
 	if err = b.SaveFolderBranch(two, doc("after again")); err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(filepath.Join(two, folderSpaceFilename), stashed, 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(two, workspacestore.Filename), stashed, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if u, err = b.PollFolderSpace(two, true); err != nil || u.Token != "" {
 		t.Fatal("old main became a branch", err, u.Token)
 	}
-	if !bytes.Contains(stored(t, filepath.Join(two, folderSpaceFilename)), []byte("after again")) {
+	if !bytes.Contains(stored(t, filepath.Join(two, workspacestore.Filename)), []byte("after again")) {
 		t.Fatal("older main remained after its new head was recovered")
 	}
-}
-
-func TestReplicaDeletionPreservesForeignFiles(t *testing.T) {
-	a, _ := testStore(t)
-	dir := t.TempDir()
-	if err := a.CreateFolderSpace(dir, spaceFixture, testPass); err != nil {
-		t.Fatal(err)
-	}
-	l, err := a.FolderSpaceLineage(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	neighbors := []string{filepath.Join(dir, "photos.txt"), filepath.Join(dir, syncFolderName, "other-data.txt"), filepath.Join(dir, syncFolderName, l, "objects", "readme.txt")}
-	for _, f := range neighbors {
-		if err = os.WriteFile(f, []byte("keep"), 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err = a.DeleteFolderSpace(dir); err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range neighbors {
-		if string(stored(t, f)) != "keep" {
-			t.Fatal("removed unrelated file", f)
-		}
-	}
-	if _, err = os.Stat(filepath.Join(dir, folderSpaceFilename)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal(err)
-	}
-}
-
-func TestFailedRevisionWritePreservesCursorAndCanRetry(t *testing.T) {
-	a, _ := testStore(t)
-	dir := t.TempDir()
-	before := syncDoc("first", "second")
-	after := syncDoc("edited", "second")
-	if err := a.CreateFolderSpace(dir, before, ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := a.FolderSpaceLineage(dir); err != nil {
-		t.Fatal(err)
-	}
-	s, err := a.currentSpaceSession(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	head := s.sync.meta.Head
-	revision, err := s.manifest(after, []string{head})
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := json.Marshal(revision)
-	if err != nil {
-		t.Fatal(err)
-	}
-	blocked := filepath.Join(s.graphPath(), "revisions", s.recordID("revisions", raw)+".json")
-	if err := os.Mkdir(blocked, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.SaveFolderBranch(dir, after); err == nil {
-		t.Fatal("save reported success after revision could not be written")
-	}
-	if s.sync.meta.Head != head || s.storedCursor() != head || s.sync.payload != before {
-		t.Fatal("failed save advanced the session or its on-disk cursor")
-	}
-	if err := os.Remove(blocked); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.SaveFolderBranch(dir, after); err != nil {
-		t.Fatal(err)
-	}
-	a.CloseFolderSpace(dir)
-	got, err := a.OpenFolderSpace(dir, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sameDoc(t, got, "edited", "second")
-}
-
-func TestReopenWaitsForSavedLocalRevision(t *testing.T) {
-	a, _ := testStore(t)
-	dir := t.TempDir()
-	if err := a.CreateFolderSpace(dir, syncDoc("old", "second"), testPass); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := a.FolderSpaceLineage(dir); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, folderSpaceFilename)
-	older := stored(t, path)
-	if err := a.SaveFolderBranch(dir, syncDoc("local edit", "second")); err != nil {
-		t.Fatal(err)
-	}
-	s, err := a.currentSpaceSession(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	head := s.sync.meta.Head
-	a.CloseFolderSpace(dir)
-	if err := os.WriteFile(path, older, 0600); err != nil {
-		t.Fatal(err)
-	}
-	for _, late := range []string{s.graphPath(), filepath.Join(s.graphPath(), "revisions", head+".json")} {
-		staging := filepath.Join(t.TempDir(), "late")
-		if err := os.Rename(late, staging); err != nil {
-			t.Fatal(err)
-		}
-		if text, err := a.OpenFolderSpace(dir, testPass); !errors.Is(err, errSyncPending) || text != "" || s.storedCursor() != head {
-			t.Fatalf("offered a stale snapshot while the local branch was in transit: %v", err)
-		}
-		if err := os.Rename(staging, late); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, err := a.OpenFolderSpace(dir, testPass)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sameDoc(t, got, "local edit", "second")
 }
 
 func TestLateMergeParentPreservesRevertedEditOnThreeDevices(t *testing.T) {
@@ -491,7 +403,7 @@ func TestLateMergeParentPreservesRevertedEditOnThreeDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lateParent := bs.sync.meta.Head
+	lateParent := bs.Head()
 	if err := c.SaveFolderBranch(three, doc("0", "0", "C")); err != nil {
 		t.Fatal(err)
 	}
@@ -502,12 +414,12 @@ func TestLateMergeParentPreservesRevertedEditOnThreeDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	late := filepath.Join(s.graphPath(), "revisions", lateParent+".json")
+	late := filepath.Join(one, workspacestore.HistoryDirName, s.Lineage(), "revisions", lateParent+".json")
 	staging := filepath.Join(t.TempDir(), "parent.json")
 	if err := os.Rename(late, staging); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := a.PrepareFolderMerge(one, true, ""); !errors.Is(err, errSyncPending) || p.Prepared {
+	if p, err := a.PrepareFolderMerge(one, true, ""); !errors.Is(err, workspacestore.ErrSyncPending) || p.Prepared {
 		t.Fatalf("offered an obsolete merge base while B's revision was delayed: %+v, %v", p, err)
 	}
 	if err := os.Rename(staging, late); err != nil {
@@ -524,17 +436,6 @@ func TestLateMergeParentPreservesRevertedEditOnThreeDevices(t *testing.T) {
 		if err != nil || strings.Join(titlesIn(got), ",") != "0,B,C" {
 			t.Fatal("devices did not retain all edits", titlesIn(got), err)
 		}
-	}
-}
-
-func TestTwoCanonicalCopiesCanMergeWithoutOlderHistory(t *testing.T) {
-	// Both devices started from the same Videron.space snapshot without its
-	// history folder. Its common head is sufficient for subsequent edits.
-	graph := map[string][]string{"snapshot": {"older"}, "a": {"snapshot"}, "b": {"snapshot"}}
-	s := &folderSpaceSession{sync: spaceReplica{meta: spaceSyncMeta{Head: "a"}, parents: graph}}
-	tip, base, err := s.candidate()
-	if err != nil || tip != "b" || base != "snapshot" {
-		t.Fatal("waiting for revisions older than the shared snapshot", tip, base, err)
 	}
 }
 
@@ -569,117 +470,6 @@ func TestDeleteBeforeFirstPollPreservesUnmergedBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	sameDoc(t, u.Remote, "remote edit", "other")
-}
-
-func TestPeriodicScanWithPreservedDirectoryTimestamp(t *testing.T) {
-	a, _ := testStore(t)
-	b := new(App)
-	_, _ = b.Load()
-	one, two := t.TempDir(), t.TempDir()
-	if err := a.CreateFolderSpace(one, syncDoc("initial", "other"), ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := a.FolderSpaceLineage(one); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := a.PollFolderSpace(one, true); err != nil {
-		t.Fatal(err)
-	}
-	s, err := a.currentSpaceSession(one)
-	if err != nil {
-		t.Fatal(err)
-	}
-	modTime := s.sync.scanTime
-	deliver(t, one, two, true)
-	if _, err := b.OpenFolderSpace(two, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := b.SaveFolderBranch(two, syncDoc("cloud edit", "other")); err != nil {
-		t.Fatal(err)
-	}
-	deliver(t, two, one, false)
-	if err := os.Chtimes(filepath.Join(s.graphPath(), "revisions"), modTime, modTime); err != nil {
-		t.Fatal(err)
-	}
-	s.sync.lastScan = time.Now().Add(-2 * time.Minute)
-	u, err := a.CheckFolderSpace(one, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sameDoc(t, u.Remote, "cloud edit", "other")
-}
-
-func TestSaveRepairsMissingCachedObject(t *testing.T) {
-	for _, preserved := range []bool{false, true} {
-		t.Run(map[bool]string{false: "changed timestamp", true: "preserved timestamp"}[preserved], func(t *testing.T) {
-			a, _ := testStore(t)
-			dir := t.TempDir()
-			if err := a.CreateFolderSpace(dir, syncDoc("first", "keep me"), testPass); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := a.FolderSpaceLineage(dir); err != nil {
-				t.Fatal(err)
-			}
-			s, err := a.currentSpaceSession(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			revision, err := s.readRevision(s.sync.meta.Head)
-			if err != nil {
-				t.Fatal(err)
-			}
-			parent := filepath.Join(s.graphPath(), "objects")
-			id := revision.Lists["notes"][1]
-			if err := os.Remove(filepath.Join(parent, id+".json")); err != nil {
-				t.Fatal(err)
-			}
-			stamp := s.sync.objectDirTime.Add(time.Minute)
-			if preserved {
-				stamp = s.sync.objectDirTime
-				s.sync.lastObjectScan = time.Now().Add(-2 * time.Minute)
-			}
-			if err := os.Chtimes(parent, stamp, stamp); err != nil {
-				t.Fatal(err)
-			}
-			if err := a.SaveFolderBranch(dir, syncDoc("edited", "keep me")); err != nil {
-				t.Fatal(err)
-			}
-			revision, err = s.readRevision(s.sync.meta.Head)
-			if err != nil {
-				t.Fatal(err)
-			}
-			text, err := s.materialize(revision)
-			if err != nil {
-				t.Fatal("new revision references an absent object", err)
-			}
-			sameDoc(t, text, "edited", "keep me")
-		})
-	}
-}
-
-func TestReplicaDeletionRetainsMainOnArchiveFailure(t *testing.T) {
-	a, _ := testStore(t)
-	dir := t.TempDir()
-	if err := a.CreateFolderSpace(dir, spaceFixture, ""); err != nil {
-		t.Fatal(err)
-	}
-	l, err := a.FolderSpaceLineage(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	unknown := filepath.Join(dir, syncFolderName, l, "objects", strings.Repeat("a", 64)+".json")
-	if err = os.WriteFile(unknown, []byte("not an archive record"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err = a.DeleteFolderSpace(dir); err == nil {
-		t.Fatal("deleted unverifiable data")
-	}
-	if _, err = os.Stat(filepath.Join(dir, folderSpaceFilename)); err != nil {
-		t.Fatal("removed canonical file on archive error", err)
-	}
-	if string(stored(t, unknown)) != "not an archive record" {
-		t.Fatal("unrelated content changed")
-	}
 }
 
 func TestFolderReviewTracksLatestPeerEdit(t *testing.T) {

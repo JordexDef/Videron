@@ -9,6 +9,8 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"videron/internal/workspacestore"
 )
 
 const (
@@ -60,7 +62,7 @@ func rememberDesktopWindow(config *options.App) {
 		}
 		if state := captureDesktopWindow(ctx, previous); state.valid() {
 			if data, err := json.Marshal(state); err == nil {
-				_, _ = writeAtomic(path, data, ".window-*.tmp")
+				_, _ = workspacestore.WriteAtomic(path, data, ".window-*.tmp")
 			}
 		}
 		return false

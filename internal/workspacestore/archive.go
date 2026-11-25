@@ -1,4 +1,4 @@
-package main
+package workspacestore
 
 import (
 	"bytes"
@@ -18,7 +18,7 @@ type archivedValue struct {
 const separateStringBytes = 32 * 1024
 const maxArchivedValueBytes = 1 << 30
 
-func (s *folderSpaceSession) storeValue(input []byte) (string, error) {
+func (s *Session) storeValue(input []byte) (string, error) {
 	// Sort object keys and normalize escaping so JS and the native JSON encoder
 	// produce the same ID even after writing and reopening a plaintext space.
 	decoder := json.NewDecoder(bytes.NewReader(input))
@@ -74,7 +74,7 @@ func (s *folderSpaceSession) storeValue(input []byte) (string, error) {
 	return s.putRecord("objects", data)
 }
 
-func (s *folderSpaceSession) readValue(id string) (json.RawMessage, error) {
+func (s *Session) readValue(id string) (json.RawMessage, error) {
 	raw, err := s.readRecord("objects", id)
 	if err != nil {
 		return nil, err

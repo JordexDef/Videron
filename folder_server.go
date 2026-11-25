@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"videron/internal/syncclient"
-	"videron/internal/vault"
+	"videron/internal/workspacestore"
 )
 
 type ServerConnectionInfo struct {
@@ -22,11 +22,11 @@ type ServerConnectionInfo struct {
 }
 
 func profilePath(folder string) (string, error) {
-	p, err := workspacePath()
+	p, err := workspacestore.CatalogPath()
 	if err != nil {
 		return "", err
 	}
-	h := sha256.Sum256([]byte(spaceSessionID(folder)))
+	h := sha256.Sum256([]byte(workspacestore.SessionID(folder)))
 	return filepath.Join(filepath.Dir(p), "connections", fmt.Sprintf("%x.key", h)), nil
 }
 func storeProfile(folder string, p syncclient.Profile) error {
@@ -44,7 +44,7 @@ func storeProfile(folder string, p syncclient.Profile) error {
 		return err
 	}
 	defer clear(data)
-	_, err = writeAtomic(path, data, ".connection-*.tmp")
+	_, err = workspacestore.WriteAtomic(path, data, ".connection-*.tmp")
 	return err
 }
 func loadProfile(folder string) (*syncclient.Profile, error) {
@@ -79,44 +79,7 @@ func (session *syncSession) transferRecord(dir, lineage, kind, id string) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	if s.sync.meta.Lineage != lineage {
-		return nil, syncclient.ErrSpace
-	}
-	if kind == "" {
-		raw, _, err := readSpaceFile(s.path)
-		if err != nil {
-			return nil, err
-		}
-		m, _, err := s.mainPayload(raw)
-		if err != nil || m.Lineage != lineage {
-			clear(raw)
-			return nil, syncclient.ErrSpace
-		}
-		return raw, nil
-	}
-	raw, _, err := readSpaceFile(filepath.Join(s.graphPath(), kind, id+".json"))
-	if err != nil {
-		return nil, err
-	}
-	plain := raw
-	if s.key != nil {
-		env, err := vault.ParseEnvelope(raw, syncScope)
-		if err != nil {
-			clear(raw)
-			return nil, err
-		}
-		plain, err = s.key.Open(env, lineage+"/"+kind+"/"+id)
-		if err != nil {
-			clear(raw)
-			return nil, err
-		}
-		defer clear(plain)
-	}
-	if s.recordID(kind, plain) != id {
-		clear(raw)
-		return nil, errCorrupt
-	}
-	return raw, nil
+	return s.TransferRecord(lineage, kind, id)
 }
 
 func (a *App) openLineage(dir string) (string, error) {
@@ -126,7 +89,7 @@ func (a *App) openLineage(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return s.sync.meta.Lineage, nil
+	return s.Lineage(), nil
 }
 
 func (a *App) sessionServerIndex(dir, lineage string) (*syncclient.IndexCache, error) {
@@ -136,7 +99,7 @@ func (a *App) sessionServerIndex(dir, lineage string) (*syncclient.IndexCache, e
 	if err != nil {
 		return nil, err
 	}
-	if s.sync.meta.Lineage != lineage {
+	if s.Lineage() != lineage {
 		return nil, syncclient.ErrSpace
 	}
 	if s.serverIndex == nil {
@@ -173,12 +136,12 @@ func (a *App) SetServerAutoConnect(folder string, enabled bool) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(s.path)
+	dir := filepath.Dir(s.Path())
 	p, err := loadProfile(dir)
 	if err != nil {
 		return err
 	}
-	if p == nil || p.Lineage != s.sync.meta.Lineage {
+	if p == nil || p.Lineage != s.Lineage() {
 		return errChanged
 	}
 	manual := !enabled
@@ -225,7 +188,7 @@ func (a *App) ConnectSpaceServer(folder, code string) error {
 	}
 	c := p.Client()
 	defer c.CloseIdleConnections()
-	m, err := p.Enroll(c, dir, lineage, session.transferRecord, publishNewSpaceFile)
+	m, err := p.Enroll(c, dir, lineage, session.transferRecord, workspacestore.PublishNewFile)
 	if err != nil {
 		return err
 	}
@@ -271,7 +234,7 @@ func (a *App) SyncSpaceServer(folder string) (string, error) {
 	}
 	// This cursor covers exactly the manifest we have downloaded. A concurrent
 	// server write after that snapshot must wake the next subscription.
-	if err := p.Exchange(c, dir, m, session.transferRecord, publishNewSpaceFile); err != nil {
+	if err := p.Exchange(c, dir, m, session.transferRecord, workspacestore.PublishNewFile); err != nil {
 		return m.Cursor, detachDeletedProject(dir, p, err)
 	}
 	// A status write may fail after the exchange has completed. The existing
@@ -350,7 +313,7 @@ func (a *App) DisconnectSpaceServer(folder string) error {
 	if err != nil {
 		return err
 	}
-	if s := a.folderSpaces[spaceSessionID(dir)]; s != nil {
+	if s := a.folderSpaces[workspacestore.SessionID(dir)]; s != nil {
 		s.serverIndex = nil
 	}
 	path, err := profilePath(dir)
@@ -403,7 +366,7 @@ func (a *App) JoinSpaceServer(code, folder string) error {
 		return session.rejoinServerFolder(&p, c, dir, m)
 	}
 	a.mu.Lock()
-	open := a.folderSpaces[spaceSessionID(dir)] != nil
+	open := a.folderSpaces[workspacestore.SessionID(dir)] != nil
 	err = session.check()
 	a.mu.Unlock()
 	if err != nil {
@@ -418,19 +381,19 @@ func (a *App) JoinSpaceServer(code, folder string) error {
 	}
 	defer os.RemoveAll(stage)
 	file := filepath.Join(stage, folderSpaceFilename)
-	if err = p.DownloadMain(c, file, m.Main, publishNewSpaceFile); err != nil {
+	if err = p.DownloadMain(c, file, m.Main, workspacestore.PublishNewFile); err != nil {
 		return err
 	}
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
-	_, _, err = parseSpaceFile(raw)
+	_, _, err = folderStore.ParseFile(raw)
 	clear(raw)
 	if err != nil {
 		return err
 	}
-	if err = p.Exchange(c, stage, m, nil, publishNewSpaceFile); err != nil {
+	if err = p.Exchange(c, stage, m, nil, workspacestore.PublishNewFile); err != nil {
 		return err
 	}
 	a.mu.Lock()
@@ -438,27 +401,10 @@ func (a *App) JoinSpaceServer(code, folder string) error {
 	if err = session.check(); err != nil {
 		return err
 	}
-	if a.folderSpaces[spaceSessionID(dir)] != nil {
+	if a.folderSpaces[workspacestore.SessionID(dir)] != nil {
 		return errChanged
 	}
-	entries, err = os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	if len(entries) != 1 || entries[0].Name() != filepath.Base(stage) {
-		return syncclient.ErrFolder
-	}
-	// Publish the main without replacement first. A concurrent document wins
-	// without acquiring our history. Once our main exists, a retry can always
-	// identify the replica and fill in missing history.
-	if err = publishNewSpaceFile(file, filepath.Join(dir, folderSpaceFilename)); err != nil {
-		return err
-	}
-	history := filepath.Join(dir, syncFolderName)
-	if err = os.Mkdir(history, 0700); err != nil {
-		return err
-	}
-	if err = os.Rename(filepath.Join(stage, syncFolderName, m.Lineage), filepath.Join(history, m.Lineage)); err != nil {
+	if err := workspacestore.PublishDownload(dir, stage, m.Lineage); err != nil {
 		return err
 	}
 	return saveSuccessfulSync(dir, &p)
