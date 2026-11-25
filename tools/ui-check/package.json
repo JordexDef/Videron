@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "browsers": "playwright-core install chromium webkit",
-    "test": "node --test scenarios.mjs"
+    "test": "node --test scenarios.mjs",
+    "check:flows": "node run-audit.mjs",
+    "review": "node review.mjs"
   },
   "devDependencies": {
     "playwright-core": "1.54.1"

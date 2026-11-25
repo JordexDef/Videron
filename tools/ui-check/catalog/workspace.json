@@ -1,0 +1,399 @@
+{
+  "actions": [
+    {
+      "id": "workspace.settings",
+      "label": "Open settings",
+      "entry": "Sidebar → Settings",
+      "source": "frontend/vault-ui.js"
+    },
+    {
+      "id": "workspace.system",
+      "label": "Follow the system color scheme",
+      "entry": "Settings → Theme → Use system setting",
+      "source": "frontend/vault-ui.js"
+    },
+    {
+      "id": "workspace.light",
+      "label": "Choose the light palette",
+      "entry": "Settings → Theme → Light",
+      "source": "frontend/vault-ui.js"
+    },
+    {
+      "id": "workspace.dark",
+      "label": "Choose the dark palette",
+      "entry": "Settings → Theme → Dark",
+      "source": "frontend/vault-ui.js"
+    },
+    {
+      "id": "workspace.language",
+      "label": "Change interface language",
+      "entry": "Sidebar → Language",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "workspace.space-menu",
+      "label": "Open the space switcher",
+      "entry": "Sidebar → current space",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "workspace.switch",
+      "label": "Switch to a named space",
+      "entry": "Space switcher → space name",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "workspace.help",
+      "label": "Open the controls reference",
+      "entry": "Sidebar → Controls",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "workspace.help-key",
+      "label": "Open controls from the map keyboard",
+      "entry": "F1 or ? on the map",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "workspace.dismiss",
+      "label": "Dismiss the active dialog",
+      "entry": "Escape",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "workspace.demo",
+      "label": "Open the example workspace",
+      "entry": "Space switcher → Demo atlas",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "workspace.new",
+      "label": "Start creating a local space",
+      "entry": "Space switcher → Create space…",
+      "source": "frontend/workspace-ui.js"
+    },
+    {
+      "id": "workspace.name",
+      "label": "Name a new space",
+      "entry": "New space → Name",
+      "source": "frontend/workspace-ui.js"
+    },
+    {
+      "id": "workspace.create",
+      "label": "Submit the new workspace",
+      "entry": "New space → Create or Enter",
+      "source": "frontend/workspace-ui.js"
+    },
+    {
+      "id": "workspace.cancel",
+      "label": "Cancel workspace creation",
+      "entry": "New space → Cancel",
+      "source": "frontend/workspace-ui.js"
+    },
+    {
+      "id": "workspace.manage",
+      "label": "Manage local workspaces",
+      "entry": "Space switcher → Spaces on this computer…",
+      "source": "frontend/workspace-ui.js"
+    },
+    {
+      "id": "workspace.remove",
+      "label": "Request removal of a local space",
+      "entry": "Spaces on this computer → trash icon",
+      "source": "frontend/workspace-ui.js"
+    },
+    {
+      "id": "workspace.keep",
+      "label": "Cancel workspace removal",
+      "entry": "Removal confirmation → Cancel",
+      "source": "frontend/workspace-ui.js"
+    },
+    {
+      "id": "workspace.confirm",
+      "label": "Confirm local deletion",
+      "entry": "Removal confirmation → Delete space",
+      "source": "frontend/workspace-ui.js"
+    },
+    {
+      "id": "workspace.status",
+      "label": "Open connection details",
+      "entry": "Sidebar footer → storage status",
+      "source": "frontend/workspace-status.js"
+    },
+    {
+      "id": "workspace.status-dismiss",
+      "label": "Close connection details",
+      "entry": "Details → Close or Escape",
+      "source": "frontend/workspace-status.js"
+    },
+    {
+      "id": "workspace.status-outside",
+      "label": "Dismiss connection details with the pointer",
+      "entry": "Click outside connection details",
+      "source": "frontend/workspace-status.js"
+    },
+    {
+      "id": "workspace.extensions",
+      "label": "Open extension manager",
+      "entry": "Sidebar → Extensions",
+      "source": "frontend/extensions.js"
+    },
+    {
+      "id": "workspace.open-extension",
+      "label": "Open the built-in tag explorer",
+      "entry": "Tag Spectrum → Open",
+      "source": "frontend/extensions.js"
+    },
+    {
+      "id": "workspace.tag",
+      "label": "View all notes sharing a tag",
+      "entry": "Tag explorer → tag button",
+      "source": "frontend/extensions.js"
+    },
+    {
+      "id": "workspace.open-tag-note",
+      "label": "Open a note from the tag explorer",
+      "entry": "Tag explorer → note title",
+      "source": "frontend/extensions.js"
+    },
+    {
+      "id": "workspace.all-tags",
+      "label": "Return to tag frequencies",
+      "entry": "Tag explorer → All tags",
+      "source": "frontend/extensions.js"
+    },
+    {
+      "id": "workspace.import",
+      "label": "Install an extension manifest",
+      "entry": "Extensions → Install from JSON",
+      "source": "frontend/extensions.js"
+    },
+    {
+      "id": "workspace.apply-language",
+      "label": "Activate a language pack",
+      "entry": "Extensions → language pack → Use language",
+      "source": "frontend/extensions.js"
+    },
+    {
+      "id": "workspace.update-pack",
+      "label": "Replace an installed language pack",
+      "entry": "Extensions → language pack → Update…",
+      "source": "frontend/extensions.js"
+    },
+    {
+      "id": "workspace.remove-pack",
+      "label": "Uninstall a language pack",
+      "entry": "Extensions → language pack → Remove",
+      "source": "frontend/extensions.js"
+    },
+    {
+      "id": "workspace.template",
+      "label": "Export a language template",
+      "entry": "Extensions → Save language template…",
+      "source": "frontend/extensions.js"
+    },
+    {
+      "id": "workspace.back-extension",
+      "label": "Return from an extension panel",
+      "entry": "Extension → All extensions",
+      "source": "frontend/extensions.js"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "workspace.follow-system",
+      "actions": [
+        "workspace.settings",
+        "workspace.system",
+        "workspace.dark",
+        "workspace.light",
+        "workspace.dismiss"
+      ],
+      "steps": [
+        "Open Settings with the system preference active.",
+        "Switch the OS color scheme while Settings is open.",
+        "Select Dark; change the OS to light, close, and reload.",
+        "Choose Light, then System, and change the OS again."
+      ],
+      "expected": "The live palette follows the OS only in System mode. The explicit choice and selected radio survive reopening.",
+      "risk": "medium"
+    },
+    {
+      "id": "workspace.language-reload",
+      "actions": [
+        "workspace.language",
+        "workspace.help",
+        "workspace.help-key",
+        "workspace.dismiss"
+      ],
+      "steps": [
+        "Switch English to Russian.",
+        "Open Controls with F1, dismiss it, and reload.",
+        "Switch back to English and open Controls by mouse."
+      ],
+      "expected": "Headings and help change language immediately, the preference survives reload, and the note title remains unchanged.",
+      "risk": "medium"
+    },
+    {
+      "id": "workspace.local-status",
+      "actions": [
+        "workspace.status",
+        "workspace.status-dismiss",
+        "workspace.status-outside",
+        "workspace.settings"
+      ],
+      "steps": [
+        "Open local storage status, read the details, and press Escape.",
+        "Reopen the status, then click Settings outside it."
+      ],
+      "expected": "The footer reports local storage without a server address. Escape returns keyboard focus to the footer; clicking Settings opens only that dialog.",
+      "risk": "medium"
+    },
+    {
+      "id": "workspace.create-cancel",
+      "actions": [
+        "workspace.space-menu",
+        "workspace.new",
+        "workspace.name",
+        "workspace.cancel"
+      ],
+      "steps": [
+        "Start creating a space and enter only whitespace.",
+        "Enter a valid name and cancel.",
+        "Open the switcher again."
+      ],
+      "expected": "Create stays disabled for whitespace, becomes enabled for the valid name, and cancelling leaves the catalog and active space untouched.",
+      "risk": "medium"
+    },
+    {
+      "id": "workspace.space-roundtrip",
+      "actions": [
+        "workspace.space-menu",
+        "workspace.new",
+        "workspace.name",
+        "workspace.create",
+        "workspace.switch"
+      ],
+      "steps": [
+        "Create a space with leading and trailing spaces by pressing Enter.",
+        "Switch back to Personal, inspect the original note, and switch to the new space.",
+        "Reload."
+      ],
+      "expected": "The trimmed name survives restart, the new space is empty, and the original note remains in Personal.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.remove-cancel",
+      "actions": [
+        "workspace.space-menu",
+        "workspace.new",
+        "workspace.name",
+        "workspace.create",
+        "workspace.manage",
+        "workspace.remove",
+        "workspace.keep"
+      ],
+      "steps": [
+        "Create a second space, switch back to Personal and request removal of the second space.",
+        "Cancel the confirmation and reopen the space."
+      ],
+      "expected": "The existing note and the second space both remain available and no deletion is applied.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.remove-local",
+      "actions": [
+        "workspace.space-menu",
+        "workspace.new",
+        "workspace.name",
+        "workspace.create",
+        "workspace.manage",
+        "workspace.remove",
+        "workspace.confirm"
+      ],
+      "steps": [
+        "Create a second local space.",
+        "Delete that active test space after confirmation.",
+        "Reload, inspect the switcher, and open the original note."
+      ],
+      "expected": "The deleted space is absent; Personal remains active and its original note still opens with the same content.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.tag-roundtrip",
+      "actions": [
+        "workspace.extensions",
+        "workspace.open-extension",
+        "workspace.tag",
+        "workspace.all-tags",
+        "workspace.open-tag-note"
+      ],
+      "steps": [
+        "Open the built-in tag explorer with two tagged notes.",
+        "Open a shared tag and return to All tags.",
+        "Open the same tag again and follow the second note."
+      ],
+      "expected": "Both notes are listed for the tag. The selected note opens in the editor and the extension overlay closes.",
+      "risk": "medium"
+    },
+    {
+      "id": "workspace.bad-import-retry",
+      "actions": [
+        "workspace.extensions",
+        "workspace.import",
+        "workspace.apply-language",
+        "workspace.language"
+      ],
+      "steps": [
+        "Choose a malformed JSON file, then a valid language pack in the same dialog.",
+        "Apply the pack, close the dialog and reload."
+      ],
+      "expected": "The first attempt shows an import error without installing anything. The second translates the sidebar and the selection survives reload.",
+      "risk": "medium"
+    },
+    {
+      "id": "workspace.update-identity",
+      "actions": [
+        "workspace.extensions",
+        "workspace.import",
+        "workspace.update-pack",
+        "workspace.apply-language"
+      ],
+      "steps": [
+        "Install a test language pack. In Update, select a pack with a different ID.",
+        "Retry with the same ID/locale and a changed translation, then activate it."
+      ],
+      "expected": "The unrelated update is rejected; only one pack remains, with the new translation.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.remove-active-language",
+      "actions": [
+        "workspace.extensions",
+        "workspace.import",
+        "workspace.apply-language",
+        "workspace.remove-pack",
+        "workspace.language"
+      ],
+      "steps": [
+        "Install and activate a language pack, then remove that active pack.",
+        "Inspect the sidebar language selector and reload."
+      ],
+      "expected": "The removed locale vanishes, the interface switches to a built-in language and all notes survive.",
+      "risk": "medium"
+    },
+    {
+      "id": "workspace.download-template",
+      "actions": [
+        "workspace.extensions",
+        "workspace.template"
+      ],
+      "steps": [
+        "Download the language template from Extensions and parse the resulting JSON.",
+        "Dismiss the manager and check the active language."
+      ],
+      "expected": "A nonempty language manifest with a messages dictionary is downloaded; no new locale is installed or selected.",
+      "risk": "low"
+    }
+  ]
+}

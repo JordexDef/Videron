@@ -1,0 +1,148 @@
+{
+  "actions": [
+    {
+      "id": "search.map",
+      "label": "Open search across the current space",
+      "entry": "Map search box or primary+K",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "search.editor",
+      "label": "Search the space while editing a note",
+      "entry": "primary+Shift+F with an editor field focused",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "search.query",
+      "label": "Look up titles, note content and tags",
+      "entry": "Type in Search query",
+      "source": "frontend/search-worker.js"
+    },
+    {
+      "id": "search.area",
+      "label": "Filter to an area and its descendants",
+      "entry": "Search area dropdown",
+      "source": "frontend/search.js"
+    },
+    {
+      "id": "search.pinned",
+      "label": "Filter to pinned or seated notes",
+      "entry": "Pinned only toggle",
+      "source": "frontend/search.js"
+    },
+    {
+      "id": "search.case",
+      "label": "Match the original text case",
+      "entry": "Match case toggle",
+      "source": "frontend/search.js"
+    },
+    {
+      "id": "search.regex",
+      "label": "Interpret query as a regular expression",
+      "entry": "Regular expression toggle",
+      "source": "frontend/search-worker.js"
+    },
+    {
+      "id": "search.navigate",
+      "label": "Choose and open a result from the keyboard",
+      "entry": "Down / Up then Enter in Search query",
+      "source": "frontend/search.js"
+    },
+    {
+      "id": "search.back",
+      "label": "Return to saved search results",
+      "entry": "Back to results in the destination editor",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "search.dismiss",
+      "label": "Dismiss the search and resume its origin",
+      "entry": "Escape in Search notes",
+      "source": "frontend/search.js"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "search.draft-return",
+      "actions": [
+        "search.editor",
+        "search.query",
+        "search.navigate",
+        "search.back",
+        "search.dismiss"
+      ],
+      "steps": [
+        "With a note open, append a unique character without explicitly saving and immediately open space search. Verify the new text is searchable.",
+        "Search for a term matching two other notes, choose the second with the keyboard, open it and use Back to results.",
+        "Check the selected row and query, then press Escape. Reopen the original note after a reload."
+      ],
+      "expected": "The draft is searchable immediately. Back preserves the query, ordering and chosen result. Escape returns to the original editor, including the appended character, and the edit survives reload.",
+      "risk": "high"
+    },
+    {
+      "id": "search.area-filters",
+      "actions": [
+        "search.map",
+        "search.query",
+        "search.area",
+        "search.pinned",
+        "search.case",
+        "search.dismiss"
+      ],
+      "steps": [
+        "Search for Fox among six notes in the root, a nested area and a separate area.",
+        "Select the parent area. Enable exact case and Pinned only in sequence. Switch to the child, then to No area."
+      ],
+      "expected": "Each filter narrows the actual result IDs indicated by their distinct visible titles. The parent includes the child. Case excludes lowercase matches and Pinned only excludes unpinned notes. No area lists only the root note.",
+      "risk": "medium"
+    },
+    {
+      "id": "search.regex-code",
+      "actions": [
+        "search.map",
+        "search.query",
+        "search.regex",
+        "search.navigate",
+        "search.back",
+        "search.dismiss"
+      ],
+      "steps": [
+        "Use Regex with an invalid expression, wait for the syntax message and press Enter.",
+        "Replace it with a pattern matching one error code on a late line in an ordinary note’s code block. Open the result.",
+        "Check the code caret and on-screen highlight. Return to results and dismiss."
+      ],
+      "expected": "The invalid pattern opens no note. The corrected query highlights the code token and scrolls it into view, with the caret at its start. Back preserves the valid expression and regex mode.",
+      "risk": "medium"
+    },
+    {
+      "id": "search.space-isolation",
+      "actions": [
+        "search.map",
+        "search.query",
+        "search.back",
+        "search.dismiss"
+      ],
+      "steps": [
+        "Search for a shared keyword in workspace North, open its result, return and dismiss.",
+        "Switch to workspace South, which contains a different note with the same ID. Open a fresh search, type the shared keyword, then type a North-only term."
+      ],
+      "expected": "A new search starts with an empty query in South. Its shared-keyword result belongs to South and the North-only term has zero results.",
+      "risk": "high"
+    },
+    {
+      "id": "search.latest-enter",
+      "actions": [
+        "search.map",
+        "search.query",
+        "search.navigate",
+        "search.dismiss"
+      ],
+      "steps": [
+        "Search for a first term and wait for the matching note.",
+        "Replace the query with a second term and immediately press Enter while results update. Return to results, enter a term with no matches and press Enter again."
+      ],
+      "expected": "Enter opens only the result for the newest query. A zero-result query leaves the search open.",
+      "risk": "medium"
+    }
+  ]
+}

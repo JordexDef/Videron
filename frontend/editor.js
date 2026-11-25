@@ -14,7 +14,7 @@ import { attachTextToolbar } from './canvas-text-toolbar.js'
 import { blockText, textTypes } from './search-location.js'
 import { historyDirection, primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
 import { blockTagText } from './board-rich-text.js'
-import { readClipboardRuns } from './clipboard-runs.js'
+import { readClipboardParagraphs } from './clipboard-runs.js'
 import { sliceRuns, selectedBlocks, replaceTextRange, moveTextRange } from './editor-text-range.js'
 import { installTextMove } from './editor-text-move.js'
 import { createCredentialBlock } from './credential-block.js'
@@ -910,8 +910,17 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     const template=html ? el('template') : null
     // Template contents are inert. Only validated text marks are rebuilt in the editor.
     if(template)template.innerHTML=html
-    const runs=readClipboardRuns(template?.content,plain || null,marksForElement)
-    if(!runs.length)return
+    const paragraphs=readClipboardParagraphs(template?.content,plain || null,marksForElement)
+    if(!paragraphs.length)return
+    if(paragraphs.length>1){
+      const target=range || {start:{index:mark.index,offset:mark.start},end:{index:mark.index,offset:mark.end}}
+      const first=body[target.start.index]
+      const fragment=paragraphs.map((runs,i)=>i?continuedListItem(first,runs):{...first,runs})
+      remember()
+      applyTextEdit(replaceTextRange(body,target,fragment))
+      return
+    }
+    const [runs]=paragraphs
     if(range){replaceSelectedRuns(range,runs);return}
     const clean=el('div')
     appendRuns(clean,runs)

@@ -1,0 +1,377 @@
+{
+  "actions": [
+    {
+      "id": "native.encrypt",
+      "label": "Encrypt a project",
+      "entry": "Settings → Set a project password",
+      "source": "frontend/vault-ui.js"
+    },
+    {
+      "id": "native.change",
+      "label": "Change the project password",
+      "entry": "Settings → Change password",
+      "source": "frontend/vault-ui.js"
+    },
+    {
+      "id": "native.unprotect",
+      "label": "Remove project protection",
+      "entry": "Settings → Remove project password",
+      "source": "frontend/vault-ui.js"
+    },
+    {
+      "id": "native.unlock",
+      "label": "Unlock after restart",
+      "entry": "Unlock screen → project password",
+      "source": "frontend/lock-screen.js"
+    },
+    {
+      "id": "native.note-interval",
+      "label": "Remember an unlocked note for a time interval",
+      "entry": "Open a protected note → unlock duration",
+      "source": "frontend/vault-ui.js"
+    },
+    {
+      "id": "native.note-reopen",
+      "label": "Reopen a separately protected note",
+      "entry": "Note editor → Back to map → open the note again",
+      "source": "frontend/note-vault.js"
+    },
+    {
+      "id": "native.seal-note",
+      "label": "Protect one note independently",
+      "entry": "Note editor → note protection",
+      "source": "frontend/vault-ui.js"
+    },
+    {
+      "id": "native.save-secret",
+      "label": "Save an entry in a credentials block",
+      "entry": "Protected note → Insert logins and passwords → enter a row",
+      "source": "frontend/credential-block.js"
+    },
+    {
+      "id": "native.system-lock",
+      "label": "Lock the desktop during editing",
+      "entry": "Windows lock notification while an editor is open",
+      "source": "session_lock_windows.go"
+    },
+    {
+      "id": "native.pair-agent",
+      "label": "Register a local agent client",
+      "entry": "Settings → Add agent…",
+      "source": "frontend/agent-client-settings.js"
+    },
+    {
+      "id": "native.copy-agent",
+      "label": "Copy the MCP client configuration",
+      "entry": "Settings → External agents → Copy configuration",
+      "source": "frontend/agent-client-settings.js"
+    },
+    {
+      "id": "native.forget-agent",
+      "label": "Revoke a paired client",
+      "entry": "Settings → External agents → Forget → confirm",
+      "source": "frontend/agent-client-settings.js"
+    },
+    {
+      "id": "native.server",
+      "label": "Check access to a sync server",
+      "entry": "Space switcher → Your server… → connect",
+      "source": "frontend/workspace-server-ui.js"
+    },
+    {
+      "id": "native.publish",
+      "label": "Publish a project",
+      "entry": "Server project picker → create / publish space",
+      "source": "frontend/server-project-picker.js"
+    },
+    {
+      "id": "native.join",
+      "label": "Open an existing remote project",
+      "entry": "Server project picker → Open project",
+      "source": "frontend/server-project-picker.js"
+    },
+    {
+      "id": "native.rejoin",
+      "label": "Reconnect a downloaded working copy",
+      "entry": "Server project picker → choose existing working folder",
+      "source": "frontend/server-project-picker.js"
+    },
+    {
+      "id": "native.autoconnect",
+      "label": "Remember the server connection for next startup",
+      "entry": "Server connection → automatic reconnection option",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "native.rename",
+      "label": "Rename the shared project",
+      "entry": "Server project → Rename",
+      "source": "frontend/server-project-picker.js"
+    },
+    {
+      "id": "native.delete-server",
+      "label": "Delete the shared project for everyone",
+      "entry": "Server project → Delete from server… → Delete for everyone",
+      "source": "frontend/server-project-picker.js"
+    },
+    {
+      "id": "native.offline-edit",
+      "label": "Edit a working copy while offline",
+      "entry": "Disconnect test server and edit local note",
+      "source": "frontend/workspace-storage.js"
+    },
+    {
+      "id": "native.remote-update",
+      "label": "Receive another client’s change",
+      "entry": "Open same project on two devices, then save a note",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "native.review",
+      "label": "Review diverging versions",
+      "entry": "Sidebar → Compare versions",
+      "source": "frontend/workspace-conflicts.js"
+    },
+    {
+      "id": "native.choose-local",
+      "label": "Select this computer’s version",
+      "entry": "Conflict review → This computer",
+      "source": "frontend/workspace-conflicts.js"
+    },
+    {
+      "id": "native.choose-remote",
+      "label": "Select shared version",
+      "entry": "Conflict review → From the shared space",
+      "source": "frontend/workspace-conflicts.js"
+    },
+    {
+      "id": "native.attachment",
+      "label": "Add an image to a synced note",
+      "entry": "Editor → Insert image → save",
+      "source": "frontend/editor.js"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "native.vault-lifecycle",
+      "risk": "high",
+      "actions": [
+        "native.encrypt",
+        "native.unlock",
+        "native.change",
+        "native.unprotect"
+      ],
+      "steps": [
+        "Enable protection and save the project.",
+        "Reopen it, rotate the password, try the previous password and remove protection."
+      ],
+      "expected": "The project file remains encrypted while protection is active; valid transitions preserve data and a wrong password does not overwrite it.",
+      "test": "TestProjectVaultTransitions",
+      "source": "vault_test.go"
+    },
+    {
+      "id": "native.lock-edit",
+      "risk": "high",
+      "actions": [
+        "native.seal-note",
+        "native.system-lock",
+        "native.unlock",
+        "native.note-reopen"
+      ],
+      "steps": [
+        "Open a separately protected note inside a protected project.",
+        "Trigger the lock handler during the session, then resume the project and note."
+      ],
+      "expected": "A stale save cannot overwrite the protected copy; the project requires a password and the note navigation resumes once.",
+      "test": "TestSessionLockForgetsKeysAndResumesOnce",
+      "source": "vault_test.go"
+    },
+    {
+      "id": "native.unlock-deadline",
+      "risk": "high",
+      "actions": [
+        "native.seal-note",
+        "native.note-interval",
+        "native.note-reopen"
+      ],
+      "steps": [
+        "Unlock a note for an interval, close and reopen within the interval.",
+        "Let the original deadline expire during an edit and finish the pending save."
+      ],
+      "expected": "Reopening does not extend the deadline; the final edit survives and the retained grant expires.",
+      "test": "TestNoteUnlockDeadlineIsAbsoluteAndPreservesFinalSave",
+      "source": "note_unlock_test.go"
+    },
+    {
+      "id": "native.credentials-at-rest",
+      "risk": "high",
+      "actions": [
+        "native.seal-note",
+        "native.save-secret",
+        "native.unlock"
+      ],
+      "steps": [
+        "Attempt to save a synthetic credential in ordinary and folder libraries.",
+        "Seal the individual note, store it and unlock it."
+      ],
+      "expected": "Unsealed credential data is rejected by the tested save paths; the independently sealed note round-trips.",
+      "test": "TestCredentialBlocksRequireIndividualNoteEncryption",
+      "source": "vault_test.go"
+    },
+    {
+      "id": "native.pair-revoke",
+      "risk": "high",
+      "actions": [
+        "native.pair-agent",
+        "native.copy-agent",
+        "native.forget-agent"
+      ],
+      "steps": [
+        "Register a test client, reopen the client registry and copy its configuration.",
+        "Forget it and request the client list again."
+      ],
+      "expected": "Registration alone does not grant note access. The client survives restart until revoked, and the forgotten client cannot open a grant.",
+      "test": "TestPairedAgentRegistration",
+      "source": "agent_pair_test.go"
+    },
+    {
+      "id": "native.reconcile-offline",
+      "risk": "high",
+      "actions": [
+        "native.join",
+        "native.offline-edit",
+        "native.remote-update",
+        "native.review",
+        "native.choose-local"
+      ],
+      "steps": [
+        "Edit different records in two working copies and merge.",
+        "Edit the same note on both, choose the local version and retry the merge commit."
+      ],
+      "expected": "Independent changes survive, conflicts require a choice, and a retry preserves the committed resolution.",
+      "test": "TestFolderNativeMergeAcrossDevices",
+      "source": "folder_merge_test.go"
+    },
+    {
+      "id": "native.opposite-conflicts",
+      "risk": "high",
+      "actions": [
+        "native.offline-edit",
+        "native.review",
+        "native.choose-local",
+        "native.choose-remote"
+      ],
+      "steps": [
+        "Create a conflict between two devices.",
+        "Before either decision propagates, resolve it in opposite directions on the devices.",
+        "Exchange their new revisions."
+      ],
+      "expected": "The conflicting decisions remain recoverable instead of silently dropping a version.",
+      "test": "TestConcurrentOppositeResolutionsKeepBothVersions",
+      "source": "folder_replica_test.go"
+    },
+    {
+      "id": "native.encrypted-attachment",
+      "risk": "high",
+      "actions": [
+        "native.encrypt",
+        "native.attachment",
+        "native.publish",
+        "native.join",
+        "native.unlock"
+      ],
+      "steps": [
+        "Publish a test encrypted workspace with an image and caption.",
+        "Download it into another folder, then unlock and read it."
+      ],
+      "expected": "The recipient needs its workspace password and recovers both image and caption.",
+      "test": "TestEncryptedAttachmentThroughServer",
+      "source": "folder_server_test.go"
+    },
+    {
+      "id": "native.save-mid-upload",
+      "risk": "high",
+      "actions": [
+        "native.publish",
+        "native.attachment",
+        "native.remote-update"
+      ],
+      "steps": [
+        "Begin uploading objects for a revision.",
+        "Save another edit while the upload is in progress, finish synchronization and inspect the remote store."
+      ],
+      "expected": "A revision is announced only after its objects are present, and the later save can reach the server.",
+      "test": "TestSyncSaveDuringObjectUpload",
+      "source": "folder_server_test.go"
+    },
+    {
+      "id": "native.server-watch",
+      "risk": "high",
+      "actions": [
+        "native.server",
+        "native.publish",
+        "native.join",
+        "native.offline-edit",
+        "native.remote-update",
+        "native.review"
+      ],
+      "steps": [
+        "Pair two local test clients to one temporary server.",
+        "Edit offline, reconnect, deliver live updates and reconcile competing changes."
+      ],
+      "expected": "Clients converge on the chosen merge; delivery and the last successful sync survive a connection interruption.",
+      "test": "TestLiveSyncTwoDesktops",
+      "source": "folder_server_test.go"
+    },
+    {
+      "id": "native.restart-connection",
+      "risk": "high",
+      "actions": [
+        "native.server",
+        "native.autoconnect",
+        "native.join"
+      ],
+      "steps": [
+        "Change automatic connection preferences on a linked workspace.",
+        "Reopen the client/profile and inspect the remembered connection policy."
+      ],
+      "expected": "Automatic reconnection uses the saved setting for that workspace across restarts.",
+      "test": "TestServerAutoConnectAcrossRestarts",
+      "source": "folder_server_test.go"
+    },
+    {
+      "id": "native.reuse-folder",
+      "risk": "high",
+      "actions": [
+        "native.server",
+        "native.join",
+        "native.rejoin"
+      ],
+      "steps": [
+        "Join a workspace and leave its downloaded folder on disk.",
+        "Choose that same working folder when joining the same project again."
+      ],
+      "expected": "The original working copy is accepted and reused for the same space.",
+      "test": "TestRejoinWorkingFolder",
+      "source": "folder_server_test.go"
+    },
+    {
+      "id": "native.server-delete-isolation",
+      "risk": "high",
+      "actions": [
+        "native.rename",
+        "native.delete-server",
+        "native.join",
+        "native.offline-edit"
+      ],
+      "steps": [
+        "Rename a project and let another client observe the update.",
+        "Delete it on the temporary server, then inspect the clients and their local files.",
+        "Create a different project using the old name."
+      ],
+      "expected": "The peer receives the rename and deletion. Downloaded copies survive, and an old confirmation cannot target a new project with the same name.",
+      "test": "TestClientRenamesDeletesAndKeepsOfflineCopies",
+      "source": "sync_projects_test.go"
+    }
+  ]
+}

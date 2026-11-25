@@ -1,0 +1,943 @@
+{
+  "actions": [
+    {
+      "id": "board.select",
+      "label": "Select canvas objects",
+      "entry": "Press V and click an object.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.marquee",
+      "label": "Select enclosed objects",
+      "entry": "Drag a selection rectangle from left to right.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.crossing",
+      "label": "Select touched objects",
+      "entry": "Drag a selection rectangle from right to left.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.extend",
+      "label": "Add or remove an object from the selection",
+      "entry": "Shift-click it.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.inside-group",
+      "label": "Select one group member",
+      "entry": "Ctrl-click the member in Select mode.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.all",
+      "label": "Select editable objects",
+      "entry": "Press Ctrl+A on the drawing stage.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.group",
+      "label": "Group selected objects",
+      "entry": "Select two objects and press Ctrl+G.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.ungroup",
+      "label": "Remove a group level",
+      "entry": "Select a group and press Ctrl+Shift+G.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.lock",
+      "label": "Lock or unlock selected objects",
+      "entry": "Press Ctrl+Shift+L.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.move",
+      "label": "Move a selection",
+      "entry": "Drag an unlocked object.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.nudge",
+      "label": "Nudge a selection",
+      "entry": "Use an arrow key on the stage.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.resize",
+      "label": "Resize a shape or group",
+      "entry": "Drag a selection corner.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.rotate",
+      "label": "Rotate a shape or group",
+      "entry": "Drag the rotation handle; hold Shift to constrain the angle.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.duplicate",
+      "label": "Duplicate the selection",
+      "entry": "Press Ctrl+D.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.back",
+      "label": "Move a selection behind other objects",
+      "entry": "Click Send to back.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.front",
+      "label": "Move a selection in front of other objects",
+      "entry": "Click Bring to front.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.delete",
+      "label": "Delete selected objects",
+      "entry": "Press Delete on the stage.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.undo",
+      "label": "Undo the last canvas operation",
+      "entry": "Press Ctrl+Z.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.redo",
+      "label": "Redo a canvas operation",
+      "entry": "Press Ctrl+Shift+Z.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.escape",
+      "label": "Leave the current edit or gesture",
+      "entry": "Press Escape.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.rect",
+      "label": "Draw a rectangle",
+      "entry": "Press R and drag on the stage.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.diamond",
+      "label": "Draw a diamond",
+      "entry": "Press D and drag.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.ellipse",
+      "label": "Draw an ellipse",
+      "entry": "Press O and drag.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.line",
+      "label": "Draw a straight line",
+      "entry": "Press L and drag between two points.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.arrow",
+      "label": "Draw an arrow",
+      "entry": "Press A and drag between two points.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.polyline",
+      "label": "Draw a line through multiple points",
+      "entry": "Choose Line, click successive points and press Enter.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.bend",
+      "label": "Bend a segment",
+      "entry": "With Select, drag the midpoint of a line.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.unbend",
+      "label": "Remove an intermediate point",
+      "entry": "Alt-click a polyline's intermediate vertex.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.bind",
+      "label": "Attach an endpoint to a shape",
+      "entry": "Drag the endpoint to an attachment point on the shape.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.draw",
+      "label": "Draw a freehand stroke",
+      "entry": "Press P and drag the pen.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.erase",
+      "label": "Erase a drawing object",
+      "entry": "Press E and drag over an object.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.label",
+      "label": "Edit a shape caption",
+      "entry": "Double-click the shape or select it and press Enter.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.text-frame",
+      "label": "Insert a rich text area",
+      "entry": "Press T and drag out an area.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.text-only",
+      "label": "Remove the text area's background and border",
+      "entry": "Select its frame and choose Object style → Text only.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.save-look",
+      "label": "Save new text-area appearance",
+      "entry": "Click Save as default in the text area's Object style panel.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.fit",
+      "label": "Fit all objects on screen",
+      "entry": "Press F on the stage.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.pan",
+      "label": "Pan the viewport",
+      "entry": "Press H and drag, or hold Space while dragging.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.zoom",
+      "label": "Zoom the canvas",
+      "entry": "Click Zoom in or Zoom out in the bottom toolbar.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.image",
+      "label": "Insert an image file",
+      "entry": "Click Insert image and choose a local image.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.stroke",
+      "label": "Set the outline colour",
+      "entry": "Select a shape and choose Stroke / text in Object style.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.fill",
+      "label": "Apply or remove the shape fill",
+      "entry": "Choose Fill or No fill in Object style.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.roughness",
+      "label": "Set outline roughness",
+      "entry": "Choose a precise, handwritten or sketchy outline in Object style.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.rounded",
+      "label": "Round shape or polyline corners",
+      "entry": "Choose Rounded corners in Object style.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.pattern",
+      "label": "Change the fill pattern",
+      "entry": "Choose a solid, hatched or crosshatched fill in Object style.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.insert-table",
+      "label": "Place a floating table on the canvas",
+      "entry": "Click Add table in the drawing toolbar.",
+      "source": "frontend/board.js"
+    },
+    {
+      "id": "board.export",
+      "label": "Export a drawing",
+      "entry": "Open the drawing's File menu and save an Excalidraw file.",
+      "source": "frontend/board-files.js"
+    },
+    {
+      "id": "board.import",
+      "label": "Import a drawing",
+      "entry": "Open the drawing's File menu and choose an Excalidraw file.",
+      "source": "frontend/board-files.js"
+    },
+    {
+      "id": "board.inline-focus",
+      "label": "Activate an embedded drawing",
+      "entry": "Click an embedded drawing in a text note.",
+      "source": "frontend/inline-board.js"
+    },
+    {
+      "id": "board.inline-resize",
+      "label": "Resize an embedded drawing area",
+      "entry": "Drag the area's lower-right handle or focus it and use arrows.",
+      "source": "frontend/inline-board.js"
+    },
+    {
+      "id": "board.cell",
+      "label": "Select one cell",
+      "entry": "Click a cell in a table.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.edit",
+      "label": "Edit the selected cell",
+      "entry": "Press F2 or double-click the cell.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.accept",
+      "label": "Commit a cell edit",
+      "entry": "Press Enter while editing.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.cancel-cell",
+      "label": "Discard the current cell draft",
+      "entry": "Press Escape in its edit field.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.tab",
+      "label": "Move and wrap across the grid",
+      "entry": "Press Tab at the last column, or Shift+Tab at the first.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.jump",
+      "label": "Jump to the end of a run",
+      "entry": "Use Ctrl+Arrow in the active table.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.range",
+      "label": "Select a rectangular cell range",
+      "entry": "Click the first cell, then use Shift+Arrow or drag.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.axes",
+      "label": "Select multiple discontinuous headers",
+      "entry": "Click a row number or column letter, then Ctrl-click another.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.clear",
+      "label": "Clear the selected cells",
+      "entry": "Press Delete with an ordinary cell range selected.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.delete-axes",
+      "label": "Delete selected rows or columns",
+      "entry": "Select the headers and press Delete.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.sum",
+      "label": "Insert a sum below a range",
+      "entry": "Select numeric cells and click the Sum statistic.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.fx",
+      "label": "Start typing a formula",
+      "entry": "Select a cell and type =.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.reference",
+      "label": "Add a reference to a pending formula",
+      "entry": "When editing a formula, click a cell, or drag across a range.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.functions",
+      "label": "Browse available formula functions",
+      "entry": "Click All functions or press Shift+F3.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.suggest",
+      "label": "Complete a function name",
+      "entry": "Type =s and choose SUM from the suggestions.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.table-paste",
+      "label": "Paste a cell block",
+      "entry": "Paste tab-separated rows from the clipboard into an active cell.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.chart",
+      "label": "Create a chart from a range",
+      "entry": "Select the range and click Create chart in the footer.",
+      "source": "frontend/table-view.js"
+    },
+    {
+      "id": "board.grow-row",
+      "label": "Append one or more rows",
+      "entry": "Click or drag the round handle below the table.",
+      "source": "frontend/table-controls.js"
+    },
+    {
+      "id": "board.grow-col",
+      "label": "Append one or more columns",
+      "entry": "Click or drag the round handle on the right.",
+      "source": "frontend/table-controls.js"
+    },
+    {
+      "id": "board.insert-row",
+      "label": "Insert a row between other rows",
+      "entry": "Right-click a row number and choose Insert row above or below.",
+      "source": "frontend/table-controls.js"
+    },
+    {
+      "id": "board.insert-col",
+      "label": "Insert a column between other columns",
+      "entry": "Right-click a column letter and choose Insert column left or right.",
+      "source": "frontend/table-controls.js"
+    },
+    {
+      "id": "board.rename",
+      "label": "Rename a table",
+      "entry": "Choose Rename in Table actions and enter a unique name.",
+      "source": "frontend/table-controls.js"
+    },
+    {
+      "id": "board.name",
+      "label": "Show or hide the table title",
+      "entry": "Toggle Table name in Table actions.",
+      "source": "frontend/table-controls.js"
+    },
+    {
+      "id": "board.numbers",
+      "label": "Show or hide row numbers",
+      "entry": "Toggle Row numbers in Table actions.",
+      "source": "frontend/table-controls.js"
+    },
+    {
+      "id": "board.letters",
+      "label": "Show or hide column letters",
+      "entry": "Toggle Column letters in Table actions.",
+      "source": "frontend/table-controls.js"
+    },
+    {
+      "id": "board.header",
+      "label": "Mark a row or column as a header",
+      "entry": "Use Header row or Header column in its context menu.",
+      "source": "frontend/table-controls.js"
+    },
+    {
+      "id": "board.remove-table",
+      "label": "Remove an inline table block",
+      "entry": "Use Remove table in its Table actions menu.",
+      "source": "frontend/table-controls.js"
+    },
+    {
+      "id": "board.series",
+      "label": "Extend a series",
+      "entry": "Select seed cells and drag their Autofill handle.",
+      "source": "frontend/table-fill-gesture.js"
+    },
+    {
+      "id": "board.cycle",
+      "label": "Cycle values during autofill",
+      "entry": "Hold Ctrl while dragging the Autofill handle.",
+      "source": "frontend/table-fill-gesture.js"
+    },
+    {
+      "id": "board.cancel-fill",
+      "label": "Cancel an autofill preview",
+      "entry": "Press Escape before releasing the fill handle.",
+      "source": "frontend/table-fill-gesture.js"
+    },
+    {
+      "id": "board.chart-type",
+      "label": "Switch chart type",
+      "entry": "Select the chart and choose Line chart or Column chart.",
+      "source": "frontend/table-charts.js"
+    },
+    {
+      "id": "board.chart-read",
+      "label": "Read a chart value",
+      "entry": "Hover over a plotted value.",
+      "source": "frontend/table-charts.js"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "board.image-delete",
+      "actions": [
+        "board.select",
+        "board.extend",
+        "board.delete",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "Select the first of two raster images and Shift-click the second.",
+        "Delete both, undo once, then redo."
+      ],
+      "expected": "Both images disappear together, undo restores both original image objects, and redo leaves only the unrelated shape.",
+      "risk": "high"
+    },
+    {
+      "id": "board.locked-group",
+      "actions": [
+        "board.all",
+        "board.delete",
+        "board.undo",
+        "board.lock"
+      ],
+      "steps": [
+        "Open a board with a two-shape group containing one locked member and an ungrouped shape.",
+        "Focus the stage, press Ctrl+A and Delete, then undo."
+      ],
+      "expected": "The ungrouped shape alone disappears. The locked group stays complete, and undo restores the free shape.",
+      "risk": "high"
+    },
+    {
+      "id": "board.nested-group",
+      "actions": [
+        "board.select",
+        "board.extend",
+        "board.group",
+        "board.ungroup",
+        "board.move"
+      ],
+      "steps": [
+        "Select two separate shapes and group them. Add a third shape to create an outer group.",
+        "Ungroup once, deselect and click the first shape. Tap the right arrow."
+      ],
+      "expected": "Only the two members of the original inner group move; the third stays at its original position.",
+      "risk": "high"
+    },
+    {
+      "id": "board.layer-history",
+      "actions": [
+        "board.select",
+        "board.back",
+        "board.front",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "With shapes A, B and C in that order, select B and bring it to the front.",
+        "Undo, redo, then send the same shape to the back."
+      ],
+      "expected": "Layer order is A,C,B after bringing forward, A,B,C after undo, A,C,B after redo and B,A,C after sending back. Contents stay intact.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.caption-delete",
+      "actions": [
+        "board.select",
+        "board.label",
+        "board.escape",
+        "board.delete",
+        "board.undo"
+      ],
+      "steps": [
+        "Enter the caption of a rectangle, select its final character and press Delete.",
+        "Press Escape, then Delete on the stage and undo once."
+      ],
+      "expected": "The first Delete edits just the caption. The second removes the shape. Undo restores that shape with its edited caption and leaves its neighbour alone.",
+      "risk": "high"
+    },
+    {
+      "id": "board.duplicate-history",
+      "actions": [
+        "board.select",
+        "board.duplicate",
+        "board.nudge",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "Duplicate one shape. Nudge the new selection one step and undo twice.",
+        "Redo both operations."
+      ],
+      "expected": "The original never moves; one undo reverses the nudge, the next removes the duplicate. Redo recreates just one duplicate at the new position.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.disjoint-rows",
+      "actions": [
+        "board.axes",
+        "board.delete-axes",
+        "board.undo"
+      ],
+      "steps": [
+        "Select the first and third row headers in a four-row table, leaving the second unselected.",
+        "Press Delete, then undo once."
+      ],
+      "expected": "Only the second and fourth original rows survive the deletion, in order. Undo restores all four and their distinct cell values.",
+      "risk": "high"
+    },
+    {
+      "id": "board.delete-last-axis",
+      "actions": [
+        "board.axes",
+        "board.delete-axes",
+        "board.undo"
+      ],
+      "steps": [
+        "Select every column header of a populated table, then press Delete.",
+        "Undo the deletion."
+      ],
+      "expected": "One empty column remains with the original row count. Undo restores all columns, their order and their contents.",
+      "risk": "high"
+    },
+    {
+      "id": "board.clear-range",
+      "actions": [
+        "board.cell",
+        "board.range",
+        "board.clear",
+        "board.undo"
+      ],
+      "steps": [
+        "Select A1:B2 in a three-by-three table containing nine distinct values.",
+        "Clear the contents and undo once."
+      ],
+      "expected": "The grid stays three by three and the five unselected values stay unchanged. Undo restores all four cleared values.",
+      "risk": "high"
+    },
+    {
+      "id": "board.tab-cancel",
+      "actions": [
+        "board.cell",
+        "board.edit",
+        "board.tab",
+        "board.cancel-cell",
+        "board.accept"
+      ],
+      "steps": [
+        "Edit the rightmost cell of the first row, type a new value and press Tab.",
+        "Start another edit in the new position, type a draft and press Escape. Return with Shift+Tab."
+      ],
+      "expected": "The first change is committed, the draft in the first cell of the second row is discarded, and the final selection is back at the edited cell.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.formula-picks",
+      "actions": [
+        "board.cell",
+        "board.fx",
+        "board.reference",
+        "board.accept",
+        "board.undo"
+      ],
+      "steps": [
+        "In a blank cell type =SUM(. Click the cells containing 2 and 5 in succession.",
+        "Close the function, commit, then undo."
+      ],
+      "expected": "The inserted references are separate arguments, the result is 7, and undo restores only the formula cell to blank.",
+      "risk": "high"
+    },
+    {
+      "id": "board.cross-rename",
+      "actions": [
+        "board.cell",
+        "board.edit",
+        "board.rename",
+        "board.accept",
+        "board.undo"
+      ],
+      "steps": [
+        "Create two tables with a formula in Totals pointing to the input cell of Prices.",
+        "Rename Prices to New prices; inspect both displayed value and reference in the formula field. Undo."
+      ],
+      "expected": "The computed result stays the same after the rename. The formula names New prices, and undo restores the old table name and original working formula.",
+      "risk": "high"
+    },
+    {
+      "id": "board.insert-dependency",
+      "actions": [
+        "board.insert-col",
+        "board.cell",
+        "board.edit",
+        "board.undo"
+      ],
+      "steps": [
+        "In a table with A1=4, B1=5, C1 = A1+B1, insert a column to the left of B.",
+        "Inspect the moved formula and undo."
+      ],
+      "expected": "The new B is blank, the old B moves to C, and D still evaluates to 9 by referring to A and C. Undo restores the original layout.",
+      "risk": "high"
+    },
+    {
+      "id": "board.chart-update",
+      "actions": [
+        "board.cell",
+        "board.range",
+        "board.chart",
+        "board.chart-type",
+        "board.edit",
+        "board.accept",
+        "board.undo"
+      ],
+      "steps": [
+        "Make a chart from two numeric values, switch its type and change one source value.",
+        "Inspect the plotted data, then undo the cell edit."
+      ],
+      "expected": "The chart keeps the chosen type, updates to the new source value and returns to its original data on undo; the source table is still present.",
+      "risk": "high"
+    },
+    {
+      "id": "board.minimal-table",
+      "actions": [
+        "board.name",
+        "board.numbers",
+        "board.letters",
+        "board.header",
+        "board.cell",
+        "board.edit"
+      ],
+      "steps": [
+        "Hide the table name, row numbers and column letters, and mark the first row as headers.",
+        "Edit a cell, close the note and reopen it."
+      ],
+      "expected": "All three decorative elements remain hidden. The marked row, saved data and ability to select cells survive reopening.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.autofill-cancel",
+      "actions": [
+        "board.range",
+        "board.series",
+        "board.cancel-fill",
+        "board.cycle",
+        "board.undo"
+      ],
+      "steps": [
+        "Select seed values 1 and 3, drag the handle through the fourth cell and press Escape before releasing.",
+        "Repeat while holding Ctrl and release over the fourth cell. Undo."
+      ],
+      "expected": "Cancel leaves the targets empty. Holding Ctrl produces 1,3,1,3; undo clears only the filled cells.",
+      "risk": "high"
+    },
+    {
+      "id": "board.sum-neighbour",
+      "actions": [
+        "board.range",
+        "board.sum",
+        "board.cell",
+        "board.undo"
+      ],
+      "steps": [
+        "Select two numeric cells in a column whose next cell is already occupied.",
+        "Inspect the Sum action and use it if enabled. Undo any insertion."
+      ],
+      "expected": "The displayed total equals the two selected values. The existing value beneath them is never overwritten.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.inline-reopen",
+      "actions": [
+        "board.inline-focus",
+        "board.insert-table",
+        "board.cell",
+        "board.edit",
+        "board.accept"
+      ],
+      "steps": [
+        "Activate a drawing embedded between two text paragraphs. Change a numeric cell and commit.",
+        "Close the note and reopen it through the sidebar."
+      ],
+      "expected": "The updated cell and enclosing drawing persist. Both neighbouring paragraphs still contain their original text.",
+      "risk": "high"
+    },
+    {
+      "id": "board.polyline-bend",
+      "actions": [
+        "board.polyline",
+        "board.bend",
+        "board.unbend",
+        "board.undo"
+      ],
+      "steps": [
+        "Draw a three-vertex line. Drag one segment midpoint out to create a curve, then Alt-click the new vertex.",
+        "Undo that removal."
+      ],
+      "expected": "Removing the extra vertex preserves the original endpoints and undo restores the bend.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.chart-interchange",
+      "actions": [
+        "board.chart",
+        "board.export",
+        "board.import",
+        "board.chart-read"
+      ],
+      "steps": [
+        "Export a drawing containing a table formula and a chart, then import it into an empty test note.",
+        "Change the imported input value and inspect the imported chart."
+      ],
+      "expected": "The formula still calculates and the imported chart reads the imported table. The original note does not change.",
+      "risk": "high"
+    },
+    {
+      "id": "board.frame-default",
+      "actions": [
+        "board.text-frame",
+        "board.text-only",
+        "board.save-look",
+        "board.fit"
+      ],
+      "steps": [
+        "Give a canvas text area the Text only appearance and save it as the default.",
+        "Open another canvas in the same project, create a second text area, type in it and fit the view."
+      ],
+      "expected": "Both areas show their text without a fill or border, including after leaving edit mode; the new canvas uses the saved appearance.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.dock-focus",
+      "actions": [
+        "board.select",
+        "board.duplicate",
+        "board.zoom",
+        "board.undo",
+        "board.back",
+        "board.front",
+        "board.label"
+      ],
+      "steps": [
+        "Click Duplicate on a selected shape, click Zoom in and immediately undo with the keyboard.",
+        "Navigate using Tab from Send to back to Bring to front. Activate it with Enter and check where keyboard focus remains.",
+        "Edit a shape caption, type new text and undo from the text field."
+      ],
+      "expected": "Undo removes just the new copy after changing zoom. Keyboard activation leaves focus on the layer button, and undo in the caption restores its text with the shape still present.",
+      "risk": "high"
+    },
+    {
+      "id": "board.style-history",
+      "actions": [
+        "board.select",
+        "board.roughness",
+        "board.fill",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "Select a filled rectangle, open Object style and click Sketchy outline. Click No fill.",
+        "Use Ctrl+Z and redo before clicking the stage again."
+      ],
+      "expected": "Undo restores only the rectangle fill and keeps the sketchy outline; redo removes the fill again. Its neighbour is untouched.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.sketch-marquee",
+      "actions": [
+        "board.rect",
+        "board.diamond",
+        "board.ellipse",
+        "board.line",
+        "board.draw",
+        "board.erase",
+        "board.marquee",
+        "board.crossing",
+        "board.delete",
+        "board.undo"
+      ],
+      "steps": [
+        "Draw a rectangle, diamond, ellipse, line and pen mark in separate places. Erase the pen mark.",
+        "Drag a left-to-right selection box over half of the rectangle and press Delete. Reverse the same box from right to left, delete and undo."
+      ],
+      "expected": "Only the pen mark disappears when erased. The partial left-to-right box cannot remove the rectangle. The reverse box removes only the touched rectangle; undo restores it in the original layer order.",
+      "risk": "high"
+    },
+    {
+      "id": "board.grow-function",
+      "actions": [
+        "board.grow-row",
+        "board.grow-col",
+        "board.cell",
+        "board.jump",
+        "board.functions",
+        "board.suggest",
+        "board.accept",
+        "board.undo"
+      ],
+      "steps": [
+        "Open a table with A1=2, A2=3 and a gap in A3. Append a row and a column using the edge buttons.",
+        "Use Ctrl+Down from A1 to reach the end of the filled run. In the new bottom-right cell browse functions, then type =s, accept SUM and enter A1:A2. Commit and undo."
+      ],
+      "expected": "The table grows from four rows and three columns to five rows and four columns. Navigation stops at A2. The formula yields 5. Undo removes just the formula and preserves both the size and input data.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.bound-arrow-drag",
+      "actions": [
+        "board.arrow",
+        "board.bind",
+        "board.select",
+        "board.move",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "Join the facing midpoints of two rectangles with the Arrow tool.",
+        "Drag the right rectangle diagonally while the left rectangle stays in place. Undo once and redo, then close and reopen the canvas."
+      ],
+      "expected": "The left endpoint remains attached to the stationary rectangle; the right endpoint follows the moving rectangle on both axes. Undo restores the original endpoint positions, redo restores the move, and both bindings survive reopening.",
+      "risk": "high"
+    },
+    {
+      "id": "board.remove-related-inline-table",
+      "actions": [
+        "board.cell",
+        "board.remove-table",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "Open a text note with paragraphs, an input table and a separate summary table referencing it.",
+        "Remove the input table using its Table actions menu. Undo, redo and undo again. Reopen the note."
+      ],
+      "expected": "The source disappears and the dependent formula reports a missing reference. Undo restores the source values and live result. Redo removes only the source. Reopening after the final undo retains both paragraphs, tables and working formula.",
+      "risk": "high"
+    },
+    {
+      "id": "board.image-transform",
+      "actions": [
+        "board.image",
+        "board.resize",
+        "board.rotate",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "Insert a local PNG through the canvas file picker. Resize its corner, then rotate the selected image with Shift held.",
+        "Undo rotation, undo resize and redo both. Close and reopen the note."
+      ],
+      "expected": "Each transformation undoes independently. The original pixels and sibling shape stay intact; on reopen the image retains the resized geometry and snapped rotation.",
+      "risk": "high"
+    }
+  ]
+}

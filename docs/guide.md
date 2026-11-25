@@ -317,4 +317,8 @@ For a browser preview, run `python -m http.server 8745 --bind 127.0.0.1 --direct
 
 For browser interaction tests, run `npm ci` and `npm run browsers` once in `tools/ui-check`, then run `npm test` there. The tests open temporary Chromium and WebKit profiles with sample notes.
 
+Run `npm run review` in the same directory for the interaction catalog. It exercises workflows in isolated browser profiles and runs the selected Go integration tests against temporary libraries and local servers. Open `output/qa/Videron-QA.html` from the project root to filter actions and workflows, inspect their expected results and see which environments actually ran them. On Windows it also tests an encrypted note in a separate WebView2 desktop instance, using a temporary profile and an in-memory clipboard. Each run saves its own JSON results. To repeat one workflow, use `npm run check:flows -- --area map --case map.list-range --engine webkit`.
+
+When extending the catalog, record how to reach the control, then write a sequence and its expected state before running it. Vary selection, focus, input method and operation order. Include a neighbouring object that should survive, one undo step and a reopen when persistence matters. Keep a reproduced failure as a scenario and run it against both the affected revision and the fix.
+
 To build the desktop client for another operating system, follow the platform-specific setup instructions for its compiler and WebView. [Wails environment setup](https://v2.wails.io/docs/gettingstarted/installation/)

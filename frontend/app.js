@@ -1933,7 +1933,10 @@ function renderSelection(){
 function listNoteRow(id){
   return id==null?null:$('list-stage').querySelector('.note-row[data-note-id="'+CSS.escape(id)+'"]');
 }
-function selectListNote(id,range,checkbox){
+function selectListNote(id,range,checkbox,control=checkbox){
+  // WebKit leaves focus on the page after pointer selection. Keep subsequent
+  // list commands attached to the checkbox or row the user actually picked.
+  control.focus({preventScroll:true});
   if(range && lastListId!=null){
     const rows=[...$('list-stage').querySelectorAll('.note-row[data-note-id]')].map(row=>row.dataset.noteId);
     const start=rows.indexOf(lastListId),end=rows.indexOf(id);
@@ -2040,7 +2043,7 @@ function renderList(){
       pill.append(areaMarker(area),element('span','area-pill-label',label));row.append(pill);
     }
     row.append(iconEl('chevron'));row.onclick=e=>{
-      if(e.shiftKey||e.ctrlKey||e.metaKey||listSelection.size)selectListNote(n.id,e.shiftKey,check);
+      if(e.shiftKey||e.ctrlKey||e.metaKey||listSelection.size)selectListNote(n.id,e.shiftKey,check,row);
       else edit(n.id);
     };
     row.oncontextmenu=e=>{e.preventDefault();context(n.id,e.clientX,e.clientY)};

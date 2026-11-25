@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {readClipboardRuns} from '../frontend/clipboard-runs.js'
+import {readClipboardParagraphs,readClipboardRuns} from '../frontend/clipboard-runs.js'
 
 // The parser consumes just the inert node tree and the editor's mark filter.
 const text = data => ({nodeType:3,data})
@@ -12,6 +12,17 @@ const marks = (n, inherited) => n.tagName === 'B' ? {...inherited,bold:true}
   : n.tagName === 'I' ? {...inherited,italic:true} : inherited
 const parse = (root, plain = null) => readClipboardRuns(root, plain, marks)
 const all = runs => runs.map(run=>run.text).join('')
+
+test('HTML block boundaries stay editable independently; BR and plain-text line breaks stay soft', () => {
+  const source = node(null, node('P',node('B','one'),node('BR'),'soft'),
+    node('P',node('BR')),node('DIV',node('I','three')))
+  assert.deepEqual(readClipboardParagraphs(source,'one\nsoft\n\nthree',marks),[
+    [{text:'one',bold:true},{text:'\nsoft'}],[],[{text:'three',italic:true}]])
+  const trailing=node(null,node('P','first',node('BR')),node('P','second'))
+  assert.deepEqual(readClipboardParagraphs(trailing,null,marks).map(all),['first','second'])
+  assert.deepEqual(readClipboardParagraphs(node(null,node('P','a'),node('P','b')),'a\r\n\r\nb',marks).map(all),['a','','b'])
+  assert.deepEqual(readClipboardParagraphs(null,'a\r\nb',marks).map(all),['a\nb'])
+})
 
 test('pasting one styled word ignores indentation around its paragraph', () => {
   const root = node(null,'\n',node('DIV','\n  ',node('P','\n ',node('B','1mu'),'\n'),'\n'),'\n')

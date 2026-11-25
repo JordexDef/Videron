@@ -1,0 +1,625 @@
+{
+  "actions": [
+    {
+      "id": "map.viewMap",
+      "label": "Open the note map",
+      "entry": "Sidebar → Note map",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.viewList",
+      "label": "Open all notes",
+      "entry": "Sidebar → All notes",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.viewPinned",
+      "label": "Filter pinned notes",
+      "entry": "Sidebar → Pinned notes",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.newText",
+      "label": "Create a text note",
+      "entry": "New note or primary+N",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.sidebarToggle",
+      "label": "Hide or reveal the sidebar",
+      "entry": "Top bar sidebar button or primary+backslash",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.treeOpen",
+      "label": "Open a note from the tree",
+      "entry": "Activate a note tree item",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.treeCollapse",
+      "label": "Collapse or expand a branch",
+      "entry": "Area disclosure or Left / Right on its heading",
+      "source": "frontend/sidebar-tree.js"
+    },
+    {
+      "id": "map.treeNavigate",
+      "label": "Move focus within a tree branch",
+      "entry": "Arrow keys on a tree item",
+      "source": "frontend/sidebar-tree.js"
+    },
+    {
+      "id": "map.treeEnd",
+      "label": "Reach the last visible tree item",
+      "entry": "End in the sidebar tree",
+      "source": "frontend/sidebar-tree.js"
+    },
+    {
+      "id": "map.back",
+      "label": "Return from an editor",
+      "entry": "Back button in the note header",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.clickSelect",
+      "label": "Select one note",
+      "entry": "Select tool → click a node",
+      "source": "frontend/graph.js"
+    },
+    {
+      "id": "map.selectAll",
+      "label": "Select every map note and drawing",
+      "entry": "Focus map → primary+A",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.selectBox",
+      "label": "Select objects in a rectangle",
+      "entry": "Select tool → drag across empty canvas",
+      "source": "frontend/graph.js"
+    },
+    {
+      "id": "map.extend",
+      "label": "Add or remove a selection member",
+      "entry": "Shift+click a node or stroke",
+      "source": "frontend/graph.js"
+    },
+    {
+      "id": "map.listRange",
+      "label": "Select a contiguous list range",
+      "entry": "Select a checkbox → Shift+click another checkbox",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.listAll",
+      "label": "Select all rows in the active list",
+      "entry": "Focus a visible row → primary+A",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.delete",
+      "label": "Delete the current selection",
+      "entry": "Delete with focus on the map or list",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.confirmDelete",
+      "label": "Confirm note removal",
+      "entry": "Deletion dialog → Delete",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.cancelDelete",
+      "label": "Cancel note removal",
+      "entry": "Deletion dialog → Cancel",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.undo",
+      "label": "Undo a workspace action",
+      "entry": "primary+Z or the toast Undo button",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.group",
+      "label": "Group selected artwork and notes",
+      "entry": "Selection → Group or primary+G",
+      "source": "frontend/map-groups.js"
+    },
+    {
+      "id": "map.ungroup",
+      "label": "Release a map group",
+      "entry": "Selection → Ungroup or primary+Shift+G",
+      "source": "frontend/map-groups.js"
+    },
+    {
+      "id": "map.drag",
+      "label": "Move a note or selected group",
+      "entry": "Drag a selected note or drawing edge",
+      "source": "frontend/graph.js"
+    },
+    {
+      "id": "map.clear",
+      "label": "Clear a map selection or cancel linking",
+      "entry": "Esc on the map",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.zoom",
+      "label": "Zoom at current camera position",
+      "entry": "Scale controls or + / −",
+      "source": "frontend/graph.js"
+    },
+    {
+      "id": "map.actual",
+      "label": "Reset scale to one hundred percent",
+      "entry": "Scale readout or 0",
+      "source": "frontend/graph.js"
+    },
+    {
+      "id": "map.pan",
+      "label": "Move the map camera",
+      "entry": "H then drag on canvas",
+      "source": "frontend/graph.js"
+    },
+    {
+      "id": "map.selectTool",
+      "label": "Resume selection after panning",
+      "entry": "V on the map",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.freeLayout",
+      "label": "Switch between free and linked layouts",
+      "entry": "View → Free layout",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.linkTool",
+      "label": "Start a manual note link",
+      "entry": "L or chain button",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.linkTarget",
+      "label": "Complete a manual link",
+      "entry": "Click source then destination in Link mode",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.pin",
+      "label": "Pin or unpin one note",
+      "entry": "Note context menu → Pin or Unpin",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.showArea",
+      "label": "Center the map on a grid",
+      "entry": "Open a grid's area list → Show on map",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.areaCreate",
+      "label": "Open area creation",
+      "entry": "Sidebar Areas and notes → +",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.gridCreate",
+      "label": "Create a grid with an optional name",
+      "entry": "New area → Grid → Create area",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.gridEdit",
+      "label": "Open dimensions and spacing",
+      "entry": "Grid or area settings → Edit area",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.gridSpacing",
+      "label": "Change horizontal and vertical spacing independently",
+      "entry": "Grid settings → Horizontal spacing / Vertical spacing",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.gridShrink",
+      "label": "Reduce capacity",
+      "entry": "Grid settings → Columns / Rows",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.gridSwap",
+      "label": "Swap two occupied grid slots",
+      "entry": "Drag one seated note onto another",
+      "source": "frontend/map-slots.js"
+    },
+    {
+      "id": "map.gridRelease",
+      "label": "Remove a note from its seat",
+      "entry": "Note context menu → Take out of grid",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.deleteArea",
+      "label": "Remove a freeform area while keeping its contents",
+      "entry": "Focus area in tree → Delete → Delete area",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.deleteGrid",
+      "label": "Remove a grid while keeping its notes",
+      "entry": "Focus grid in tree → Delete",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.stageInsert",
+      "label": "Insert a stage at a specific position",
+      "entry": "Plus beside stage heading → enter a name",
+      "source": "frontend/stage-insert.js"
+    },
+    {
+      "id": "map.stageRemove",
+      "label": "Remove a stage and choose a destination",
+      "entry": "Right-click stage heading → Delete stage",
+      "source": "frontend/stage-removal.js"
+    },
+    {
+      "id": "map.routeCreate",
+      "label": "Start recording a route",
+      "entry": "Routes → New route",
+      "source": "frontend/map-routes.js"
+    },
+    {
+      "id": "map.routePick",
+      "label": "Append a map stop",
+      "entry": "Click a node while recording a route",
+      "source": "frontend/map-routes.js"
+    },
+    {
+      "id": "map.routeOrder",
+      "label": "Change stop order",
+      "entry": "Stops and excerpts → Move up or Move down",
+      "source": "frontend/map-routes.js"
+    },
+    {
+      "id": "map.routeSave",
+      "label": "Save a route and its name",
+      "entry": "Route editor → Save route",
+      "source": "frontend/map-routes.js"
+    },
+    {
+      "id": "map.routePlay",
+      "label": "Present a saved route",
+      "entry": "Routes → Play route",
+      "source": "frontend/map-routes.js"
+    },
+    {
+      "id": "map.routeStep",
+      "label": "Move the route to the next stop",
+      "entry": "Right arrow while playing",
+      "source": "frontend/map-routes.js"
+    },
+    {
+      "id": "map.routeExit",
+      "label": "Exit route playback",
+      "entry": "Esc while playing",
+      "source": "frontend/map-routes.js"
+    },
+    {
+      "id": "map.ink",
+      "label": "Open the map drawing tools",
+      "entry": "P or Draw on the map",
+      "source": "frontend/map-ink.js"
+    },
+    {
+      "id": "map.inkSquare",
+      "label": "Draw a constrained rectangle",
+      "entry": "Rectangle → Shift+drag",
+      "source": "frontend/map-ink.js"
+    },
+    {
+      "id": "map.inkCaption",
+      "label": "Create and commit a multiline map caption",
+      "entry": "Text → click → type → primary+Enter",
+      "source": "frontend/map-ink-text.js"
+    },
+    {
+      "id": "map.inkExit",
+      "label": "Finish drawing",
+      "entry": "Map drawing toolbar → Finish drawing",
+      "source": "frontend/map-ink.js"
+    },
+    {
+      "id": "map.listToggle",
+      "label": "Select a note directly from a list row",
+      "entry": "Primary+click a list row, or click another row while selecting",
+      "source": "frontend/app.js"
+    },
+    {
+      "id": "map.listDestination",
+      "label": "Choose an area for selected notes",
+      "entry": "List selection bar → Move to area…",
+      "source": "frontend/area-picker.js"
+    },
+    {
+      "id": "map.switchSpace",
+      "label": "Switch to a known local workspace",
+      "entry": "Space switcher → select workspace",
+      "source": "frontend/app.js"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "map.mixed-delete",
+      "actions": [
+        "map.selectAll",
+        "map.delete",
+        "map.clear",
+        "map.selectBox",
+        "map.zoom",
+        "map.undo"
+      ],
+      "steps": [
+        "Start with two strokes inside one marquee and a note outside it.",
+        "Select all and press Delete. Dismiss the mixed-selection hint.",
+        "Marquee both strokes only. Click Zoom in, press Delete and then Undo. Reload."
+      ],
+      "expected": "Mixed selection keeps all three objects. The second Delete removes both strokes only. Undo restores their original geometry and order; the note remains.",
+      "risk": "high"
+    },
+    {
+      "id": "map.group-move",
+      "actions": [
+        "map.clickSelect",
+        "map.extend",
+        "map.group",
+        "map.drag",
+        "map.undo",
+        "map.ungroup"
+      ],
+      "steps": [
+        "Select a note and Shift-click a rectangular outline beside it. Group them.",
+        "Drag the outline to another position, then undo once.",
+        "Ungroup and verify both identifiers and positions."
+      ],
+      "expected": "The members share a group and move by the same vector. One undo restores both positions. Ungroup removes both memberships and keeps their positions.",
+      "risk": "high"
+    },
+    {
+      "id": "map.list-range",
+      "actions": [
+        "map.viewList",
+        "map.listRange",
+        "map.delete",
+        "map.cancelDelete",
+        "map.confirmDelete",
+        "map.undo"
+      ],
+      "steps": [
+        "Open four notes in All notes. Select the first through third with Shift.",
+        "Press Delete, cancel, then delete the same range and confirm. Undo once."
+      ],
+      "expected": "Cancel keeps all four notes and the selection. Confirm removes exactly three. Undo restores the original notes and their directed links.",
+      "risk": "high"
+    },
+    {
+      "id": "map.row-focus",
+      "actions": ["map.viewList", "map.listToggle", "map.listRange", "map.listDestination", "map.delete", "map.cancelDelete"],
+      "steps": [
+        "Click one checkbox in All notes and press Delete; cancel the single-note confirmation and clear the selection.",
+        "Primary-click a note row and Shift-click a different row. Open Move to area, type XYZ, move the caret to the start and press Delete, then dismiss the picker.",
+        "Click a fourth row to add it to the existing selection and press Delete."
+      ],
+      "expected": "The first dialog names the single note. In the area field only X is deleted. The final Delete addresses the four selected notes and keeps every note intact when cancelled.",
+      "risk": "high"
+    },
+    {
+      "id": "map.pinned-filter",
+      "actions": [
+        "map.pin",
+        "map.viewPinned",
+        "map.viewMap",
+        "map.listAll",
+        "map.delete",
+        "map.confirmDelete",
+        "map.undo"
+      ],
+      "steps": [
+        "Pin an unpinned note in a workspace with one other pinned note and a third unpinned note.",
+        "In Pinned notes select all visible rows, delete and confirm. Undo and return to Note map."
+      ],
+      "expected": "Only the two pinned notes enter the deletion. The third note keeps its content throughout; Undo restores both pins.",
+      "risk": "high"
+    },
+    {
+      "id": "map.tree-return",
+      "actions": [
+        "map.treeNavigate",
+        "map.treeCollapse",
+        "map.treeOpen",
+        "map.zoom",
+        "map.back"
+      ],
+      "steps": [
+        "Zoom in one step. Focus an expanded parent area with a nested child and note.",
+        "Collapse then expand it using arrow keys, descend to the note and press Enter.",
+        "Return from the editor."
+      ],
+      "expected": "Collapsed branches hide descendants. Keyboard navigation opens the intended note. Returning restores its tree focus and the prior map scale.",
+      "risk": "medium"
+    },
+    {
+      "id": "map.tree-virtual",
+      "actions": [
+        "map.treeEnd",
+        "map.treeOpen",
+        "map.back"
+      ],
+      "steps": [
+        "Start on the first of 140 alphabetically named notes in the sidebar.",
+        "Use End, open the focused item with Enter, and return."
+      ],
+      "expected": "The last note can be reached even though it began outside the rendered rows. The editor title and restored tree focus refer to that same last note.",
+      "risk": "medium"
+    },
+    {
+      "id": "map.empty-grid",
+      "actions": [
+        "map.areaCreate",
+        "map.gridCreate",
+        "map.showArea",
+        "map.deleteGrid",
+        "map.undo"
+      ],
+      "steps": [
+        "Create an unnamed two-by-two grid. Open its area list and choose Show on map.",
+        "Focus its sidebar row and press Delete. Undo and reload."
+      ],
+      "expected": "The unnamed grid is usable by its fallback label. Delete removes that grid alone. Its empty 2 × 2 shape and unnamed state survive undo and reload.",
+      "risk": "high"
+    },
+    {
+      "id": "map.nested-promotion",
+      "actions": [
+        "map.deleteArea",
+        "map.undo",
+        "map.treeCollapse"
+      ],
+      "steps": [
+        "In a parent area delete a child area containing a note and another subarea.",
+        "Confirm removal, inspect the promoted children, then undo. Collapse and reopen the parent."
+      ],
+      "expected": "Both children move to the surviving parent. Undo restores both parent relationships and the link to an outside note.",
+      "risk": "high"
+    },
+    {
+      "id": "map.links-layout",
+      "actions": [
+        "map.linkTool",
+        "map.linkTarget",
+        "map.clear",
+        "map.freeLayout",
+        "map.viewPinned"
+      ],
+      "steps": [
+        "Start with three pinned notes and free layout. Select the source in Link mode and cancel.",
+        "Link the first two notes. Attempt the same link again in reverse.",
+        "Switch free layout off and on, then inspect Pinned notes."
+      ],
+      "expected": "Cancel makes no link. Exactly one manual link exists between the chosen notes; switching layouts keeps it and all three pins.",
+      "risk": "medium"
+    },
+    {
+      "id": "map.grid-swap",
+      "actions": [
+        "map.drag",
+        "map.gridSwap",
+        "map.gridRelease",
+        "map.undo"
+      ],
+      "steps": [
+        "Place two notes in adjacent seats of a grid nested in a freeform area.",
+        "Drag the first onto the second, then undo. Use Take out of grid on the first and undo again."
+      ],
+      "expected": "The two slots swap without replacing either note. Extraction places the note in the parent area. Each undo restores the original seats.",
+      "risk": "high"
+    },
+    {
+      "id": "map.grid-capacity",
+      "actions": [
+        "map.gridEdit",
+        "map.gridShrink",
+        "map.gridSpacing",
+        "map.undo"
+      ],
+      "steps": [
+        "Open grid settings for two notes occupying a two-column, one-row grid. Try shrinking to one seat.",
+        "Leave two columns, set horizontal spacing to 120 and vertical to 70, and save. Undo."
+      ],
+      "expected": "A one-seat grid cannot accept two notes and the form stays open. The valid pitches save independently. Undo restores the previous grid and both assignments.",
+      "risk": "high"
+    },
+    {
+      "id": "map.stage-undo",
+      "actions": [
+        "map.stageInsert",
+        "map.stageRemove",
+        "map.undo"
+      ],
+      "steps": [
+        "Insert a named stage between two existing stages with one note each. Undo.",
+        "Right-click the first heading and delete that stage, moving its note to the second stage. Undo."
+      ],
+      "expected": "Insertion shifts the second note with its original stage. Destination notes survive stage removal. Each Undo restores the order and exact original slots.",
+      "risk": "high"
+    },
+    {
+      "id": "map.route-order",
+      "actions": [
+        "map.routeCreate",
+        "map.routePick",
+        "map.routeOrder",
+        "map.routeSave",
+        "map.routePlay",
+        "map.routeStep",
+        "map.routeExit"
+      ],
+      "steps": [
+        "Record a named route through two notes. Move the second stop up and save.",
+        "Play it, advance once with the keyboard, then leave with Escape."
+      ],
+      "expected": "Playback starts on the second picked note and then shows the first. The original map scale and position return after exiting.",
+      "risk": "medium"
+    },
+    {
+      "id": "map.draw-caption",
+      "actions": [
+        "map.ink",
+        "map.inkSquare",
+        "map.inkCaption",
+        "map.inkExit",
+        "map.undo"
+      ],
+      "steps": [
+        "Draw a constrained rectangle. Add a caption with a line break and commit it.",
+        "Finish drawing, undo once, then reload."
+      ],
+      "expected": "First the map contains one square and the two-line caption. Undo removes only the caption; the square remains after reload.",
+      "risk": "medium"
+    },
+    {
+      "id": "map.workspace-undo",
+      "actions": [
+        "map.switchSpace",
+        "map.delete",
+        "map.confirmDelete",
+        "map.undo"
+      ],
+      "steps": [
+        "Delete a note in the first workspace. Switch to another space containing a note with the same ID. Press Undo.",
+        "Return to the first workspace and press Undo there."
+      ],
+      "expected": "Undo in the other space cannot resurrect or alter the first space’s note. Undo in the original space restores its own title and links.",
+      "risk": "high"
+    },
+    {
+      "id": "map.camera-return",
+      "actions": [
+        "map.pan",
+        "map.selectTool",
+        "map.zoom",
+        "map.actual",
+        "map.sidebarToggle",
+        "map.newText",
+        "map.back"
+      ],
+      "steps": [
+        "Pan with the hand tool, switch to Select and zoom in; hide and then reveal the sidebar.",
+        "Create a text note via the map shortcut and return. Reset zoom to 100 percent."
+      ],
+      "expected": "The note is created at the current camera center. Returning preserves scale and camera center. Resetting scale leaves the note in the workspace.",
+      "risk": "medium"
+    }
+  ]
+}

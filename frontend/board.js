@@ -786,6 +786,13 @@ export function mountBoard(container, options = {}) {
   file.multiple = true;
   file.accept = 'image/png,image/jpeg,image/gif,image/webp,image/bmp,image/avif';
   root.append(stage, top, swatches, actions, zoom, panel, file, alert);
+  // WebKit can leave focus on the page after a pointer click on a toolbar button.
+  // Restore the board's shortcut target before the command opens any editor or menu.
+  listen(root, 'click', event => {
+    if (!event.detail || document.activeElement !== document.body) return;
+    const button = event.target.closest('.vb-dock button, .vb-props button');
+    if (button?.closest('.vb') === root) stage.focus({preventScroll:true});
+  }, {capture:true});
   const textRuler = node('span', 'vb-text-measure');
   textRuler.setAttribute('aria-hidden', 'true');
   root.append(textRuler);
