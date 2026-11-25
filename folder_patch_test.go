@@ -71,10 +71,10 @@ func TestEncryptedDataTextSpliceReachesSecondClient(t *testing.T) {
 	if err := first.CreateFolderSpace(dir, document(original), testPass); err != nil {
 		t.Fatal(err)
 	}
-	if err := first.ConnectSpaceServer(dir, server.code); err != nil {
+	if err := first.ConnectSpaceServer(dir, server.Code); err != nil {
 		t.Fatal(err)
 	}
-	if err := second.JoinSpaceServer(server.code, copyDir); err != nil {
+	if err := second.JoinSpaceServer(server.Code, copyDir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := second.OpenFolderSpace(copyDir, testPass); err != nil {

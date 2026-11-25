@@ -14,12 +14,13 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"videron/internal/syncclient"
 	"videron/internal/vault"
 )
 
 // Keep the desktop storage errors stable across the Wails bridge.
 var (
-	errChanged  = errors.New("VD_CHANGED")
+	errChanged  = syncclient.ErrChanged
 	errInvalid  = vault.ErrInvalid
 	errCorrupt  = vault.ErrCorrupt
 	errLocked   = vault.ErrLocked

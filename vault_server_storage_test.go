@@ -45,10 +45,10 @@ func TestIndividualNotePrivacyAcrossServerHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Even a server first connected after protection receives earlier history.
-	if err := app.ConnectSpaceServer(folder, server.code); err != nil {
+	if err := app.ConnectSpaceServer(folder, server.Code); err != nil {
 		t.Fatal(err)
 	}
-	store := filepath.Join(server.dir, "space")
+	store := filepath.Join(server.Dir, "space")
 	entries, err := os.ReadDir(store)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestIndividualNotePrivacyAcrossServerHistory(t *testing.T) {
 	if !priorOnDisk || !sealedOnDisk {
 		t.Fatalf("server did not store the expected public history and new encrypted note: prior=%t, sealed=%t", priorOnDisk, sealedOnDisk)
 	}
-	identity := stored(t, filepath.Join(server.dir, "identity.json"))
+	identity := stored(t, filepath.Join(server.Dir, "identity.json"))
 	if bytes.Contains(identity, []byte(accessPassword)) || bytes.Contains(identity, []byte(password)) {
 		t.Fatal("server identity stored a plaintext password")
 	}

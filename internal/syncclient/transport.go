@@ -1,4 +1,4 @@
-package main
+package syncclient
 
 import (
 	"context"
@@ -22,12 +22,12 @@ import (
 )
 
 const (
-	transportDirect   = "direct"
-	transportTunnel   = "cloudflare"
+	TransportDirect   = "direct"
+	TransportTunnel   = "cloudflare"
 	serverDialTimeout = 7 * time.Second
 )
 
-var errServerAddress = errors.New("VD_SERVER_ADDRESS")
+var ErrAddress = errors.New("VD_SERVER_ADDRESS")
 
 type serverEndpoint struct {
 	address   string
@@ -39,7 +39,7 @@ type serverEndpoint struct {
 func serverEndpoints(input string) ([]serverEndpoint, error) {
 	raw := strings.TrimSpace(input)
 	if raw == "" || strings.ContainsAny(raw, "?#@%\\") {
-		return nil, errServerAddress
+		return nil, ErrAddress
 	}
 	if !strings.Contains(raw, "://") {
 		if ip, err := netip.ParseAddr(raw); err == nil && ip.Is6() {
@@ -49,7 +49,7 @@ func serverEndpoints(input string) ([]serverEndpoint, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || (u.EscapedPath() != "" && u.EscapedPath() != "/") || strings.HasSuffix(u.Host, ":") {
-		return nil, errServerAddress
+		return nil, ErrAddress
 	}
 	host := u.Hostname()
 	ip, ipErr := netip.ParseAddr(host)
@@ -58,14 +58,14 @@ func serverEndpoints(input string) ([]serverEndpoint, error) {
 	} else {
 		host, err = idna.Lookup.ToASCII(host)
 		if err != nil || strings.Trim(host, ".") == "" || strings.Contains(host, "..") || strings.HasPrefix(host, ".") || len(host) > 254 {
-			return nil, errServerAddress
+			return nil, ErrAddress
 		}
 		host = strings.ToLower(host)
 	}
 	// IPv6 authorities must be bracketed so a final hextet is never
 	// silently interpreted as a port.
 	if strings.Contains(u.Hostname(), ":") && !strings.HasPrefix(u.Host, "[") {
-		return nil, errServerAddress
+		return nil, ErrAddress
 	}
 	endpoint := func(port, transport string) serverEndpoint {
 		return serverEndpoint{"https://" + net.JoinHostPort(host, port), transport}
@@ -74,10 +74,10 @@ func serverEndpoints(input string) ([]serverEndpoint, error) {
 	if port != "" {
 		n, e := strconv.Atoi(port)
 		if e != nil || n < 1 || n > 65535 {
-			return nil, errServerAddress
+			return nil, ErrAddress
 		}
 		port = strconv.Itoa(n)
-		modes := []serverEndpoint{endpoint(port, transportDirect), endpoint(port, transportTunnel)}
+		modes := []serverEndpoint{endpoint(port, TransportDirect), endpoint(port, TransportTunnel)}
 		if port == "443" {
 			modes[0], modes[1] = modes[1], modes[0]
 		}
@@ -85,12 +85,13 @@ func serverEndpoints(input string) ([]serverEndpoint, error) {
 	}
 	local := ipErr == nil || !strings.Contains(host, ".") || strings.HasSuffix(host, ".local")
 	if local {
-		return []serverEndpoint{endpoint("8743", transportDirect), endpoint("443", transportTunnel), endpoint("443", transportDirect)}, nil
+		return []serverEndpoint{endpoint("8743", TransportDirect), endpoint("443", TransportTunnel), endpoint("443", TransportDirect)}, nil
 	}
-	return []serverEndpoint{endpoint("443", transportTunnel), endpoint("443", transportDirect), endpoint("8743", transportDirect)}, nil
+	return []serverEndpoint{endpoint("443", TransportTunnel), endpoint("443", TransportDirect), endpoint("8743", TransportDirect)}, nil
 }
 
-func pinnedServerTLS(pin string) *tls.Config {
+// PinnedTLS verifies the origin against the certificate fingerprint established at pairing.
+func PinnedTLS(pin string) *tls.Config {
 	expected, _ := hex.DecodeString(pin)
 	// The exact origin certificate is authenticated by a pairing link or by
 	// the password exchange. The sync server uses a self-signed certificate.
@@ -101,7 +102,7 @@ func pinnedServerTLS(pin string) *tls.Config {
 				return nil
 			}
 		}
-		return errServerCert
+		return ErrCert
 	}}
 }
 
@@ -121,7 +122,7 @@ func dialSyncTunnel(ctx context.Context, address string, roots *x509.CertPool) (
 		}
 		var certErr *tls.CertificateVerificationError
 		if errors.As(err, &certErr) {
-			return nil, errServerCert
+			return nil, ErrCert
 		}
 		return nil, err
 	}
@@ -138,11 +139,11 @@ func syncHTTPClient(originTLS *tls.Config, modes []string, roots *x509.CertPool)
 		}
 		config := originTLS.Clone()
 		config.ServerName = host
-		var failure error = errServerOffline
+		var failure error = ErrOffline
 		for _, mode := range modes {
 			limit, cancel := context.WithTimeout(ctx, serverDialTimeout)
 			var conn net.Conn
-			if mode == transportTunnel {
+			if mode == TransportTunnel {
 				conn, err = dialSyncTunnel(limit, addr, roots)
 			} else {
 				conn, err = (&net.Dialer{}).DialContext(limit, network, addr)
@@ -160,8 +161,8 @@ func syncHTTPClient(originTLS *tls.Config, modes []string, roots *x509.CertPool)
 				conn.Close()
 			}
 			cancel()
-			if errors.Is(err, errServerCert) {
-				failure = errServerCert
+			if errors.Is(err, ErrCert) {
+				failure = ErrCert
 			}
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -174,12 +175,13 @@ func syncHTTPClient(originTLS *tls.Config, modes []string, roots *x509.CertPool)
 	}}
 }
 
-func (p *serverProfile) client() *http.Client {
-	order := []string{transportDirect, transportTunnel}
-	if p.Transport == transportTunnel {
+// Client builds a transport that authenticates the origin on direct and tunnel routes.
+func (p *Profile) Client() *http.Client {
+	order := []string{TransportDirect, TransportTunnel}
+	if p.Transport == TransportTunnel {
 		order[0], order[1] = order[1], order[0]
 	}
-	return syncHTTPClient(pinnedServerTLS(p.Pin), order, nil)
+	return syncHTTPClient(PinnedTLS(p.Pin), order, nil)
 }
 
 // GotConn identifies the connection selected for this request, including
@@ -189,9 +191,9 @@ func traceSyncTransport(ctx context.Context, mode *string) context.Context {
 		if conn, ok := info.Conn.(*tls.Conn); ok {
 			switch conn.NetConn().(type) {
 			case *net.TCPConn:
-				*mode = transportDirect
+				*mode = TransportDirect
 			case *websocket.Conn:
-				*mode = transportTunnel
+				*mode = TransportTunnel
 			}
 		}
 	}})

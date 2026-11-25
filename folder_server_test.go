@@ -8,19 +8,19 @@ import (
 	"io"
 	"io/fs"
 	"maps"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"videron/internal/syncserver"
+	"videron/internal/syncclient"
+	"videron/internal/syncclient/synctest"
+	"videron/internal/vault"
 )
 
 type uploadRecorder func(*http.Request) (*http.Response, error)
@@ -34,14 +34,14 @@ func TestSyncEnrollmentRequiresTheSameUnlockedSession(t *testing.T) {
 	if err := a.ProtectProject(libraryPrefix+originalNote+librarySuffix, testPass); err != nil {
 		t.Fatal(err)
 	}
-	verified, err := a.VerifySyncServer(server.addr, password)
+	verified, err := a.VerifySyncServer(server.Addr, password)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := a.LockProject(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.VerifySyncServer(server.addr, password); !errors.Is(err, errLocked) {
+	if _, err := a.VerifySyncServer(server.Addr, password); !errors.Is(err, errLocked) {
 		t.Fatal("new verification while locked", err)
 	}
 	if _, err := a.MatchingServerFolders(verified.Ticket, nil); !errors.Is(err, errLocked) {
@@ -67,7 +67,7 @@ func TestSyncEnrollmentRequiresTheSameUnlockedSession(t *testing.T) {
 			resumed <- err
 		})
 	}})
-	result, err := a.VerifySyncServer(server.addr, password)
+	result, err := a.VerifySyncServer(server.Addr, password)
 	if !errors.Is(err, errServerTicket) || result.Ticket != "" {
 		t.Fatal("verification completed for a different session", err)
 	}
@@ -100,7 +100,7 @@ func TestJoinCommitsOnlyInOriginalSession(t *testing.T) {
 			remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/v1/index":
-					json.NewEncoder(w).Encode(serverManifest{Cursor: "initial", Main: hash, Lineage: hash, Files: map[string]string{}})
+					json.NewEncoder(w).Encode(syncclient.Manifest{Cursor: "initial", Main: hash, Lineage: hash, Files: map[string]string{}})
 				case "/v1/main":
 					if err := a.LockProject(); err != nil {
 						t.Error(err)
@@ -116,7 +116,7 @@ func TestJoinCommitsOnlyInOriginalSession(t *testing.T) {
 				}
 			}))
 			defer remote.Close()
-			profile := serverProfile{Address: remote.URL, Pin: hexID(remote.Certificate().Raw), Token: strings.Repeat("1", 64)}
+			profile := syncclient.Profile{Address: remote.URL, Pin: hexID(remote.Certificate().Raw), Token: strings.Repeat("1", 64)}
 			ticket, err := a.issueServerTicket(profile, a.serverTickets.currentGeneration())
 			if err != nil {
 				t.Fatal(err)
@@ -155,7 +155,7 @@ func TestConnectRechecksSessionBeforePublishing(t *testing.T) {
 		if _, err := a.OpenFolderSpace(dir, testPass); err != nil {
 			t.Error(err)
 		}
-		json.NewEncoder(w).Encode(serverManifest{Cursor: "empty", Files: map[string]string{}})
+		json.NewEncoder(w).Encode(syncclient.Manifest{Cursor: "empty", Files: map[string]string{}})
 	}))
 	defer remote.Close()
 	code := strings.Replace(remote.URL, "https://", "videron-sync://", 1) + "#" + hexID(remote.Certificate().Raw) + "." + strings.Repeat("1", 64)
@@ -175,37 +175,37 @@ func TestDefaultProjectRequiresDisconnectBeforeSwitchingServers(t *testing.T) {
 	if err := a.CreateFolderSpace(dir, syncDoc("project", "local"), testPass); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.ConnectSpaceServer(dir, first.code); err != nil {
+	if err := a.ConnectSpaceServer(dir, first.Code); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.ConnectSpaceServer(dir, second.code); !errors.Is(err, errServerSpace) {
+	if err := a.ConnectSpaceServer(dir, second.Code); !errors.Is(err, syncclient.ErrSpace) {
 		t.Fatal("switching an attached folder", err)
 	}
-	if info, err := a.ServerConnection(dir); err != nil || info.Address != "https://"+first.addr {
+	if info, err := a.ServerConnection(dir); err != nil || info.Address != "https://"+first.Addr {
 		t.Fatal("original connection changed", info, err)
 	}
-	p, err := parsePairCode(second.code)
+	p, err := syncclient.ParsePairCode(second.Code)
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := p.client()
+	client := p.Client()
 	defer client.CloseIdleConnections()
-	if m, err := p.manifest(client); err != nil || m.Main != "" || len(m.Files) != 0 {
+	if m, err := p.Manifest(client); err != nil || m.Main != "" || len(m.Files) != 0 {
 		t.Fatal("second server received the attached folder", err)
 	}
 	if err := a.DisconnectSpaceServer(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.ConnectSpaceServer(dir, second.code); err != nil {
+	if err := a.ConnectSpaceServer(dir, second.Code); err != nil {
 		t.Fatal("connecting the detached folder", err)
 	}
-	if info, err := a.ServerConnection(dir); err != nil || info.Address != "https://"+second.addr {
+	if info, err := a.ServerConnection(dir); err != nil || info.Address != "https://"+second.Addr {
 		t.Fatal("new connection missing", info, err)
 	}
-	if matches, err := a.MatchingServerFolders(first.code, []string{dir}); err != nil || len(matches) != 0 {
+	if matches, err := a.MatchingServerFolders(first.Code, []string{dir}); err != nil || len(matches) != 0 {
 		t.Fatal("suggested a folder attached to a different server", matches, err)
 	}
-	if err := a.JoinSpaceServer(first.code, dir); !errors.Is(err, errServerSpace) {
+	if err := a.JoinSpaceServer(first.Code, dir); !errors.Is(err, syncclient.ErrSpace) {
 		t.Fatal("rejoined a different server with matching lineage", err)
 	}
 }
@@ -232,7 +232,7 @@ func TestEncryptedAttachmentThroughServer(t *testing.T) {
 	if err := a.CreateFolderSpace(one, doc("PRIVATE-OLD-CAPTION"), testPass); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.ConnectSpaceServer(one, server.code); err != nil {
+	if err := a.ConnectSpaceServer(one, server.Code); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.SaveFolderBranch(one, doc("PRIVATE-NEW-CAPTION")); err != nil {
@@ -241,7 +241,7 @@ func TestEncryptedAttachmentThroughServer(t *testing.T) {
 	if _, err := a.SyncSpaceServer(one); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.JoinSpaceServer(server.code, two); err != nil {
+	if err := a.JoinSpaceServer(server.Code, two); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.OpenFolderSpace(two, ""); !errors.Is(err, errLocked) {
@@ -257,7 +257,7 @@ func TestEncryptedAttachmentThroughServer(t *testing.T) {
 	if err := a.CommitFolderMerge(two, update.Token, update.Remote); err != nil {
 		t.Fatal(err)
 	}
-	for _, root := range []string{one, two, filepath.Join(server.dir, "space")} {
+	for _, root := range []string{one, two, filepath.Join(server.Dir, "space")} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err
@@ -290,7 +290,7 @@ func TestSyncSaveDuringObjectUpload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := serverProfile{Address: "https://test.invalid", Lineage: lineage}
+	p := syncclient.Profile{Address: "https://test.invalid", Lineage: lineage}
 	files := map[string]string{}
 	prefix := ".videron-sync/" + lineage + "/"
 	var revisions int
@@ -321,8 +321,8 @@ func TestSyncSaveDuringObjectUpload(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusCreated, Body: http.NoBody}, nil
 	})}
 	for pass := 1; pass <= 2; pass++ {
-		m := serverManifest{Lineage: lineage, Files: maps.Clone(files)}
-		if err := p.exchange(client, folder, m, a.syncSession()); err != nil {
+		m := syncclient.Manifest{Lineage: lineage, Files: maps.Clone(files)}
+		if err := p.Exchange(client, folder, m, a.syncSession().transferRecord, publishNewSpaceFile); err != nil {
 			t.Fatal(err)
 		}
 		if revisions != pass {
@@ -331,79 +331,11 @@ func TestSyncSaveDuringObjectUpload(t *testing.T) {
 	}
 }
 
-// Run the shipped HTTPS service in a separate process so the test can stop it
-// while both desktops edit, then restart with the same server identity.
-func TestSyncServiceProcess(t *testing.T) {
-	dir := os.Getenv("VIDERON_TEST_SERVICE_DIR")
-	if dir == "" {
-		return
-	}
-	if err := syncserver.Run([]string{"-listen", os.Getenv("VIDERON_TEST_SERVICE_ADDR"), "-data", dir}, os.Stdout, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-}
+func TestSyncServiceProcess(t *testing.T) { synctest.RunServerProcess(t) }
 
-type liveService struct {
-	dir, addr, code string
-	process         *exec.Cmd
-}
-
-func (s *liveService) stop() {
-	if s.process != nil {
-		_ = s.process.Process.Kill()
-		_ = s.process.Wait()
-		s.process = nil
-	}
-}
-func (s *liveService) start(t *testing.T) {
+func startPasswordTestService(t *testing.T, password string) *synctest.Server {
 	t.Helper()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(exe, "-test.run=^TestSyncServiceProcess$")
-	cmd.Env = append(os.Environ(), "VIDERON_TEST_SERVICE_DIR="+s.dir, "VIDERON_TEST_SERVICE_ADDR="+s.addr)
-	if err = cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	s.process = cmd
-	p, err := parsePairCode(s.code)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := p.client()
-	defer c.CloseIdleConnections()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if _, err = p.manifest(c); err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal(err)
-		}
-		time.Sleep(30 * time.Millisecond)
-	}
-}
-
-func startPasswordTestService(t *testing.T, password string) *liveService {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := &liveService{dir: t.TempDir(), addr: ln.Addr().String()}
-	_ = ln.Close()
-	if err := syncserver.RunWithInput([]string{"-set-password", "-data", server.dir}, strings.NewReader(password+"\n"), io.Discard, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	var pair bytes.Buffer
-	if err := syncserver.Run([]string{"-pair", "-public", server.addr, "-data", server.dir}, &pair, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	server.code = strings.TrimSpace(pair.String())
-	t.Cleanup(server.stop)
-	server.start(t)
-	return server
+	return synctest.NewServer(t, password)
 }
 
 func TestLiveSyncTwoDesktops(t *testing.T) {
@@ -414,10 +346,10 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 	}
 	const serverPassword = "Local test sync access"
 	server := startPasswordTestService(t, serverPassword)
-	if _, err := a.VerifySyncServer(server.addr, "incorrect"); !errors.Is(err, errServerAuth) {
+	if _, err := a.VerifySyncServer(server.Addr, "incorrect"); !errors.Is(err, syncclient.ErrAuth) {
 		t.Fatal("incorrect server password", err)
 	}
-	first, err := a.VerifySyncServer(server.addr, serverPassword)
+	first, err := a.VerifySyncServer(server.Addr, serverPassword)
 	if err != nil || first.Address == "" || first.Ticket == "" || first.HasSpace {
 		t.Fatal("first desktop verification", err)
 	}
@@ -429,10 +361,10 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstInfo, err := a.ServerConnection(one)
-	if err != nil || firstInfo.Address != first.Address || firstInfo.Transport != transportDirect || firstInfo.LastSync <= 0 {
+	if err != nil || firstInfo.Address != first.Address || firstInfo.Transport != syncclient.TransportDirect || firstInfo.LastSync <= 0 {
 		t.Fatal("connected folder details", firstInfo, err)
 	}
-	second, err := b.VerifySyncServer(server.addr, serverPassword)
+	second, err := b.VerifySyncServer(server.Addr, serverPassword)
 	if err != nil || !second.HasSpace {
 		t.Fatal("verification did not report the published space", err)
 	}
@@ -449,15 +381,15 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 	if _, err = b.OpenFolderSpace(two, testPass); err != nil {
 		t.Fatal(err)
 	}
-	if info, err := b.ServerConnection(two); err != nil || info.Address != second.Address || info.Transport != transportDirect || info.LastSync <= 0 {
+	if info, err := b.ServerConnection(two); err != nil || info.Address != second.Address || info.Transport != syncclient.TransportDirect || info.LastSync <= 0 {
 		t.Fatal(info, err)
 	}
 	if _, err = b.PollFolderSpace(two, true); err != nil {
 		t.Fatal(err)
 	}
 
-	server.stop()
-	if _, err = a.SyncSpaceServer(one); !errors.Is(err, errServerOffline) {
+	server.Stop()
+	if _, err = a.SyncSpaceServer(one); !errors.Is(err, syncclient.ErrOffline) {
 		t.Fatal("offline not reported", err)
 	}
 	if info, err := a.ServerConnection(one); err != nil || info != firstInfo {
@@ -469,7 +401,7 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 	if err = b.SaveFolderBranch(two, syncDoc("first", "LIVE-DESKTOP-SENTINEL")); err != nil {
 		t.Fatal(err)
 	}
-	server.start(t)
+	server.Start(t)
 	cursor, err := b.SyncSpaceServer(two)
 	if err != nil {
 		t.Fatal(err)
@@ -536,7 +468,7 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 	}
 
 	copyDir := t.TempDir()
-	if err = b.JoinSpaceServer(server.code, copyDir); err != nil {
+	if err = b.JoinSpaceServer(server.Code, copyDir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = b.OpenFolderSpace(copyDir, testPass); err != nil {
@@ -544,7 +476,7 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 	}
 	profileDir := canonicalTestFolder(t, copyDir)
 	legacy, err := loadProfile(profileDir)
-	if err != nil || legacy == nil || legacy.Transport != transportDirect || legacy.LastSync <= 0 {
+	if err != nil || legacy == nil || legacy.Transport != syncclient.TransportDirect || legacy.LastSync <= 0 {
 		t.Fatal("pairing link did not persist actual connection details", err)
 	}
 	legacy.Transport, legacy.LastSync = "", 0
@@ -557,7 +489,7 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 	if _, err = b.SyncSpaceServer(copyDir); err != nil {
 		t.Fatal(err)
 	}
-	if info, err := b.ServerConnection(copyDir); err != nil || info.Transport != transportDirect || info.LastSync <= 0 {
+	if info, err := b.ServerConnection(copyDir); err != nil || info.Transport != syncclient.TransportDirect || info.LastSync <= 0 {
 		t.Fatal("sync did not refresh the legacy profile", info, err)
 	}
 	incoming, err = b.PollFolderSpace(copyDir, true)
@@ -569,18 +501,18 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 	if err = b.CreateFolderSpace(unrelated, syncDoc("different", "space"), testPass); err != nil {
 		t.Fatal(err)
 	}
-	if err = b.ConnectSpaceServer(unrelated, server.code); !errors.Is(err, errServerSpace) {
+	if err = b.ConnectSpaceServer(unrelated, server.Code); !errors.Is(err, syncclient.ErrSpace) {
 		t.Fatal("connected a different space", err)
 	}
-	profile, e := parsePairCode(server.code)
+	profile, e := syncclient.ParsePairCode(server.Code)
 	if e != nil {
 		t.Fatal(e)
 	}
 	for _, tc := range []struct {
 		pin, token string
 		expected   error
-	}{{strings.Repeat("0", 64), profile.Token, errServerCert}, {profile.Pin, strings.Repeat("0", 64), errServerAuth}} {
-		code := "videron-sync://" + server.addr + "#" + tc.pin + "." + tc.token
+	}{{strings.Repeat("0", 64), profile.Token, syncclient.ErrCert}, {profile.Pin, strings.Repeat("0", 64), syncclient.ErrAuth}} {
+		code := "videron-sync://" + server.Addr + "#" + tc.pin + "." + tc.token
 		if err = a.ConnectSpaceServer(one, code); !errors.Is(err, tc.expected) {
 			t.Fatal("accepted wrong credentials", err)
 		}
@@ -588,8 +520,8 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 	if _, err = a.SyncSpaceServer(one); err != nil {
 		t.Fatal("failed pairing lost previous connection", err)
 	}
-	server.stop()
-	err = filepath.WalkDir(server.dir, func(path string, e fs.DirEntry, err error) error {
+	server.Stop()
+	err = filepath.WalkDir(server.Dir, func(path string, e fs.DirEntry, err error) error {
 		if err != nil || e.IsDir() {
 			return err
 		}
@@ -611,7 +543,7 @@ func TestServerAutoConnectAcrossRestarts(t *testing.T) {
 	if err := a.CreateFolderSpace(dir, syncDoc("first", "second"), testPass); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.ConnectSpaceServer(dir, server.code); err != nil {
+	if err := a.ConnectSpaceServer(dir, server.Code); err != nil {
 		t.Fatal(err)
 	}
 	expect := func(app *App, folder string, enabled bool) {
@@ -642,7 +574,7 @@ func TestServerAutoConnectAcrossRestarts(t *testing.T) {
 	if cursor, err := b.SyncSpaceServer(dir); err != nil || cursor == "" {
 		t.Fatal("manual sync after restart", err)
 	}
-	if err := b.JoinSpaceServer(server.code, dir); err != nil {
+	if err := b.JoinSpaceServer(server.Code, dir); err != nil {
 		t.Fatal("rejoining the working copy", err)
 	}
 	expect(b, dir, false)
@@ -688,10 +620,10 @@ func TestRejoinWorkingFolder(t *testing.T) {
 			if err := a.CreateFolderSpace(original, syncDoc("first", "second"), tc.password); err != nil {
 				t.Fatal(err)
 			}
-			if err := a.ConnectSpaceServer(original, server.code); err != nil {
+			if err := a.ConnectSpaceServer(original, server.Code); err != nil {
 				t.Fatal(err)
 			}
-			if err := b.JoinSpaceServer(server.code, copyDir); err != nil {
+			if err := b.JoinSpaceServer(server.Code, copyDir); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := b.OpenFolderSpace(copyDir, tc.password); err != nil {
@@ -731,7 +663,7 @@ func TestRejoinWorkingFolder(t *testing.T) {
 			}
 			otherMain := filepath.Join(unrelated, folderSpaceFilename)
 			before := stored(t, otherMain)
-			if err = b.JoinSpaceServer(server.code, unrelated); !errors.Is(err, errServerSpace) {
+			if err = b.JoinSpaceServer(server.Code, unrelated); !errors.Is(err, syncclient.ErrSpace) {
 				t.Fatal("joined an unrelated space", err)
 			}
 			if got, err := os.ReadDir(unrelated); err != nil || len(got) != 1 || !bytes.Equal(before, stored(t, otherMain)) {
@@ -741,7 +673,7 @@ func TestRejoinWorkingFolder(t *testing.T) {
 			if err = os.WriteFile(userFile, []byte("keep me"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			verified, err := b.VerifySyncServer(server.addr, "Sync server access")
+			verified, err := b.VerifySyncServer(server.Addr, "Sync server access")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -801,10 +733,10 @@ func TestRejoinChecksCurrentServerAndDocument(t *testing.T) {
 	if err := a.CreateFolderSpace(dir, syncDoc("local", "space"), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.ConnectSpaceServer(dir, server.code); err != nil {
+	if err := a.ConnectSpaceServer(dir, server.Code); err != nil {
 		t.Fatal(err)
 	}
-	ticket, err := a.VerifySyncServer(server.addr, "Sync server access")
+	ticket, err := a.VerifySyncServer(server.Addr, "Sync server access")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -817,9 +749,9 @@ func TestRejoinChecksCurrentServerAndDocument(t *testing.T) {
 	if err != nil || profile == nil {
 		t.Fatal("missing original profile", err)
 	}
-	client := profile.client()
+	client := profile.Client()
 	defer client.CloseIdleConnections()
-	original, err := profile.manifest(client)
+	original, err := profile.Manifest(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -835,41 +767,124 @@ func TestRejoinChecksCurrentServerAndDocument(t *testing.T) {
 	if _, err = writeAtomic(main, foreign, ".replacement-*"); err != nil {
 		t.Fatal(err)
 	}
-	if err = a.JoinSpaceServer(ticket.Ticket, dir); !errors.Is(err, errServerSpace) {
+	if err = a.JoinSpaceServer(ticket.Ticket, dir); !errors.Is(err, syncclient.ErrSpace) {
 		t.Fatal("stale history authorized unrelated document", err)
 	}
-	after, err := profile.manifest(client)
+	after, err := profile.Manifest(client)
 	if err != nil || !maps.Equal(original.Files, after.Files) || !bytes.Equal(foreign, stored(t, main)) {
 		t.Fatal("failed join changed data", err)
 	}
 	if _, err = writeAtomic(main, local, ".restored-*"); err != nil {
 		t.Fatal(err)
 	}
-	server.stop()
-	if err = os.Rename(filepath.Join(server.dir, "space"), filepath.Join(server.dir, "old-space")); err != nil {
+	server.Stop()
+	if err = os.Rename(filepath.Join(server.Dir, "space"), filepath.Join(server.Dir, "old-space")); err != nil {
 		t.Fatal(err)
 	}
-	server.start(t)
-	if err = a.JoinSpaceServer(ticket.Ticket, dir); !errors.Is(err, errServerEmpty) {
+	server.Start(t)
+	if err = a.JoinSpaceServer(ticket.Ticket, dir); !errors.Is(err, syncclient.ErrEmpty) {
 		t.Fatal("seeded a reset server during reopen", err)
 	}
-	empty, err := profile.manifest(client)
+	empty, err := profile.Manifest(client)
 	if err != nil || empty.Main != "" || len(empty.Files) != 0 {
 		t.Fatal("empty server changed", err)
 	}
-	if err = a.ConnectSpaceServer(other, server.code); err != nil {
+	if err = a.ConnectSpaceServer(other, server.Code); err != nil {
 		t.Fatal(err)
 	}
 	// Although this server and destination now match each other, the verified
 	// ticket still names the space the user saw before the reset.
-	if err = a.JoinSpaceServer(ticket.Ticket, other); !errors.Is(err, errServerSpace) {
+	if err = a.JoinSpaceServer(ticket.Ticket, other); !errors.Is(err, syncclient.ErrSpace) {
 		t.Fatal("accepted a different space after verification", err)
 	}
-	if err = a.JoinSpaceServer(server.code, dir); !errors.Is(err, errServerSpace) {
+	if err = a.JoinSpaceServer(server.Code, dir); !errors.Is(err, syncclient.ErrSpace) {
 		t.Fatal("attached the old local folder to a replacement space", err)
 	}
 	last, err := loadProfile(profileDir)
 	if err != nil || last == nil || *last != *profile || !bytes.Equal(local, stored(t, main)) {
 		t.Fatal("failed reopen replaced main or profile", err)
+	}
+}
+
+func TestEncryptedSyncUploadBodies(t *testing.T) {
+	a, _ := testStore(t)
+	folder := t.TempDir()
+	server := startPasswordTestService(t, "Temporary sync service passphrase")
+	// A large unmodified value shares this space with the edited note.
+	large := strings.Repeat("unmodified-data-", 1<<16)
+	doc := func(title string) string {
+		return strings.Replace(syncDoc(title, "Data"), `"title":"Data"`, `"title":"Data","dataText":"`+large+`"`, 1)
+	}
+	if err := a.CreateFolderSpace(folder, doc("Note"), testPass); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ConnectSpaceServer(folder, server.Code); err != nil {
+		t.Fatal(err)
+	}
+	profileDir := canonicalTestFolder(t, folder)
+	p, err := loadProfile(profileDir)
+	if err != nil || p == nil {
+		t.Fatal("missing test profile", err)
+	}
+	cache, err := a.sessionServerIndex(folder, p.Lineage)
+	if err != nil || cache.Cursor() == "" {
+		t.Fatal("first sync would redownload the enrollment index", err)
+	}
+	client := p.Client()
+	next := client.Transport.(*http.Transport)
+	defer next.CloseIdleConnections()
+	var files, mainUploads, uploadBytes int
+	client.Transport = uploadRecorder(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodPut {
+			body, err := io.ReadAll(r.Body)
+			r.Body.Close()
+			if err != nil {
+				return nil, err
+			}
+			// The transfer layer receives only client-sealed envelopes.
+			if _, err = vault.ParseEnvelope(body, syncScope); err != nil {
+				t.Fatalf("unencrypted upload: %v", err)
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			uploadBytes += len(body)
+			if r.URL.Path == "/v1/main" {
+				mainUploads++
+			} else {
+				files++
+			}
+		}
+		return next.RoundTrip(r)
+	})
+	syncFiles := func() {
+		t.Helper()
+		m, err := p.SyncManifest(client, cache)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = p.Exchange(client, profileDir, m, a.syncSession().transferRecord, publishNewSpaceFile); err != nil {
+			t.Fatal(err)
+		}
+	}
+	syncFiles()
+	if err := a.SaveFolderBranch(folder, doc("Notes")); err != nil {
+		t.Fatal(err)
+	}
+	syncFiles()
+	if files != 2 || mainUploads != 0 || uploadBytes > 8<<10 {
+		t.Fatalf("one title edit: records=%d main=%d bytes=%d", files, mainUploads, uploadBytes)
+	}
+	t.Logf("one-letter title edit with %d B of unmodified text: %d encrypted records, %d B of PUT bodies", len(large), files, uploadBytes)
+	files, uploadBytes = 0, 0
+	syncFiles()
+	if files != 0 || mainUploads != 0 || uploadBytes != 0 {
+		t.Fatal("an already-current project uploaded records on its next check")
+	}
+	a.CloseFolderSpace(folder)
+	if _, err := a.OpenFolderSpace(folder, testPass); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := a.sessionServerIndex(folder, p.Lineage)
+	if err != nil || fresh == cache || fresh.Cursor() != "" {
+		t.Fatal("closed folder retained its old session's index", err)
 	}
 }

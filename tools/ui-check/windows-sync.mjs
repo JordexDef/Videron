@@ -18,6 +18,7 @@ const started=new Date().toISOString(),report=process.argv[2];
 const result={id:'workspace.live-sync-undo',area:'workspace',engine:'webview2',status:'fail'};
 const conflict={id:'workspace.live-conflict-undo',area:'workspace',engine:'webview2',status:'not-run'};
 const paragraphHistory={id:'workspace.live-peer-paragraph-undo',area:'workspace',engine:'webview2',status:'not-run'};
+const offlineMerge={id:'workspace.offline-independent-notes',area:'workspace',engine:'webview2',status:'not-run'};
 const clients=[],errors=[],password=randomUUID();
 let server,resumeServer;
 const button=(p,name)=>p.getByRole('button',{name,exact:true});
@@ -213,6 +214,35 @@ async function exercisePeerParagraph({a,b}){
   await back(a);await open(b,'Shared log');assert.deepEqual(await rows(b).allTextContents(),[overlap,second]);
   assert.deepEqual(errors,[]);
 }
+
+async function exerciseIndependentOfflineEdits({a,b}){
+  await back(b);
+  await stopServer();
+  const edits=[
+    {page:a,original:'Draft',title:'Revised draft',text:'Offline draft saved on A'},
+    {page:b,original:remoteName,title:'Revised neighbour',text:'Offline neighbour saved on B'}
+  ];
+  for(const {page,original,title,text} of edits){
+    await open(page,original);
+    await page.locator('.ve-title').fill(title);
+    await field(page).fill(text);
+    await back(page);
+    await page.getByRole('treeitem',{name:title,exact:true}).waitFor();
+  }
+  assert.equal(await a.getByRole('treeitem',{name:edits[1].title,exact:true}).count(),0);
+  assert.equal(await b.getByRole('treeitem',{name:edits[0].title,exact:true}).count(),0);
+  await resumeServer();
+  for(const page of [a,b]){
+    for(const {title,text} of edits){
+      await page.getByRole('treeitem',{name:title,exact:true}).waitFor({timeout:65000});
+      await open(page,title);
+      await expectText(page,text);
+      await back(page);
+    }
+    assert.equal(await page.locator('dialog[open]').count(),0);
+  }
+  assert.deepEqual(errors,[]);
+}
 let running=result;
 try{
   const peers=await exercise();
@@ -226,6 +256,10 @@ try{
   await exercisePeerParagraph(peers);
   paragraphHistory.status='pass';
   paragraphHistory.note='B changed another paragraph in the same note while A was in another project. Undo on A removed its earlier edit while preserving B’s paragraph, and the result reached B. A later replacement of A’s text by B survived both undo and redo.';
+  running=offlineMerge;offlineMerge.status='fail';
+  await exerciseIndependentOfflineEdits(peers);
+  offlineMerge.status='pass';
+  offlineMerge.note='Both clients changed different note titles and bodies while the server was stopped. After reconnecting each client showed both saved versions without a conflict dialog.';
 }catch(e){running.reason=String(e.stack||e).replaceAll(dir,'[private test profile]').replaceAll(password,'[test password]');process.exitCode=1}
 finally{
   for(const app of clients.reverse())await app.stop();
@@ -236,6 +270,6 @@ finally{
 }
 if(report){
   await mkdir(path.dirname(path.resolve(report)),{recursive:true});
-  await writeFile(report,JSON.stringify({started,catalog:[],results:[result,conflict,paragraphHistory]},null,2)+'\n');
+  await writeFile(report,JSON.stringify({started,catalog:[],results:[result,conflict,paragraphHistory,offlineMerge]},null,2)+'\n');
 }
-for(const row of [result,conflict,paragraphHistory])console.log(row.status,row.id,row.reason??row.note??'');
+for(const row of [result,conflict,paragraphHistory,offlineMerge])console.log(row.status,row.id,row.reason??row.note??'');

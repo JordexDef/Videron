@@ -81,6 +81,7 @@ Keep one local desktop build at the path shown above. Close the running app befo
 | [frontend](frontend/) | Note editors, map and other desktop UI |
 | [internal/vault](internal/vault/) | Storage encryption, protected note validation and compatibility tests for the v1 file format |
 | [internal/workspacemerge](internal/workspacemerge/) | Three-way workspace merge, conflict choices and their unit tests |
+| [internal/syncclient](internal/syncclient/) | Client authentication, project selection, change notifications and transfer of missing records |
 | [cmd/videron-sync](cmd/videron-sync/) | Sync server entry point |
 | [internal/syncserver](internal/syncserver/) | Sync server implementation and tests |
 

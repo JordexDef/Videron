@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"videron/internal/syncclient"
 )
 
 // Called with a.mu held. Read the current document even if the folder has an
@@ -19,7 +21,7 @@ func (a *App) serverFolderSession(dir, lineage string) (*folderSpaceSession, err
 	path := filepath.Join(dir, folderSpaceFilename)
 	raw, info, err := readSpaceFile(path)
 	if errors.Is(err, errSpaceMissing) {
-		return nil, errServerFolder
+		return nil, syncclient.ErrFolder
 	}
 	if err != nil {
 		return nil, err
@@ -27,11 +29,11 @@ func (a *App) serverFolderSession(dir, lineage string) (*folderSpaceSession, err
 	defer clear(raw)
 	if session := a.folderSpaces[spaceSessionID(dir)]; session != nil {
 		if session.sync.meta.Lineage != lineage {
-			return nil, errServerSpace
+			return nil, syncclient.ErrSpace
 		}
 		m, _, err := session.mainPayload(raw)
 		if errors.Is(err, errSpaceIdentity) || errors.Is(err, errPassword) {
-			return nil, errServerSpace
+			return nil, syncclient.ErrSpace
 		}
 		if err != nil {
 			return nil, err
@@ -39,7 +41,7 @@ func (a *App) serverFolderSession(dir, lineage string) (*folderSpaceSession, err
 		// openReplica identifies an unstamped legacy document by its exact
 		// bytes. Apply that same check when the document is already open.
 		if m.Lineage != lineage && !(m.Lineage == "" && hexID(raw) == lineage) {
-			return nil, errServerSpace
+			return nil, syncclient.ErrSpace
 		}
 		return session, nil
 	}
@@ -55,7 +57,7 @@ func (a *App) serverFolderSession(dir, lineage string) (*folderSpaceSession, err
 		return nil, err
 	}
 	if session.sync.meta.Lineage != lineage {
-		return nil, errServerSpace
+		return nil, syncclient.ErrSpace
 	}
 	return session, nil
 }
@@ -68,12 +70,12 @@ func (a *App) MatchingServerFolders(code string, folders []string) ([]string, er
 		return nil, err
 	}
 	if p.ProjectDeleted {
-		return nil, errProjectDeleted
+		return nil, syncclient.ErrProjectDeleted
 	}
 	if p.Lineage == "" && len(folders) != 0 {
-		c := p.client()
+		c := p.Client()
 		defer c.CloseIdleConnections()
-		m, err := p.manifestSummary(context.Background(), c)
+		m, err := p.ManifestSummary(context.Background(), c)
 		if err != nil {
 			return nil, err
 		}
@@ -110,7 +112,7 @@ func (a *App) MatchingServerFolders(code string, folders []string) ([]string, er
 			continue
 		}
 		profile, err := loadProfile(dir)
-		if err != nil || (profile != nil && !p.sameProject(profile)) {
+		if err != nil || (profile != nil && !p.SameProject(profile)) {
 			continue
 		}
 		if open[id] == p.Lineage {
@@ -123,18 +125,18 @@ func (a *App) MatchingServerFolders(code string, folders []string) ([]string, er
 			}
 			continue
 		}
-		if _, err := historyDir(dir, p.Lineage, "revisions", false); err == nil {
+		if _, err := syncclient.HistoryDir(dir, p.Lineage, "revisions", false); err == nil {
 			matches = append(matches, dir)
 		}
 	}
 	return matches, nil
 }
 
-func (session *syncSession) rejoinServerFolder(p *serverProfile, c *http.Client, dir string, m serverManifest) error {
+func (session *syncSession) rejoinServerFolder(p *syncclient.Profile, c *http.Client, dir string, m syncclient.Manifest) error {
 	a := session.app
 	path := filepath.Join(dir, folderSpaceFilename)
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		return errServerFolder
+		return syncclient.ErrFolder
 	} else if err != nil {
 		return err
 	}
@@ -175,7 +177,7 @@ func (session *syncSession) rejoinServerFolder(p *serverProfile, c *http.Client,
 			}
 		}()
 	}
-	if err = p.exchange(c, dir, m, session); err != nil {
+	if err = p.Exchange(c, dir, m, session.transferRecord, publishNewSpaceFile); err != nil {
 		return err
 	}
 	a.mu.Lock()
@@ -186,5 +188,5 @@ func (session *syncSession) rejoinServerFolder(p *serverProfile, c *http.Client,
 	if _, err = a.serverFolderSession(dir, m.Lineage); err != nil {
 		return err
 	}
-	return p.saveSuccessfulSync(dir)
+	return saveSuccessfulSync(dir, p)
 }

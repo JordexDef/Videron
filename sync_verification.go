@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"videron/internal/syncclient"
 )
 
 // The WebView receives a short-lived handle. The verified server credential
@@ -25,7 +27,7 @@ const verificationTicketPrefix = "verified:"
 var errServerTicket = errors.New("VD_SERVER_TICKET")
 
 type syncServerTicket struct {
-	profile serverProfile
+	profile syncclient.Profile
 	expires time.Time
 	timer   *time.Timer
 }
@@ -93,18 +95,18 @@ func (a *App) VerifySyncServer(address, password string) (VerifiedSyncServer, er
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}
-	p, err := verifyServerCredentials(ctx, address, password)
+	p, err := syncclient.VerifyCredentials(ctx, address, password)
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}
 	return a.issueServerTicket(p, generation)
 }
 
-func (p serverProfile) verified(ticket string) VerifiedSyncServer {
+func verifiedServer(p syncclient.Profile, ticket string) VerifiedSyncServer {
 	return VerifiedSyncServer{Ticket: ticket, Address: p.Address, HasSpace: p.Lineage != "" && !p.ProjectDeleted, ProjectID: p.ProjectID, ProjectName: p.ProjectName, ProjectDeleted: p.ProjectDeleted}
 }
 
-func (a *App) issueServerTicket(p serverProfile, generation uint64) (VerifiedSyncServer, error) {
+func (a *App) issueServerTicket(p syncclient.Profile, generation uint64) (VerifiedSyncServer, error) {
 	tickets := &a.serverTickets
 	tickets.mu.Lock()
 	defer tickets.mu.Unlock()
@@ -118,7 +120,7 @@ func (a *App) issueServerTicket(p serverProfile, generation uint64) (VerifiedSyn
 	const lifetime = 10 * time.Minute
 	timer := time.AfterFunc(lifetime, func() { a.DiscardSyncServerTicket(ticket) })
 	tickets.entries[ticket] = syncServerTicket{p, time.Now().Add(lifetime), timer}
-	return p.verified(ticket), nil
+	return verifiedServer(p, ticket), nil
 }
 
 func (a *App) DiscardSyncServerTicket(ticket string) {
@@ -131,21 +133,21 @@ func (a *App) DiscardSyncServerTicket(ticket string) {
 	}
 }
 
-func (a *App) resolveServerTicket(input string) (serverProfile, error) {
+func (a *App) resolveServerTicket(input string) (syncclient.Profile, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if !a.loaded {
-		return serverProfile{}, errLocked
+		return syncclient.Profile{}, errLocked
 	}
 	if !strings.HasPrefix(input, verificationTicketPrefix) {
-		return parsePairCode(input)
+		return syncclient.ParsePairCode(input)
 	}
 	tickets := &a.serverTickets
 	tickets.mu.Lock()
 	defer tickets.mu.Unlock()
 	entry, ok := tickets.entries[input]
 	if !ok || !time.Now().Before(entry.expires) {
-		return serverProfile{}, errServerTicket
+		return syncclient.Profile{}, errServerTicket
 	}
 	return entry.profile, nil
 }

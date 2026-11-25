@@ -1,13 +1,16 @@
 package main
 
 import (
-	"golang.org/x/sys/windows"
 	"unsafe"
+
+	"videron/internal/syncclient"
+
+	"golang.org/x/sys/windows"
 )
 
 func convertPairing(data []byte, protect bool) ([]byte, error) {
 	if len(data) == 0 {
-		return nil, errServerCode
+		return nil, syncclient.ErrCode
 	}
 	in := windows.DataBlob{Size: uint32(len(data)), Data: &data[0]}
 	var out windows.DataBlob

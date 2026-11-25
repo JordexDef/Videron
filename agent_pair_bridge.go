@@ -18,6 +18,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"videron/internal/syncclient"
 )
 
 type pairedNoteGrant struct {
@@ -147,7 +149,7 @@ func (c agentClient) currentRoute() (agentRoute, error) {
 		return agentRoute{}, errors.New("no matching grant")
 	}
 	u, err := url.Parse(r.Endpoint)
-	if err != nil || u.Scheme != "https" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.User != nil || u.String() != "https://"+u.Host+"/mcp" || !serverHex.MatchString(r.Pin) {
+	if err != nil || u.Scheme != "https" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.User != nil || u.String() != "https://"+u.Host+"/mcp" || !syncclient.ValidID(r.Pin) {
 		return agentRoute{}, errors.New("invalid local grant")
 	}
 	return r, nil
@@ -181,7 +183,7 @@ func servePairedAgentStdio(input io.Reader, output io.Writer, c agentClient) err
 		if err != nil {
 			return agentReply(req.ID, agentToolResult(agentNoSharedIdea, true), 0, "")
 		}
-		client := agentHTTPClient(&http.Transport{TLSClientConfig: pinnedServerTLS(r.Pin), TLSHandshakeTimeout: 3 * time.Second, DisableKeepAlives: true})
+		client := agentHTTPClient(&http.Transport{TLSClientConfig: syncclient.PinnedTLS(r.Pin), TLSHandshakeTimeout: 3 * time.Second, DisableKeepAlives: true})
 		data, err := forwardAgentRPC(client, r.Endpoint, r.bearer(c.Key), line)
 		if err == nil {
 			return data, nil

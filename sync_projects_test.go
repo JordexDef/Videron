@@ -1,15 +1,15 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"net/http"
+
 	"os"
 	"slices"
 	"strings"
 	"testing"
+
+	"videron/internal/syncclient"
 )
 
 func TestClientSelectsAndReopensScopedProject(t *testing.T) {
@@ -20,11 +20,11 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 	if err := a.CreateFolderSpace(first, syncDoc("default", "shared history"), ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.ConnectSpaceServer(first, server.code); err != nil {
+	if err := a.ConnectSpaceServer(first, server.Code); err != nil {
 		t.Fatal(err)
 	}
 	// A copy of the same lineage makes accidental selection by lineage alone detectable.
-	if err := a.JoinSpaceServer(server.code, second); err != nil {
+	if err := a.JoinSpaceServer(server.Code, second); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.DisconnectSpaceServer(second); err != nil {
@@ -33,7 +33,7 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 	if _, err := a.OpenFolderSpace(second, ""); err != nil {
 		t.Fatal(err)
 	}
-	verified, err := a.VerifySyncServer(server.addr, pass)
+	verified, err := a.VerifySyncServer(server.Addr, pass)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,14 +43,14 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 		t.Fatal(list, err)
 	}
 	created, err := a.CreateServerProject(verified.Ticket, "  Исследования  ")
-	if err != nil || created.Ticket != verified.Ticket || !serverHex.MatchString(created.ProjectID) || created.ProjectName != "Исследования" || created.HasSpace {
+	if err != nil || created.Ticket != verified.Ticket || !syncclient.ValidID(created.ProjectID) || created.ProjectName != "Исследования" || created.HasSpace {
 		t.Fatal("new project", err)
 	}
 	retry, err := a.CreateServerProject(verified.Ticket, "Исследования")
 	if err != nil || retry != created {
 		t.Fatal("idempotent create", err)
 	}
-	if err = a.ConnectSpaceServer(first, created.Ticket); !errors.Is(err, errServerSpace) {
+	if err = a.ConnectSpaceServer(first, created.Ticket); !errors.Is(err, syncclient.ErrSpace) {
 		t.Fatal("overwrote a bound project", err)
 	}
 	if err = a.ConnectSpaceServer(second, created.Ticket); err != nil {
@@ -64,7 +64,7 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 	if err != nil || !slices.Equal(candidates, []string{canonicalTestFolder(t, second)}) {
 		t.Fatal("wrong project suggested", err)
 	}
-	if err = a.JoinSpaceServer(selected.Ticket, first); !errors.Is(err, errServerSpace) {
+	if err = a.JoinSpaceServer(selected.Ticket, first); !errors.Is(err, syncclient.ErrSpace) {
 		t.Fatal("rebound a different project", err)
 	}
 	if err = a.JoinSpaceServer(selected.Ticket, third); err != nil {
@@ -121,7 +121,7 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 		var legacy struct{ Lineage string }
 		err = json.Unmarshal(data, &legacy)
 		clear(data)
-		if err != nil || serverHex.MatchString(legacy.Lineage) != (dir == first) {
+		if err != nil || syncclient.ValidID(legacy.Lineage) != (dir == first) {
 			t.Fatal("legacy reader did not isolate the named profile")
 		}
 	}
@@ -134,45 +134,15 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 	if err != nil || len(list.Projects) != 2 {
 		t.Fatal(list, err)
 	}
-	if _, err = a.CreateServerProject(connected.Ticket, created.ProjectName); !errors.Is(err, errProjectExists) {
+	if _, err = a.CreateServerProject(connected.Ticket, created.ProjectName); !errors.Is(err, syncclient.ErrProjectExists) {
 		t.Fatal("conflicting project name", err)
 	}
-	if _, err = a.CreateServerProject(connected.Ticket, "A\nB"); !errors.Is(err, errProjectName) {
+	if _, err = a.CreateServerProject(connected.Ticket, "A\nB"); !errors.Is(err, syncclient.ErrProjectName) {
 		t.Fatal("invalid name", err)
 	}
 	base, err := a.SelectServerProject(connected.Ticket, "")
 	if err != nil || base.ProjectID != "" || base.ProjectName != "" || !base.HasSpace {
 		t.Fatal("back to default", err)
-	}
-}
-
-func TestLegacyCatalogAndNamedScopeDowngrade(t *testing.T) {
-	p := serverProfile{Address: "https://test.invalid"}
-	var requests []string
-	client := &http.Client{Transport: uploadRecorder(func(r *http.Request) (*http.Response, error) {
-		requests = append(requests, r.Method+" "+r.URL.Path)
-		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader(""))}, nil
-	})}
-	list, err := p.listProjects(context.Background(), client)
-	if err != nil || list.Supported || !slices.Equal(list.Projects, []ServerProject{{}}) {
-		t.Fatal(list, err)
-	}
-	p.ProjectID = strings.Repeat("e", 64)
-	if err = p.upload(client, "/v1/main", []byte("test")); !errors.Is(err, errSpaceMissing) {
-		t.Fatal(err)
-	}
-	want := []string{"GET /v1/projects", "PUT /v1/projects/" + p.ProjectID + "/main"}
-	if !slices.Equal(requests, want) {
-		t.Fatal("legacy fallback sent an unscoped write", requests)
-	}
-	client.Transport = uploadRecorder(func(r *http.Request) (*http.Response, error) {
-		if r.Header.Get("X-Videron-Project") != p.ProjectID {
-			t.Fatal("missing scope on scoped request")
-		}
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
-	})
-	if _, err := p.manifest(client); !errors.Is(err, errServerProtocol) {
-		t.Fatal("accepted response without scope echo", err)
 	}
 }
 
@@ -185,7 +155,7 @@ func TestClientRenamesDeletesAndKeepsOfflineCopies(t *testing.T) {
 	const password = "Lifecycle test service password"
 	server := startPasswordTestService(t, password)
 	verify := func(app *App) VerifiedSyncServer {
-		v, err := app.VerifySyncServer(server.addr, password)
+		v, err := app.VerifySyncServer(server.Addr, password)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -240,10 +210,10 @@ func TestClientRenamesDeletesAndKeepsOfflineCopies(t *testing.T) {
 	if _, err = a.RenameServerProject(ticket, named.ProjectID, "Field notes", "Research"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = b.RenameServerProject(remote.Ticket, named.ProjectID, "Discard", "Research"); !errors.Is(err, errProjectChanged) {
+	if _, err = b.RenameServerProject(remote.Ticket, named.ProjectID, "Discard", "Research"); !errors.Is(err, syncclient.ErrProjectChanged) {
 		t.Fatal("stale rename", err)
 	}
-	if err = b.DeleteServerProject(remote.Ticket, named.ProjectID, "Research"); !errors.Is(err, errProjectChanged) {
+	if err = b.DeleteServerProject(remote.Ticket, named.ProjectID, "Research"); !errors.Is(err, syncclient.ErrProjectChanged) {
 		t.Fatal("stale delete", err)
 	}
 	changed, err := b.WaitSpaceServerChange(peer, cursor)
@@ -267,7 +237,7 @@ func TestClientRenamesDeletesAndKeepsOfflineCopies(t *testing.T) {
 	if err = a.DeleteServerProject(ticket, named.ProjectID, "Field notes"); err != nil {
 		t.Fatal("retry after delete", err)
 	}
-	if _, err = b.WaitSpaceServerChange(peer, cursor); !errors.Is(err, errProjectDeleted) {
+	if _, err = b.WaitSpaceServerChange(peer, cursor); !errors.Is(err, syncclient.ErrProjectDeleted) {
 		t.Fatal("watch tombstone", err)
 	}
 	if p, err := loadProfile(canonicalTestFolder(t, peer)); err != nil || p != nil {
@@ -284,7 +254,7 @@ func TestClientRenamesDeletesAndKeepsOfflineCopies(t *testing.T) {
 		t.Fatal("connected manager after tombstone", err)
 	}
 	defer a.DiscardSyncServerTicket(admin.Ticket)
-	if _, err = a.SyncSpaceServer(folder); !errors.Is(err, errProjectDeleted) {
+	if _, err = a.SyncSpaceServer(folder); !errors.Is(err, syncclient.ErrProjectDeleted) {
 		t.Fatal("offline tombstone", err)
 	}
 	if _, err = a.SelectServerProject(ticket, ""); err != nil {
@@ -297,7 +267,7 @@ func TestClientRenamesDeletesAndKeepsOfflineCopies(t *testing.T) {
 	if !fresh.ProjectDeleted || fresh.HasSpace {
 		t.Fatal("wrong state after deleting the last project")
 	}
-	if err = b.ConnectSpaceServer(peer, fresh.Ticket); !errors.Is(err, errProjectDeleted) {
+	if err = b.ConnectSpaceServer(peer, fresh.Ticket); !errors.Is(err, syncclient.ErrProjectDeleted) {
 		t.Fatal("deleted default accepted write", err)
 	}
 	list, err = b.ListServerProjects(fresh.Ticket)
@@ -308,7 +278,7 @@ func TestClientRenamesDeletesAndKeepsOfflineCopies(t *testing.T) {
 	if err != nil || replacement.ProjectDeleted || replacement.ProjectID == named.ProjectID {
 		t.Fatal("could not start an independent project", err)
 	}
-	if err = b.DeleteServerProject(fresh.Ticket, named.ProjectID, "Field notes"); !errors.Is(err, errProjectChanged) {
+	if err = b.DeleteServerProject(fresh.Ticket, named.ProjectID, "Field notes"); !errors.Is(err, syncclient.ErrProjectChanged) {
 		t.Fatal("old confirmation could affect a new same-name project", err)
 	}
 	orphan := verify(a)
@@ -317,22 +287,8 @@ func TestClientRenamesDeletesAndKeepsOfflineCopies(t *testing.T) {
 	}
 }
 
-func TestTombstoneRecognizedOnlyForTheRequestedProject(t *testing.T) {
-	original := serverProfile{Address: "https://test.invalid:443", ProjectID: strings.Repeat("a", 64), Pin: strings.Repeat("b", 64), Lineage: strings.Repeat("c", 64), Token: strings.Repeat("d", 64)}
-	for _, response := range []struct {
-		status      int
-		scope, flag string
-		expected    error
-	}{
-		{404, "", "", errSpaceMissing}, {410, "", "", errServerProtocol}, {410, strings.Repeat("e", 64), "1", errServerProtocol}, {410, original.ProjectID, "1", errProjectDeleted},
-	} {
-		client := &http.Client{Transport: uploadRecorder(func(r *http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: response.status, Header: http.Header{"X-Videron-Project": []string{response.scope}, "X-Videron-Project-Deleted": []string{response.flag}}, Body: io.NopCloser(strings.NewReader(""))}, nil
-		})}
-		if _, err := original.manifest(client); !errors.Is(err, response.expected) {
-			t.Fatal(response, err)
-		}
-	}
+func TestProjectDeletionPreservesReboundFolder(t *testing.T) {
+	original := syncclient.Profile{Address: "https://test.invalid:443", ProjectID: strings.Repeat("a", 64), Pin: strings.Repeat("b", 64), Lineage: strings.Repeat("c", 64), Token: strings.Repeat("d", 64)}
 	_, _ = testStore(t)
 	folder := t.TempDir()
 	other := original
@@ -340,45 +296,10 @@ func TestTombstoneRecognizedOnlyForTheRequestedProject(t *testing.T) {
 	if err := storeProfile(folder, other); err != nil {
 		t.Fatal(err)
 	}
-	if err := detachDeletedProject(folder, &original, errProjectDeleted); !errors.Is(err, errChanged) {
+	if err := detachDeletedProject(folder, &original, syncclient.ErrProjectDeleted); !errors.Is(err, errChanged) {
 		t.Fatal(err)
 	}
 	if p, err := loadProfile(folder); err != nil || p == nil || p.ProjectID != other.ProjectID {
 		t.Fatal("newly rebound folder lost its connection", err)
-	}
-}
-
-func TestClientReusesFreedProjectNamesInSameSession(t *testing.T) {
-	app, _ := testStore(t)
-	const password = "Project name reuse service password"
-	server := startPasswordTestService(t, password)
-	login, err := app.VerifySyncServer(server.addr, password)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ticket := login.Ticket
-	defer app.DiscardSyncServerTicket(ticket)
-	create := func() string {
-		t.Helper()
-		v, err := app.CreateServerProject(ticket, "Design")
-		if err != nil || v.ProjectDeleted {
-			t.Fatal("create", err)
-		}
-		return v.ProjectID
-	}
-	first := create()
-	if _, err := app.RenameServerProject(ticket, first, "Research", "Design"); err != nil {
-		t.Fatal(err)
-	}
-	second := create()
-	if second == first || create() != second {
-		t.Fatal("reusing a renamed project or failing to retry")
-	}
-	if err := app.DeleteServerProject(ticket, second, "Design"); err != nil {
-		t.Fatal(err)
-	}
-	third := create()
-	if third == first || third == second || create() != third {
-		t.Fatal("reusing a deleted project or failing to retry")
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"videron/internal/syncclient"
 )
 
 func pairedTestStore(t *testing.T) *App {
@@ -241,7 +243,7 @@ func TestPairedAgentStdioLifetimeAndScopes(t *testing.T) {
 	if err != nil || current.Grant == previousRoute.Grant || current.Pin == previousRoute.Pin {
 		t.Fatal("grant identities reused")
 	}
-	transport := agentHTTPClient(&http.Transport{TLSClientConfig: pinnedServerTLS(current.Pin), DisableKeepAlives: true})
+	transport := agentHTTPClient(&http.Transport{TLSClientConfig: syncclient.PinnedTLS(current.Pin), DisableKeepAlives: true})
 	if _, err = forwardAgentRPC(transport, current.Endpoint, previousRoute.bearer(client.Key), []byte(`{"jsonrpc":"2.0","id":1,"method":"ping"}`)); err == nil {
 		t.Fatal("old bearer authenticated to new grant")
 	}

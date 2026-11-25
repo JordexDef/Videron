@@ -1,4 +1,4 @@
-package main
+package syncclient
 
 import (
 	"bytes"
@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
+
+	"videron/internal/syncclient/synctest"
 )
 
 func TestSyncAddressDiscovery(t *testing.T) {
@@ -21,13 +23,13 @@ func TestSyncAddressDiscovery(t *testing.T) {
 		input, firstAddr, transport string
 		count                       int
 	}{
-		{"sync.Example.net", "https://sync.example.net:443", transportTunnel, 3},
-		{"https://sync.example.net/", "https://sync.example.net:443", transportTunnel, 3},
-		{"192.168.5.6", "https://192.168.5.6:8743", transportDirect, 3},
-		{"localhost", "https://localhost:8743", transportDirect, 3},
-		{"2001:db8::1", "https://[2001:db8::1]:8743", transportDirect, 3},
-		{"https://[::1]:444/", "https://[::1]:444", transportDirect, 2},
-		{"example.net:443", "https://example.net:443", transportTunnel, 2},
+		{"sync.Example.net", "https://sync.example.net:443", TransportTunnel, 3},
+		{"https://sync.example.net/", "https://sync.example.net:443", TransportTunnel, 3},
+		{"192.168.5.6", "https://192.168.5.6:8743", TransportDirect, 3},
+		{"localhost", "https://localhost:8743", TransportDirect, 3},
+		{"2001:db8::1", "https://[2001:db8::1]:8743", TransportDirect, 3},
+		{"https://[::1]:444/", "https://[::1]:444", TransportDirect, 2},
+		{"example.net:443", "https://example.net:443", TransportTunnel, 2},
 	} {
 		got, err := serverEndpoints(tc.input)
 		if err != nil || len(got) != tc.count || got[0] != (serverEndpoint{tc.firstAddr, tc.transport}) {
@@ -35,7 +37,7 @@ func TestSyncAddressDiscovery(t *testing.T) {
 		}
 	}
 	for _, invalid := range []string{"", "http://example.net", "https://example.net:0", "example.net:65536", "user@example.net", "example.net:abcd", "example.net:", "example.net/start", "example.net#", "example.net?", "https://::1", "https://%65xample.net", "bad host"} {
-		if _, err := serverEndpoints(invalid); !errors.Is(err, errServerAddress) {
+		if _, err := serverEndpoints(invalid); !errors.Is(err, ErrAddress) {
 			t.Errorf("accepted invalid address %q", invalid)
 		}
 	}
@@ -46,13 +48,13 @@ func TestSyncAddressDiscovery(t *testing.T) {
 // sync service, just like a Cloudflare published TCP application.
 func TestPasswordThroughCloudflareTCP(t *testing.T) {
 	const password = "tunnel test server password"
-	origin := startPasswordTestService(t, password)
-	expected, err := parsePairCode(origin.code)
+	origin := synctest.NewServer(t, password)
+	expected, err := ParsePairCode(origin.Code)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	directProfile, err := verifyServerCredentials(ctx, origin.addr, password)
+	directProfile, err := VerifyCredentials(ctx, origin.Addr, password)
 	if err != nil || directProfile.Pin != expected.Pin {
 		t.Fatal("could not verify the native sync listener", err)
 	}
@@ -77,7 +79,7 @@ func TestPasswordThroughCloudflareTCP(t *testing.T) {
 			return
 		}
 		defer ws.Close()
-		upstream, err := net.Dial("tcp", origin.addr)
+		upstream, err := net.Dial("tcp", origin.Addr)
 		if err != nil {
 			return
 		}
@@ -118,28 +120,28 @@ func TestPasswordThroughCloudflareTCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tunnel := serverEndpoint{edge.URL, transportTunnel}
-	if _, err = verifyServerEndpoint(ctx, tunnel, password, nil); !errors.Is(err, errServerCert) {
+	tunnel := serverEndpoint{edge.URL, TransportTunnel}
+	if _, err = verifyServerEndpoint(ctx, tunnel, password, nil); !errors.Is(err, ErrCert) {
 		t.Fatal("accepted untrusted TLS on WebSocket edge", err)
 	}
 	p, err := discoverServer(ctx, endpoints, password, roots)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Transport != transportTunnel || p.Pin != expected.Pin || p.Token != directProfile.Token || p.Address != edge.URL {
+	if p.Transport != TransportTunnel || p.Pin != expected.Pin || p.Token != directProfile.Token || p.Address != edge.URL {
 		t.Fatal("tunnel returned incorrect origin identity or transport")
 	}
 	if direct.Load() == 0 || upgrades.Load() < 2 || binaryBytes.Load() == 0 || invalid.Load() {
 		t.Fatal("relay observed unexpected data or discovery skipped a transport")
 	}
-	pinned := syncHTTPClient(pinnedServerTLS(p.Pin), []string{transportDirect, transportTunnel}, roots)
+	pinned := syncHTTPClient(PinnedTLS(p.Pin), []string{TransportDirect, TransportTunnel}, roots)
 	defer pinned.CloseIdleConnections()
-	p.Transport = transportDirect
-	if _, err = p.manifest(pinned); err != nil {
+	p.Transport = TransportDirect
+	if _, err = p.Manifest(pinned); err != nil {
 		t.Fatal("paired client did not retry the tunnel after direct TLS pin mismatch", err)
 	}
-	if p.Transport != transportTunnel {
-		t.Fatal("manifest did not record the tunnel used after fallback")
+	if p.Transport != TransportTunnel {
+		t.Fatal("Manifest did not record the tunnel used after fallback")
 	}
 	p.Lineage = strings.Repeat("a", 64)
 	payload := bytes.Repeat([]byte("a sync payload spanning multiple TLS records\n"), 8000)
@@ -155,16 +157,18 @@ func TestPasswordThroughCloudflareTCP(t *testing.T) {
 	if err != nil || !bytes.Equal(got, payload) {
 		t.Fatal("streaming download changed the stored data", err)
 	}
-	wrongPin := syncHTTPClient(pinnedServerTLS(strings.Repeat("0", 64)), []string{transportTunnel}, roots)
+	wrongPin := syncHTTPClient(PinnedTLS(strings.Repeat("0", 64)), []string{TransportTunnel}, roots)
 	defer wrongPin.CloseIdleConnections()
-	p.Transport = transportDirect
-	if _, err = p.manifest(wrongPin); !errors.Is(err, errServerCert) {
+	p.Transport = TransportDirect
+	if _, err = p.Manifest(wrongPin); !errors.Is(err, ErrCert) {
 		t.Fatal("tunnel accepted incorrect origin pin", err)
 	}
-	if p.Transport != transportDirect {
+	if p.Transport != TransportDirect {
 		t.Fatal("failed origin verification changed the last successful transport")
 	}
 	if invalid.Load() {
 		t.Fatal("relay received a plaintext credential or a non-binary frame")
 	}
 }
+
+func TestSyncServiceProcess(t *testing.T) { synctest.RunServerProcess(t) }

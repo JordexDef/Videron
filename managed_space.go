@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"videron/internal/syncclient"
 )
 
 // Reuse an automatic download even after it was unlisted or its first unlock
@@ -44,7 +46,7 @@ type SpaceMoveResult struct {
 func projectRecords(s *folderSpaceSession) ([]string, error) {
 	var records []string
 	for _, kind := range []string{"objects", "revisions"} {
-		dir, err := historyDir(filepath.Dir(s.path), s.sync.meta.Lineage, kind, false)
+		dir, err := syncclient.HistoryDir(filepath.Dir(s.path), s.sync.meta.Lineage, kind, false)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -212,7 +214,7 @@ func (a *App) MoveFolderSpace(source, destination, catalog string) (result Space
 	oldID, newID := spaceSessionID(oldDir), spaceSessionID(dir)
 	rel, err := filepath.Rel(oldID, newID)
 	if err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))) {
-		return result, errServerFolder
+		return result, syncclient.ErrFolder
 	}
 	if a.folderSpaces[newID] != nil {
 		return result, errSpaceExists
@@ -222,7 +224,7 @@ func (a *App) MoveFolderSpace(source, destination, catalog string) (result Space
 		return result, err
 	}
 	if len(entries) != 0 {
-		return result, errServerFolder
+		return result, syncclient.ErrFolder
 	}
 	var library struct {
 		Active string

@@ -1,4 +1,4 @@
-package main
+package syncclient
 
 import (
 	"bytes"
@@ -12,9 +12,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"videron/internal/vault"
 )
+
+type uploadRecorder func(*http.Request) (*http.Response, error)
+
+func (r uploadRecorder) RoundTrip(req *http.Request) (*http.Response, error) { return r(req) }
 
 func TestColdIndexAcrossResponseLimitAndRestart(t *testing.T) {
 	const count = 150000 // the v1 full representation exceeds the single-response byte limit
@@ -45,7 +47,7 @@ func TestColdIndexAcrossResponseLimitAndRestart(t *testing.T) {
 				return
 			}
 		}
-		reply := serverManifest{Lineage: lineage, Main: mainHash, Files: map[string]string{}, PageTotal: count, Offset: start,
+		reply := Manifest{Lineage: lineage, Main: mainHash, Files: map[string]string{}, PageTotal: count, Offset: start,
 			Cursor: "initial-event", IndexCursor: "second"}
 		if epoch == 1 {
 			reply.IndexCursor = "first"
@@ -71,8 +73,8 @@ func TestColdIndexAcrossResponseLimitAndRestart(t *testing.T) {
 		w.Write(b)
 	}))
 	defer srv.Close()
-	p := serverProfile{Address: srv.URL}
-	m, err := p.manifest(srv.Client())
+	p := Profile{Address: srv.URL}
+	m, err := p.Manifest(srv.Client())
 	mu.Lock()
 	defer mu.Unlock()
 	if err != nil || len(m.Files) != count || m.IndexCursor != "second" || m.Cursor != "initial-event" {
@@ -90,7 +92,7 @@ func TestColdIndexAcrossResponseLimitAndRestart(t *testing.T) {
 }
 
 func TestUploadDistinguishesExistingRecordFromChangedSpace(t *testing.T) {
-	p := serverProfile{Address: "https://test.invalid", Lineage: strings.Repeat("a", 64)}
+	p := Profile{Address: "https://test.invalid", Lineage: strings.Repeat("a", 64)}
 	status := http.StatusPreconditionFailed
 	c := &http.Client{Transport: uploadRecorder(func(r *http.Request) (*http.Response, error) {
 		r.Body.Close()
@@ -98,23 +100,23 @@ func TestUploadDistinguishesExistingRecordFromChangedSpace(t *testing.T) {
 	})}
 	for _, route := range []string{"/v1/main", "/v1/file?path=sample"} {
 		status = http.StatusPreconditionFailed
-		if err := p.upload(c, route, []byte("sample")); !errors.Is(err, errChanged) {
+		if err := p.upload(c, route, []byte("sample")); !errors.Is(err, ErrChanged) {
 			t.Fatalf("%s duplicate: %v", route, err)
 		}
 		status = http.StatusConflict
-		if err := p.upload(c, route, []byte("sample")); !errors.Is(err, errServerSpace) {
+		if err := p.upload(c, route, []byte("sample")); !errors.Is(err, ErrSpace) {
 			t.Fatalf("%s wrong space was treated as an existing record: %v", route, err)
 		}
 	}
 }
 
 func TestSyncManifestFallbackAndScope(t *testing.T) {
-	p := serverProfile{Address: "https://test.invalid", Token: "first", Lineage: strings.Repeat("a", 64)}
+	p := Profile{Address: "https://test.invalid", Token: "first", Lineage: strings.Repeat("a", 64)}
 	mainHash := strings.Repeat("b", 64)
 	first := ".videron-sync/" + p.Lineage + "/objects/" + mainHash + ".json"
 	second := strings.Replace(first, "/objects/", "/revisions/", 1)
-	var cache serverIndexCache
-	reply := serverManifest{Lineage: p.Lineage, Main: mainHash, Cursor: "event", Files: map[string]string{first: mainHash}, IndexCursor: "one"}
+	var cache IndexCache
+	reply := Manifest{Lineage: p.Lineage, Main: mainHash, Cursor: "event", Files: map[string]string{first: mainHash}, IndexCursor: "one"}
 	var since string
 	c := &http.Client{Transport: uploadRecorder(func(r *http.Request) (*http.Response, error) {
 		since = r.URL.Query().Get("since")
@@ -134,9 +136,9 @@ func TestSyncManifestFallbackAndScope(t *testing.T) {
 		h.Set("X-Videron-Project", p.ProjectID)
 		return &http.Response{StatusCode: 200, Header: h, Body: io.NopCloser(bytes.NewReader(data))}, nil
 	})}
-	read := func(wantSince string, count int) serverManifest {
+	read := func(wantSince string, count int) Manifest {
 		t.Helper()
-		m, err := p.syncManifest(c, &cache)
+		m, err := p.SyncManifest(c, &cache)
 		if err != nil || since != wantSince || len(m.Files) != count {
 			t.Fatalf("since=%q files=%d err=%v", since, len(m.Files), err)
 		}
@@ -152,12 +154,12 @@ func TestSyncManifestFallbackAndScope(t *testing.T) {
 		t.Fatal("lost files when applying a delta")
 	}
 	reply.Base = "wrong-base"
-	if _, err := p.syncManifest(c, &cache); !errors.Is(err, errServerProtocol) {
+	if _, err := p.SyncManifest(c, &cache); !errors.Is(err, ErrProtocol) {
 		t.Fatal("delta from another base was accepted")
 	}
 	reply.Base = ""
 	reply.Summary = true
-	if _, err := p.syncManifest(c, &cache); !errors.Is(err, errServerProtocol) {
+	if _, err := p.SyncManifest(c, &cache); !errors.Is(err, ErrProtocol) {
 		t.Fatal("metadata-only reply accepted as a complete snapshot")
 	}
 	reply.Summary = false
@@ -180,94 +182,11 @@ func TestSyncManifestFallbackAndScope(t *testing.T) {
 	read("", 1)
 	reply.Base, reply.IndexCursor = "new-start", "later"
 	reply.Files[first] = strings.Repeat("f", 64)
-	if _, err := p.syncManifest(c, &cache); !errors.Is(err, errServerProtocol) || cache.cursor != "" {
+	if _, err := p.SyncManifest(c, &cache); !errors.Is(err, ErrProtocol) || cache.cursor != "" {
 		t.Fatal("a delta changed the digest of an existing record", err)
 	}
 	reply.Base, reply.Offset = "", 5
-	if _, err := p.syncManifest(c, &cache); !errors.Is(err, errServerProtocol) {
+	if _, err := p.SyncManifest(c, &cache); !errors.Is(err, ErrProtocol) {
 		t.Fatal("a middle page was accepted as a complete index", err)
-	}
-}
-
-func TestEncryptedSyncUploadBodies(t *testing.T) {
-	a, _ := testStore(t)
-	folder := t.TempDir()
-	server := startPasswordTestService(t, "Temporary sync service passphrase")
-	// A large unmodified value shares this space with the edited note.
-	large := strings.Repeat("unmodified-data-", 1<<16)
-	doc := func(title string) string {
-		return strings.Replace(syncDoc(title, "Data"), `"title":"Data"`, `"title":"Data","dataText":"`+large+`"`, 1)
-	}
-	if err := a.CreateFolderSpace(folder, doc("Note"), testPass); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.ConnectSpaceServer(folder, server.code); err != nil {
-		t.Fatal(err)
-	}
-	profileDir := canonicalTestFolder(t, folder)
-	p, err := loadProfile(profileDir)
-	if err != nil || p == nil {
-		t.Fatal("missing test profile", err)
-	}
-	cache, err := a.sessionServerIndex(folder, p.Lineage)
-	if err != nil || cache.cursor == "" {
-		t.Fatal("first sync would redownload the enrollment index", err)
-	}
-	client := p.client()
-	next := client.Transport.(*http.Transport)
-	defer next.CloseIdleConnections()
-	var files, mainUploads, uploadBytes int
-	client.Transport = uploadRecorder(func(r *http.Request) (*http.Response, error) {
-		if r.Method == http.MethodPut {
-			body, err := io.ReadAll(r.Body)
-			r.Body.Close()
-			if err != nil {
-				return nil, err
-			}
-			// The transfer layer receives only client-sealed envelopes.
-			if _, err = vault.ParseEnvelope(body, syncScope); err != nil {
-				t.Fatalf("unencrypted upload: %v", err)
-			}
-			r.Body = io.NopCloser(bytes.NewReader(body))
-			uploadBytes += len(body)
-			if r.URL.Path == "/v1/main" {
-				mainUploads++
-			} else {
-				files++
-			}
-		}
-		return next.RoundTrip(r)
-	})
-	syncFiles := func() {
-		t.Helper()
-		m, err := p.syncManifest(client, cache)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err = p.exchange(client, profileDir, m, a.syncSession()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	syncFiles()
-	if err := a.SaveFolderBranch(folder, doc("Notes")); err != nil {
-		t.Fatal(err)
-	}
-	syncFiles()
-	if files != 2 || mainUploads != 0 || uploadBytes > 8<<10 {
-		t.Fatalf("one title edit: records=%d main=%d bytes=%d", files, mainUploads, uploadBytes)
-	}
-	t.Logf("one-letter title edit with %d B of unmodified text: %d encrypted records, %d B of PUT bodies", len(large), files, uploadBytes)
-	files, uploadBytes = 0, 0
-	syncFiles()
-	if files != 0 || mainUploads != 0 || uploadBytes != 0 {
-		t.Fatal("an already-current project uploaded records on its next check")
-	}
-	a.CloseFolderSpace(folder)
-	if _, err := a.OpenFolderSpace(folder, testPass); err != nil {
-		t.Fatal(err)
-	}
-	fresh, err := a.sessionServerIndex(folder, p.Lineage)
-	if err != nil || fresh == cache || fresh.cursor != "" {
-		t.Fatal("closed folder retained its old session's index", err)
 	}
 }

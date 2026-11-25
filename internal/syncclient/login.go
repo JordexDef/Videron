@@ -1,4 +1,4 @@
-package main
+package syncclient
 
 import (
 	"bytes"
@@ -17,8 +17,8 @@ import (
 )
 
 var (
-	errServerProtocol = errors.New("VD_SERVER_PROTOCOL")
-	errServerRate     = errors.New("VD_SERVER_RATE")
+	ErrProtocol = errors.New("VD_SERVER_PROTOCOL")
+	ErrRate     = errors.New("VD_SERVER_RATE")
 )
 
 type loginMessage struct {
@@ -36,43 +36,43 @@ func postLogin(ctx context.Context, c *http.Client, address, route string, body 
 	defer clear(raw)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, address+route, bytes.NewReader(raw))
 	if err != nil {
-		return "", errServerAddress
+		return "", ErrAddress
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.Do(req)
 	if err != nil {
-		if errors.Is(err, errServerCert) {
-			return "", errServerCert
+		if errors.Is(err, ErrCert) {
+			return "", ErrCert
 		}
-		return "", errServerOffline
+		return "", ErrOffline
 	}
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return "", errServerAuth
+		return "", ErrAuth
 	case http.StatusTooManyRequests:
-		return "", errServerRate
+		return "", ErrRate
 	default:
-		return "", errServerProtocol
+		return "", ErrProtocol
 	}
 	if resp.TLS == nil || len(resp.TLS.PeerCertificates) == 0 {
-		return "", errServerCert
+		return "", ErrCert
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 8193))
 	defer clear(data)
 	if err != nil || len(data) > 8192 || json.Unmarshal(data, result) != nil {
-		return "", errServerProtocol
+		return "", ErrProtocol
 	}
 	hash := sha256.Sum256(resp.TLS.PeerCertificates[0].Raw)
 	return hex.EncodeToString(hash[:]), nil
 }
 
-func verifyServerEndpoint(ctx context.Context, endpoint serverEndpoint, password string, roots *x509.CertPool) (serverProfile, error) {
-	var empty serverProfile
+func verifyServerEndpoint(ctx context.Context, endpoint serverEndpoint, password string, roots *x509.CertPool) (Profile, error) {
+	var empty Profile
 	client, first, err := syncauth.Begin(password)
 	if err != nil {
-		return empty, errServerAuth
+		return empty, ErrAuth
 	}
 	defer client.Close()
 	defer clear(first)
@@ -84,23 +84,23 @@ func verifyServerEndpoint(ctx context.Context, endpoint serverEndpoint, password
 	pin, err := postLogin(ctx, probe, endpoint.address, "/v1/auth/start", loginMessage{Message: first}, &reply)
 	probe.CloseIdleConnections()
 	if err != nil {
-		if errors.Is(err, errServerAuth) {
+		if errors.Is(err, ErrAuth) {
 			// An unrelated HTTPS gateway may protect the same URL. Try the
 			// tunnel or native port before reporting an enrollment failure.
-			return empty, errServerProtocol
+			return empty, ErrProtocol
 		}
 		return empty, err
 	}
 	defer clear(reply.Message)
 	if !serverHex.MatchString(reply.Session) || len(reply.Message) == 0 {
-		return empty, errServerProtocol
+		return empty, ErrProtocol
 	}
 	last, err := client.Finish(reply.Message, pin)
 	if err != nil {
-		return empty, errServerAuth
+		return empty, ErrAuth
 	}
 	defer clear(last)
-	secured := syncHTTPClient(pinnedServerTLS(pin), mode, roots)
+	secured := syncHTTPClient(PinnedTLS(pin), mode, roots)
 	defer secured.CloseIdleConnections()
 	var credentials struct {
 		Token string `json:"token"`
@@ -109,11 +109,11 @@ func verifyServerEndpoint(ctx context.Context, endpoint serverEndpoint, password
 		return empty, err
 	}
 	if !serverHex.MatchString(credentials.Token) {
-		return empty, errServerProtocol
+		return empty, ErrProtocol
 	}
-	p := serverProfile{Address: endpoint.address, Pin: pin, Token: credentials.Token, Transport: endpoint.transport}
-	manifest, err := p.manifestSummary(ctx, secured)
-	if errors.Is(err, errProjectDeleted) {
+	p := Profile{Address: endpoint.address, Pin: pin, Token: credentials.Token, Transport: endpoint.transport}
+	manifest, err := p.ManifestSummary(ctx, secured)
+	if errors.Is(err, ErrProjectDeleted) {
 		// Authentication is valid even when there is no default project. The
 		// ticket can list, create, or select the remaining named projects.
 		p.ProjectDeleted = true
@@ -126,17 +126,18 @@ func verifyServerEndpoint(ctx context.Context, endpoint serverEndpoint, password
 	return p, nil
 }
 
-func verifyServerCredentials(ctx context.Context, address, password string) (serverProfile, error) {
+// VerifyCredentials discovers the server and uses its password exchange to establish a profile.
+func VerifyCredentials(ctx context.Context, address, password string) (Profile, error) {
 	endpoints, err := serverEndpoints(address)
 	if err != nil {
-		return serverProfile{}, err
+		return Profile{}, err
 	}
 	return discoverServer(ctx, endpoints, password, nil)
 }
 
-func discoverServer(ctx context.Context, endpoints []serverEndpoint, password string, roots *x509.CertPool) (serverProfile, error) {
+func discoverServer(ctx context.Context, endpoints []serverEndpoint, password string, roots *x509.CertPool) (Profile, error) {
 	// Prefer an error from a responding server over a failed alternate route.
-	best := errServerOffline
+	best := ErrOffline
 	for _, endpoint := range endpoints {
 		attempt, cancel := context.WithTimeout(ctx, 12*time.Second)
 		p, err := verifyServerEndpoint(attempt, endpoint, password, roots)
@@ -145,20 +146,20 @@ func discoverServer(ctx context.Context, endpoints []serverEndpoint, password st
 			return p, nil
 		}
 		switch {
-		case errors.Is(err, errServerRate), errors.Is(err, errServerAuth):
-			return serverProfile{}, err
-		case errors.Is(err, errServerProtocol):
+		case errors.Is(err, ErrRate), errors.Is(err, ErrAuth):
+			return Profile{}, err
+		case errors.Is(err, ErrProtocol):
 			best = err
-		case errors.Is(err, errServerCert):
-			if best == errServerOffline {
+		case errors.Is(err, ErrCert):
+			if best == ErrOffline {
 				best = err
 			}
-		case !errors.Is(err, errServerOffline):
-			return serverProfile{}, err
+		case !errors.Is(err, ErrOffline):
+			return Profile{}, err
 		}
 		if ctx.Err() != nil {
 			break
 		}
 	}
-	return serverProfile{}, best
+	return Profile{}, best
 }

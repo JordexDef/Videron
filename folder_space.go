@@ -13,13 +13,14 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"videron/internal/syncclient"
 	"videron/internal/vault"
 )
 
 const folderSpaceFilename = "Videron.space"
 const folderSpaceFormat = "videron.space"
 
-var errSpaceMissing = errors.New("VD_SPACE_MISSING")
+var errSpaceMissing = syncclient.ErrSpaceMissing
 var errSpaceExists = errors.New("VD_SPACE_EXISTS")
 
 type SpaceFolderInfo struct {
@@ -37,7 +38,7 @@ type folderSpaceSession struct {
 	discardKeyOnSuspend bool
 	sync                spaceReplica
 	lastPatch           savePatchReceipt
-	serverIndex         *serverIndexCache
+	serverIndex         *syncclient.IndexCache
 }
 
 type folderSpaceDocument struct {

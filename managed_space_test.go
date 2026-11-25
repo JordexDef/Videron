@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"videron/internal/syncclient"
 )
 
 func movedCatalog(t *testing.T, dir string, encrypted bool) string {
@@ -70,8 +72,8 @@ func TestMoveWaitsForMissingCloudHistory(t *testing.T) {
 func TestMoveWorkingCopyPreservesStorageAndHistory(t *testing.T) {
 	a, _ := testStore(t)
 	from := t.TempDir()
-	p := serverProfile{Pin: strings.Repeat("0", 64), Address: "https://sync.example.org:443", Token: strings.Repeat("1", 64)}
-	pathFor := func(profile serverProfile) string {
+	p := syncclient.Profile{Pin: strings.Repeat("0", 64), Address: "https://sync.example.org:443", Token: strings.Repeat("1", 64)}
+	pathFor := func(profile syncclient.Profile) string {
 		t.Helper()
 		_, generation, err := a.ticketContext()
 		if err != nil {

@@ -59,12 +59,12 @@ func TestServerDraftDuringProjectSwitch(t *testing.T) {
 			}
 
 			must(local.CreateFolderSpace(first, document("original", "neighbor"), testPass))
-			must(local.ConnectSpaceServer(first, server.code))
-			must(peer.JoinSpaceServer(server.code, second))
+			must(local.ConnectSpaceServer(first, server.Code))
+			must(peer.JoinSpaceServer(server.Code, second))
 			reopen(peer, second, testPass, document("original", "neighbor"))
 			// Use the same note IDs in another project on this server. A stale
 			// selection or patch directed to the current project would change it.
-			login, err := local.VerifySyncServer(server.addr, pass)
+			login, err := local.VerifySyncServer(server.Addr, pass)
 			must(err)
 			otherProject, err := local.CreateServerProject(login.Ticket, "Other")
 			must(err)
@@ -150,7 +150,7 @@ func TestServerDraftDuringProjectSwitch(t *testing.T) {
 			// Verify both the existing peer and an empty directory populated
 			// exclusively from the server. Each must reach a single settled head.
 			cold := t.TempDir()
-			must(peer.JoinSpaceServer(server.code, cold))
+			must(peer.JoinSpaceServer(server.Code, cold))
 			_, err = peer.OpenFolderSpace(cold, testPass)
 			must(err)
 			for _, folder := range []string{second, cold} {
