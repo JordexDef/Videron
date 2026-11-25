@@ -589,6 +589,27 @@
       "risk": "medium"
     },
     {
+      "id": "map.undo-peer-move",
+      "actions": ["map.drag", "map.undo", "map.switchSpace"],
+      "steps": [
+        "Drag one note, then a second in the shared project. A scripted peer delivers new coordinates for the second note through the prepared-merge bridge.",
+        "Press Ctrl+Z twice. Switch away, return, and drag the second note from the position the peer supplied. Undo once more."
+      ],
+      "expected": "The first Undo leaves the peer's coordinates intact and explains that the earlier move is unavailable. The second restores the unrelated local move. Reopening and dragging at the synchronized coordinates confirms the note is there and new moves can be undone.",
+      "risk": "high"
+    },
+    {
+      "id": "map.editor-project-history",
+      "actions": ["map.drag", "map.treeOpen", "map.back", "map.switchSpace", "map.undo"],
+      "steps": [
+        "Move a pinned note in free layout, open it, type and immediately leave for another project containing a data note with the same ID.",
+        "In the second project press Undo before editing, type, undo, redo and leave. Reopen the rich-text note in the first project and try Undo before and after a new edit.",
+        "Return to the first map and undo its move. Revisit the data note, undo, switch away and return to redo. Reload and press Undo in both notes."
+      ],
+      "expected": "The text and data editors retain independent undo and redo stacks despite the matching IDs. The map still undoes its own earlier move. Both texts persist after reload and their session histories start empty.",
+      "risk": "high"
+    },
+    {
       "id": "map.workspace-undo",
       "actions": [
         "map.switchSpace",

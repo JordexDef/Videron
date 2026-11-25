@@ -91,6 +91,182 @@ async function plotText(p) {
 }
 
 export const cases = {
+  async 'board.group-pan-nudge'(c) {
+    const { page: p, primary } = c;
+    const members = ['one', 'two', 'other'];
+    await start(
+      c,
+      members.map((id, i) => shape(id, i * 130))
+    );
+    const positions = () => Promise.all(members.map((id) => xPos(p, id)));
+    const centers = () => Promise.all(members.map((id) => point(obj(p, id))));
+    await obj(p, 'one').click();
+    await obj(p, 'two').click({ modifiers: ['Shift'] });
+    await key(p, primary, 'g');
+    await p.keyboard.press('Escape');
+    const initial = await positions();
+    await obj(p, 'one').click({ modifiers: [primary] });
+    await p.keyboard.press('ArrowRight');
+    const moved = await positions();
+    assert(moved[0] > initial[0]);
+    assert.deepEqual(moved.slice(1), initial.slice(1));
+    await btn(p, 'Hand').click();
+    const before = await centers();
+    const from = await point(p.locator('.vb-stage'), 0.5, 0.65);
+    await drag(p, from, [from[0] + 65, from[1] - 35]);
+    const after = await centers();
+    for (let i = 0; i < members.length; i++) {
+      assert(Math.abs(after[i][0] - before[i][0] - 65) <= 1);
+      assert(Math.abs(after[i][1] - before[i][1] + 35) <= 1);
+    }
+    assert.deepEqual(await positions(), moved);
+    await undo(c);
+    assert.deepEqual(await positions(), initial);
+    await redo(c);
+    assert.deepEqual(await positions(), moved);
+    await leave(p);
+    await c.openNote('Sketch');
+    assert.deepEqual(await positions(), moved);
+    await obj(p, 'one').click();
+    await p.keyboard.press('ArrowRight');
+    const grouped = await positions();
+    assert(grouped[0] > moved[0]);
+    assert.equal(grouped[1] - moved[1], grouped[0] - moved[0]);
+    assert.equal(grouped[2], moved[2]);
+  },
+  async 'board.stroke-corners-pattern'(c) {
+    const { page: p } = c;
+    const initial = { stroke: '#464a50', roughness: 0, rounded: false, fillStyle: 'solid' };
+    await start(c, [shape('target', 0, initial), shape('sibling', 180, initial)]);
+    const paths = (id) =>
+      obj(p, id)
+        .locator('svg path')
+        .evaluateAll((nodes) =>
+          nodes.map((n) => ['d', 'stroke', 'fill'].map((attr) => n.getAttribute(attr)))
+        );
+    const sibling = await paths('sibling');
+    const snapshots = [await paths('target')];
+    await obj(p, 'target').click();
+    await btn(p, 'Object style').click();
+    const color = p.getByLabel('Stroke / text', { exact: true });
+    await color.fill('#e04061');
+    // A color field rendered as a text input commits its value on blur.
+    await color.press('Tab');
+    snapshots.push(await paths('target'));
+    assert(snapshots[1].some(([, stroke]) => stroke?.toLowerCase() === '#e04061'));
+    await btn(p, 'Rounded corners').click();
+    snapshots.push(await paths('target'));
+    await btn(p, 'Crosshatched fill').click();
+    snapshots.push(await paths('target'));
+    for (let i = 1; i <= 3; i++) assert.notDeepEqual(snapshots[i], snapshots[i - 1]);
+    for (let i = 2; i >= 0; i--) {
+      await undo(c);
+      assert.deepEqual(await paths('target'), snapshots[i]);
+    }
+    for (let i = 1; i <= 3; i++) {
+      await redo(c);
+      assert.deepEqual(await paths('target'), snapshots[i]);
+    }
+    await leave(p);
+    await c.openNote('Sketch');
+    assert.deepEqual(await paths('target'), snapshots[3]);
+    assert.deepEqual(await paths('sibling'), sibling);
+  },
+  async 'board.inline-frame-history'(c) {
+    const { page: p } = c;
+    const para = (text) => ({ type: 'paragraph', runs: [{ text }] });
+    const drawing = {
+      type: 'drawing',
+      presentation: 'drawing',
+      frame: { width: 460, height: 235 },
+      board: { version: 1, elements: [shape('art', 24)] }
+    };
+    await c.seed({
+      areas: [],
+      notes: [
+        {
+          id: 'Article',
+          title: 'Article',
+          body: [para('Before'), drawing, para('After')],
+          x: 0,
+          y: 0,
+          links: [],
+          tags: []
+        }
+      ]
+    });
+    await c.openNote('Article');
+    const frame = p.locator('figure.ve-inline-board');
+    const handle = frame.getByRole('button', { name: 'Resize area', exact: true });
+    const size = () => frame.evaluate((n) => [n.offsetWidth, n.offsetHeight]);
+    const art = () =>
+      obj(p, 'art').evaluate((n) => [n.style.left, n.style.top, n.style.width, n.style.height]);
+    const geometry = await art();
+    const initial = await size();
+    await obj(p, 'art').click();
+    const from = await point(handle);
+    await drag(p, from, [from[0] + 45, from[1] + 30]);
+    const dragged = await size();
+    assert.deepEqual(dragged, [initial[0] + 45, initial[1] + 30]);
+    await handle.press('Shift+ArrowDown');
+    const resized = [dragged[0], dragged[1] + 40];
+    assert.deepEqual(await size(), resized);
+    await undo(c);
+    assert.deepEqual(await size(), dragged);
+    await undo(c);
+    assert.deepEqual(await size(), initial);
+    await redo(c);
+    assert.deepEqual(await size(), dragged);
+    await redo(c);
+    assert.deepEqual(await size(), resized);
+    await leave(p);
+    await c.openNote('Article');
+    assert.deepEqual(await size(), resized);
+    assert.deepEqual(await art(), geometry);
+    assert.deepEqual(await p.locator('.ve-text[contenteditable=true]').allTextContents(), [
+      'Before',
+      'After'
+    ]);
+  },
+  async 'board.tsv-row-history'(c) {
+    const { page: p } = c;
+    await start(c, [sheet({ A1: 'keep', B2: '1', C3: '2', A4: 'tail', C4: '=B2+C3' })]);
+    const initial = { A1: 'keep', B2: '1', C3: '2', A4: 'tail', C4: '3' };
+    const pasted = { A1: 'keep', B2: '10', C2: '20', B3: '30', C3: '40', A4: 'tail', C4: '50' };
+    const shifted = { A1: 'keep', B3: '10', C3: '20', B4: '30', C4: '40', A5: 'tail', C5: '50' };
+    assert.deepEqual(await values(p), initial);
+    await cell(p, 'B2').click();
+    await cell(p, 'B2').evaluate((n) => {
+      const transfer = new DataTransfer();
+      transfer.setData('text/plain', '10\t20\n30\t40');
+      const event = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: transfer });
+      n.dispatchEvent(event);
+    });
+    assert.deepEqual(await values(p), pasted);
+    await hdr(p, 'row', 1).click({ button: 'right' });
+    await p.getByRole('menuitem', { name: 'Insert row above', exact: true }).click();
+    assert.deepEqual(await values(p), shifted);
+    async function checkFormula() {
+      await cell(p, 'C5').click();
+      await p.keyboard.press('F2');
+      assert.equal(await edit(p).inputValue(), '=B3+C4');
+      await edit(p).press('Escape');
+    }
+    await checkFormula();
+    await undo(c);
+    assert.deepEqual(await values(p), pasted);
+    await undo(c);
+    assert.deepEqual(await values(p), initial);
+    await redo(c);
+    assert.deepEqual(await values(p), pasted);
+    await redo(c);
+    assert.deepEqual(await values(p), shifted);
+    await leave(p);
+    await c.openNote('Sketch');
+    assert.deepEqual(await values(p), shifted);
+    await checkFormula();
+  },
   async 'board.bound-arrow-drag'(c) {
     const { page: p } = c;
     await start(c, [shape('left', 0), shape('right', 250)]);
@@ -320,10 +496,12 @@ export const cases = {
     await p.keyboard.press('ArrowRight');
     const after = await xPos(p, copy);
     assert(after > before);
+    await leave(p);await c.openNote('Sketch');await p.locator('.vb-stage').focus();
     await undo(c);
     assert.equal(await xPos(p, copy), before);
     await undo(c);
     assert.deepEqual(await ids(p), ['original']);
+    await leave(p);await c.openNote('Sketch');await p.locator('.vb-stage').focus();
     await redo(c);
     await redo(c);
     assert.equal(await xPos(p, copy), after);

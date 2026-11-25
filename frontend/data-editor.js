@@ -15,6 +15,7 @@ import { createSearchReveal } from './search-reveal.js'
 import { transformDataLines } from './data-transform.js'
 import { lineEndingSupport, sourceSlice, insertedEndings, tableTransformEndings, editorOffset } from './data-line-endings.js'
 import { textDocument, buildDataDocument } from './data-document.js'
+import { captureDataHistory, restoreDataHistory, dataTitle, dataTitleSupport, changeDataTitle } from './data-editor-history.js'
 import { mountDelimitedGrid } from './delimited-grid.js'
 import { mountAgentTaskList } from './agent-task-list.js'
 
@@ -128,7 +129,7 @@ function readTextFile(file,signal) {
 }
 
 export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNote,onSearch,onReturn,
-  beforeClose,manageProtection,isProtected,saveIndicator,agentButton,agentTaskActions,backLabel=tr('К карте','Back to map')}) {
+  beforeClose,manageProtection,isProtected,saveIndicator,agentButton,agentTaskActions,historySession,backLabel=tr('К карте','Back to map')}) {
   const previousFocus = document.activeElement
   const root = element('section','vd-editor ve-data-editor')
   root.setAttribute('role','dialog'); root.setAttribute('aria-modal','true')
@@ -151,7 +152,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   let relations = noteRelations(note), finished = false, dirty = false, closePending, running
   let idleTimer, maxTimer, flashTimer, view, sourceDoc, grid, tableState, textScroll
   let hasHeader = note.dataHasHeader !== false, docRevision = 0, lastTableView, gridFormat
-  const languageSlot = new Compartment(), themeSlot = new Compartment()
+  const languageSlot = new Compartment(), themeSlot = new Compartment(), historySlot = new Compartment()
   const tagNav = createTagNavigator({root,notes,noteId:note.id,onOpenNote:onOpenNote && navigateTo})
   const details = noteDetails({root,note,notes,areas,current:() => relations,update(patch,point) {
     relations = {...relations,...patch}; onChange?.({...patch,...point}); details.sync()
@@ -253,31 +254,49 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     const tags = noteTags(title.value,'')
     details.setTags(tags); tagNav.syncTitle(); onChange?.({title:title.value,tags})
   }
+  function commitTitle() {
+    const current=tableState ?? view?.state
+    if (!current || dataTitle(current)===title.value) return
+    const spec={effects:changeDataTitle(title.value),annotations:isolateHistory.of('full')}
+    if (tableState) applyTableTransaction(tableState.update(spec))
+    else view.dispatch(spec)
+  }
+  function reflectTitle(before,after) {
+    const value=dataTitle(after)
+    if (value!==dataTitle(before) && title.value!==value) {
+      title.value=value
+      setTitle()
+    }
+  }
   function setLanguage() {
     showText()
     view.dispatch({effects:languageSlot.reconfigure(formats[format.value].extension())})
     onChange?.({dataLanguage:format.value})
   }
   format.onchange = () => {setLanguage(); view.focus()}
-  const state = EditorState.create({doc:textDocument(source), extensions:[
-    lineEndingSupport(source), languageSlot.of(formats[format.value].extension()), syntaxHighlighting(palette), indentOnInput(),
-    bracketMatching(), history(), lineNumbers(), highlightActiveLineGutter(), highlightActiveLine(), drawSelection(),
+  const editorExtensions = [
+    lineEndingSupport(source), dataTitleSupport(title.value), languageSlot.of(formats[format.value].extension()), syntaxHighlighting(palette), indentOnInput(),
+    bracketMatching(), historySlot.of(history()), lineNumbers(), highlightActiveLineGutter(), highlightActiveLine(), drawSelection(),
     search({top:true}), highlights, themeSlot.of(currentScheme()), EditorState.tabSize.of(4),
-    keymap.of([{key:'Mod-g',run:gotoLine},{win:'Ctrl-Shift-z',run:redo,preventDefault:true},
+    keymap.of([{key:'Mod-g',run:gotoLine},
       ...searchKeymap,{key:'Escape',run:cancelTextOperation},...historyKeymap,indentWithTab,...defaultKeymap]),
     EditorState.phrases.of(Object.fromEntries(Object.entries(russianPhrases).map(([en,ru])=>[en,tr(ru,en)]))),
     EditorView.contentAttributes.of({'aria-label':tr('Содержимое заметки данных','Data note contents'), spellcheck:'false'}),
     placeholder(tr('Введите данные или вставьте файл…','Type data or insert a file…')),
     EditorView.updateListener.of(update => {
+      reflectTitle(update.startState,update.state)
       if (update.docChanged) {
         docRevision++
         if (!update.transactions.some(transaction =>
           transaction.isUserEvent('input.transform') || transaction.isUserEvent('input.import'))) running?.abort()
         scheduleFlush()
       }
-      if (update.docChanged || update.selectionSet) status(update.state)
+      if (update.docChanged || update.selectionSet || dataTitle(update.startState)!==dataTitle(update.state)) status(update.state)
     })
-  ]})
+  ]
+  const restored = restoreDataHistory(historySession?.take(),source,title.value)
+  const state = restored ? restored.update({effects:StateEffect.reconfigure.of(editorExtensions)}).state :
+    EditorState.create({doc:textDocument(source),extensions:editorExtensions})
   function applyTheme() {
     const effects = themeSlot.reconfigure(currentScheme())
     if (tableState) tableState = tableState.update({effects}).state
@@ -288,8 +307,22 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   sourceDoc = state.doc
   syncViewButtons()
   status(state); details.sync(); details.setTags(noteTags(title.value,''))
-  title.oninput = setTitle
-  title.onkeydown = e => {if (e.key === 'Enter' && !e.isComposing) focusContent()}
+  title.oninput = () => {
+    setTitle()
+    // A title edit becomes one operation on blur or an explicit Undo.
+    const current=tableState ?? view.state
+    if (dataTitle(current)===title.value) status(current)
+    else { undoButton.disabled=false; redoButton.disabled=true }
+  }
+  title.onblur = commitTitle
+  title.onkeydown = e => {
+    if (e.isComposing || e.keyCode===229) return
+    const direction=historyDirection(e)
+    if (direction) {
+      e.preventDefault();e.stopPropagation();commitTitle()
+      applyHistory(direction==='redo'?redo:undo,false)
+    } else if (e.key === 'Enter') focusContent()
+  }
 
   function syncViewButtons() {
     mode.hidden = format.value !== 'csv' && format.value !== 'tsv'
@@ -322,18 +355,29 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     field?.select()
   }
   function applyTableTransaction(transaction) {
+    reflectTitle(tableState,transaction.state)
     tableState = transaction.state
     if (transaction.docChanged) { textScroll = undefined; docRevision++; scheduleFlush() }
     status(tableState)
   }
-  function applyHistory(command) {
+  function applyHistory(command,focus=true) {
     if (grid) {
       if (command({state:tableState,dispatch:applyTableTransaction})) {
         flush()
         grid.refresh(source)
       }
     } else command(view)
-    focusContent()
+    if (focus) focusContent()
+  }
+  function clearHistory() {
+    commitTitle()
+    const reconfigure = extension => {
+      const effects=historySlot.reconfigure(extension)
+      if (tableState) tableState=tableState.update({effects}).state
+      else view.dispatch({effects})
+    }
+    reconfigure([]); reconfigure(history())
+    status(tableState ?? view.state)
   }
   function showTable() {
     if (grid) { grid.focus(); return }
@@ -421,7 +465,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
       if (!doc.length) {
         const inferred = extensions[file.name.split('.').at(-1).toLowerCase()]
         if (inferred && format.value !== inferred) {format.value = inferred; setLanguage()}
-        if (!title.value) {title.value = file.name; setTitle()}
+        if (!title.value) {title.value = file.name; setTitle(); commitTitle()}
       }
       view.dispatch({changes:{from,to,insert:imported},selection:{anchor:from},effects:insertedEndings(view.state,from,to,content,imported),
         annotations:[Transaction.userEvent.of('input.import'),isolateHistory.of('full')]})
@@ -440,8 +484,10 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     if (finished) return Promise.resolve(true)
     if (closePending) return closePending
     closePending = (async () => {
-      running?.abort(); releaseTable(); flush()
-      if (!await finishNoteSession(root,beforeClose)) {showText(); return false}
+      running?.abort(); commitTitle(); releaseTable(); flush()
+      const remember = historySession && (() =>
+        historySession.save(captureDataHistory(tableState ?? view.state,source)))
+      if (!await finishNoteSession(root,beforeClose,remember)) {showText(); return false}
       finished = true; clearTimeout(flashTimer)
       window.removeEventListener('videron:themechange',applyTheme)
       titleReveal.clear(); tagNav.destroy(); view?.destroy(); tableState = null; root.remove()
@@ -453,8 +499,15 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   async function navigateTo(id) { if (await close()) onOpenNote?.(id) }
   async function goBack() { if (await close('back')) onReturn?.() }
   root.addEventListener('keydown',event => {
-    if (event.defaultPrevented || event.isComposing || event.keyCode===229 || event.shiftKey || root.inert ||
+    if (event.defaultPrevented || event.isComposing || event.keyCode===229 || root.inert ||
         event.target.closest('dialog,[popover]')) return
+    const direction=historyDirection(event)
+    if (direction && event.target.closest('.cm-content')) {
+      event.preventDefault(); event.stopPropagation()
+      applyHistory(direction==='redo' ? redo : undo,false)
+      return
+    }
+    if (event.shiftKey) return
     const replace=primaryCommand(event) && event.code==='KeyH' ||
       isMacPlatform() && event.metaKey && event.altKey && !event.ctrlKey && event.code==='KeyF'
     if (replace) {
@@ -493,5 +546,5 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     clearTimeout(flashTimer); flashTimer = setTimeout(() => view.dispatch({effects:flash.of(Decoration.none)}),2200)
   }
   focus()
-  return {element:root,focus,close,prepareClose:close,flush,revealSearchMatch,refreshAgentTasks:tasks.refresh}
+  return {element:root,focus,close,prepareClose:close,flush,clearHistory,revealSearchMatch,refreshAgentTasks:tasks.refresh}
 }

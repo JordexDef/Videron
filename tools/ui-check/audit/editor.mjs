@@ -74,32 +74,250 @@ async function lineOp(page, id) {
   await page.locator('[data-operation="' + id + '"]').click();
 }
 
+// Resolve an offset from the actual rendered glyphs, including styled runs.
+async function textPoint(field, offset) {
+  return field.evaluate((node, at) => {
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    for (let leaf; (leaf = walker.nextNode()); ) {
+      if (at <= leaf.length) {
+        const range = document.createRange();
+        range.setStart(leaf, at);
+        range.collapse(true);
+        const rect = range.getBoundingClientRect();
+        return { x: rect.x, y: rect.y + rect.height / 2 };
+      }
+      at -= leaf.length;
+    }
+    throw Error('Text point outside paragraph');
+  }, offset);
+}
+async function dragText(page, start, finish, beforeRelease) {
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  try {
+    await page.mouse.move(finish.x, finish.y, { steps: 16 });
+    if (beforeRelease) await beforeRelease();
+  } finally {
+    await page.mouse.up();
+  }
+}
+async function captureClipboard(page) {
+  // Exercise the application copy command without accessing the host clipboard.
+  await page.evaluate(() => {
+    window.runtime = { ...window.runtime, ClipboardSetText: async value => { window.auditCopied = value; } };
+  });
+}
 export const cases = {
+  'editor.rename-quote': async (ctx) => {
+    const { page } = ctx, title = 'Расчёт / sprint 2', values = ['before', 'quoted', 'after'];
+    await setup(ctx, rich(...values));
+    await page.getByLabel('Note title').fill(title);
+    await rows(page).nth(1).click();
+    await page.locator('.ve-toolbar select').first().selectOption({ label: 'Quote' });
+    await page.keyboard.press(ctx.primary + '+s');
+    await back(page);
+    await page.getByRole('treeitem', { name: title, exact: true }).click();
+    assert.equal(await page.getByLabel('Note title').inputValue(), title);
+    assert.deepEqual(await rows(page).allTextContents(), values);
+    assert.deepEqual(await rows(page).evaluateAll(list => list.map(el => el.classList.contains('ve-quote'))), [false, true, false]);
+  },
+  'editor.inline-ink-link': async (ctx) => {
+    const { page, primary } = ctx, row = rows(page).first(), url = 'https://example.test/notes?q=2';
+    await setup(ctx, rich('a marked plain label end', 'outside'));
+    async function select(from, to) {
+      await dragText(page, await textPoint(row, from), await textPoint(row, to));
+      assert.equal(await page.evaluate(() => getSelection().toString()), (await row.textContent()).slice(from, to));
+    }
+    await select(2, 8);
+    await page.keyboard.press(primary + '+b');
+    await select(2, 8);
+    await page.keyboard.press(primary + '+i');
+    await select(2, 8);
+    await byButton(page, 'Text color').click();
+    const swatch = page.locator('.ve-swatch').nth(2);
+    const color = await swatch.evaluate(n => {
+      const span = document.createElement('span');
+      span.style.color = n.dataset.color;
+      return span.style.color;
+    });
+    await swatch.click();
+    await select(15, 20);
+    await page.keyboard.press(primary + '+k');
+    await page.getByPlaceholder('https://').fill(url);
+    await byButton(page, 'Insert').click();
+    await back(page);
+    await ctx.openNote('draft');
+    assert.deepEqual(await rows(page).allTextContents(), ['a marked plain label end', 'outside']);
+    const marked = await row.evaluate(node => {
+      const walk = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      for (let leaf; (leaf = walk.nextNode()); ) {
+        if (leaf.data === 'marked') {
+          const style = getComputedStyle(leaf.parentElement);
+          return { bold: Number(style.fontWeight) >= 600, italic: style.fontStyle, color: style.color };
+        }
+      }
+    });
+    assert.deepEqual(marked, { bold: true, italic: 'italic', color });
+    assert.equal(await row.locator('a').textContent(), 'label');
+    assert.equal(await row.locator('a').getAttribute('href'), url);
+    assert.deepEqual(await row.evaluate(n => [...n.childNodes].filter(v => v.nodeType === Node.TEXT_NODE).map(v => v.textContent)), ['a ', ' plain ', ' end']);
+  },
+  'editor.number-to-task': async (ctx) => {
+    const { page } = ctx;
+    await setup(ctx, rich(''));
+    await rows(page).click();
+    await page.keyboard.type('1) first');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('second');
+    const markers = () => rows(page).evaluateAll(nodes => nodes.map(n => n.dataset.marker));
+    const before = await markers();
+    assert.match(before[0], /^1[.)]$/);
+    assert.match(before[1], /^2[.)]$/);
+    await byButton(page, 'Task').click();
+    assert.equal(await page.getByRole('checkbox', { name: 'Task complete' }).count(), 1);
+    assert.equal(await rows(page).first().getAttribute('data-marker'), before[0]);
+    assert.deepEqual(await rows(page).allTextContents(), ['first', 'second']);
+    await undo(ctx);
+    assert.deepEqual(await markers(), before);
+    assert.equal(await page.getByRole('checkbox', { name: 'Task complete' }).count(), 0);
+  },
+  'editor.code-clipboard': async (ctx) => {
+    const { page } = ctx;
+    await setup(ctx, rich('left CODE right', 'LR'));
+    await captureClipboard(page);
+    const text = rows(page);
+    await dragText(page, await textPoint(text.first(), 5), await textPoint(text.first(), 9));
+    await byButton(page, 'Insert code block').click();
+    assert.equal(await block(page).inputValue(), 'CODE');
+    await block(page).fill('first\nsecond');
+    await byButton(page, 'Copy code').click();
+    assert.equal(await page.evaluate(() => window.auditCopied), 'first\nsecond');
+    const at = await textPoint(text.last(), 1);
+    await page.mouse.click(at.x, at.y);
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.setData('text/plain', window.auditCopied);
+      const event = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: data });
+      document.activeElement.dispatchEvent(event);
+    });
+    assert.deepEqual(await text.allTextContents(), ['left ', ' right', 'Lfirst\nsecondR']);
+    await undo(ctx);
+    assert.deepEqual(await text.allTextContents(), ['left ', ' right', 'LR']);
+    assert.equal(await block(page).inputValue(), 'first\nsecond');
+  },
+  'editor.erase-one-image': async (ctx) => {
+    const { page } = ctx, src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/je0AAAAASUVORK5CYII=';
+    const img = alt => ({ type: 'image', src, alt });
+    await setup(ctx, rich('left', img('first'), img('second'), 'right'));
+    const images = () => page.locator('.ve-media img').evaluateAll(nodes => nodes.map(n => n.alt));
+    await page.locator('.ve-media').nth(1).hover();
+    await byButton(page, 'Remove block').nth(1).click();
+    assert.deepEqual(await images(), ['first']);
+    assert.deepEqual(await rows(page).allTextContents(), ['left', 'right']);
+    await undo(ctx);
+    await back(page);
+    await ctx.openNote('draft');
+    assert.deepEqual(await images(), ['first', 'second']);
+    assert.deepEqual(await rows(page).allTextContents(), ['left', 'right']);
+  },
+  'editor.drag-rich-span': async (ctx) => {
+    const { page } = ctx, before = ['begin alpha', 'bravo', 'charlie end', 'destination'];
+    await setup(ctx, rich(before[0], { type: 'paragraph', runs: [{ text: before[1], bold: true }] }, ...before.slice(2)));
+    const text = rows(page), point = (i, k) => textPoint(text.nth(i), k);
+    await dragText(page, await point(0, 6), await point(2, 7));
+    await dragText(page, await point(1, 2), await point(3, 4), () => page.locator('.ve-text-drop-caret').waitFor());
+    const after = ['begin  end', 'destalpha', 'bravo', 'charlieination'];
+    assert.deepEqual(await text.allTextContents(), after);
+    await undo(ctx);
+    assert.deepEqual(await text.allTextContents(), before);
+    await redo(ctx);
+    await back(page);
+    await ctx.openNote('draft');
+    assert.deepEqual(await text.allTextContents(), after);
+    assert.equal(await text.nth(2).locator('strong').textContent(), 'bravo');
+  },
+  'editor.data-edit-location': async (ctx) => {
+    const { page } = ctx;
+    await setup(ctx, data('first,one\nkey,two\nkey,three'));
+    await page.getByLabel('Data format').selectOption('csv');
+    await page.locator('.cm-content').click();
+    await page.keyboard.press(ctx.primary + '+g');
+    const go = page.locator('.cm-panel input').first();
+    await go.fill('3');
+    await go.press('Enter');
+    await page.keyboard.press(home(ctx));
+    await page.keyboard.insertText('!');
+    const original = ['first,one', 'key,two', '!key,three'];
+    await waitLines(page, original);
+    await page.keyboard.press(ctx.mac ? 'Meta+Alt+f' : 'Control+h');
+    const panel = page.locator('.cm-search');
+    const replacement = panel.locator('input[name=replace]');
+    assert(await replacement.evaluate(n => n === document.activeElement));
+    await panel.locator('input[name=search]').fill('key');
+    await replacement.fill('new');
+    await panel.locator('[name=replaceAll]').click();
+    await waitLines(page, ['first,one', 'new,two', '!new,three']);
+    await replacement.press('Escape');
+    await undo(ctx);
+    await waitLines(page, original);
+    await back(page);
+    await ctx.openNote('draft');
+    assert.equal(await page.getByLabel('Data format').inputValue(), 'csv');
+    await waitLines(page, original);
+  },
+  'editor.cancel-line-job': async (ctx) => {
+    const { page } = ctx, values = ['z', 'b', 'a'];
+    await setup(ctx, data(values.join('\n')));
+    // Hold just the first real worker request to make the cancellation window deterministic.
+    await page.evaluate(() => {
+      const send = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function (...args) {
+        if (args[0]?.operation !== 'sort-asc') return send.apply(this, args);
+        Worker.prototype.postMessage = send;
+        window.auditReleaseJob = () => send.apply(this, args);
+      };
+    });
+    await lineOp(page, 'sort-asc');
+    await page.waitForFunction(() => !!window.auditReleaseJob);
+    await byButton(page, 'Cancel').click();
+    await page.getByText('Operation cancelled', { exact: true }).waitFor();
+    await page.evaluate(() => window.auditReleaseJob());
+    await waitLines(page, values);
+    await lineOp(page, 'sort-asc');
+    await waitLines(page, ['a', 'b', 'z']);
+    await undo(ctx);
+    await waitLines(page, values);
+  },
+  'editor.copy-grid-edges': async (ctx) => {
+    const { page, primary } = ctx, value = 'last,cell\n' + 'full text '.repeat(250) + 'END';
+    const records = Array.from({ length: 80 }, (_, r) => Array.from({ length: 20 }, (_, c) => 'r' + r + 'c' + c));
+    records[1][0] = 'first';
+    records.at(-1)[19] = '"' + value + '"';
+    await setup(ctx, data(records.map(row => row.join(',')).join('\n'), 'csv'));
+    await captureClipboard(page);
+    await grid(page);
+    await page.getByRole('gridcell', { name: 'first', exact: true }).click();
+    for (const direction of ['Down','Right']) await page.keyboard.press(primary + '+Arrow' + direction);
+    await page.keyboard.press(primary + '+c');
+    await page.waitForFunction(v => window.auditCopied === v, value);
+    for (const direction of ['Up','Left']) await page.keyboard.press(primary + '+Arrow' + direction);
+    await page.keyboard.press(primary + '+c');
+    await page.waitForFunction(() => window.auditCopied === 'first');
+    assert.equal(await page.locator('[role=gridcell][aria-selected=true]').innerText(), 'first');
+  },
   'editor.clipboard-paste': async (ctx) => {
     const { page } = ctx;
     await setup(ctx, rich('KEEP prefix', 'suffix END', 'outside'));
     const text = rows(page);
     // Use real pointer selection. Supply standard clipboard formats in memory
     // so this check never replaces the clipboard of the person running it.
-    async function point(field, offset) {
-      return field.evaluate((node, at) => {
-        const leaf = document.createTreeWalker(node, NodeFilter.SHOW_TEXT).nextNode();
-        const range = document.createRange();
-        range.setStart(leaf, at);
-        range.collapse(true);
-        const box = range.getBoundingClientRect();
-        return { x: box.x, y: box.y + box.height / 2 };
-      }, offset);
-    }
     await text.first().scrollIntoViewIfNeeded();
     for (const reverse of [false, true]) {
-      const a = await point(text.first(), 5),
-        b = await point(text.nth(1), 6);
+      const a = await textPoint(text.first(), 5),
+        b = await textPoint(text.nth(1), 6);
       const [start, finish] = reverse ? [b, a] : [a, b];
-      await page.mouse.move(start.x, start.y);
-      await page.mouse.down();
-      await page.mouse.move(finish.x, finish.y, { steps: 12 });
-      await page.mouse.up();
+      await dragText(page, start, finish);
       await page.evaluate(() => {
         const data = new DataTransfer();
         data.setData('text/html', '<div><b>ONE</b></div><div><i>TWO</i></div>');

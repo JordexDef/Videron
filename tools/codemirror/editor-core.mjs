@@ -1,8 +1,8 @@
-export { EditorState, Compartment, StateField, StateEffect, Transaction, Text } from '@codemirror/state';
+export { EditorState, EditorSelection, ChangeSet, Compartment, StateField, StateEffect, Transaction, Text } from '@codemirror/state';
 export { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter,
   drawSelection, Decoration, placeholder } from '@codemirror/view';
 export { defaultKeymap, history, historyKeymap, undo, redo, undoDepth, redoDepth, indentWithTab,
-  isolateHistory, invertedEffects } from '@codemirror/commands';
+  isolateHistory, invertedEffects, historyField } from '@codemirror/commands';
 export { search, searchKeymap, openSearchPanel, gotoLine } from '@codemirror/search';
 export { HighlightStyle, syntaxHighlighting, bracketMatching, indentOnInput, StreamLanguage } from '@codemirror/language';
 export { tags } from '@lezer/highlight';

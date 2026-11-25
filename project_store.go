@@ -283,9 +283,8 @@ func (a *App) LockProject() error {
 	return nil
 }
 
-// Called after the editor and storage queue have committed. Only the note ID
-// survives the WebView reload, in process memory, so both passwords are required
-// again without persisting a navigation breadcrumb outside an encrypted project.
+// Called after the editor and storage queue have committed. Keep the resume
+// target and session undo checkpoints in memory and revoke their unlock keys.
 func (a *App) LockSession(noteID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

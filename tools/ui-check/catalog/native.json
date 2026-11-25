@@ -153,6 +153,20 @@
   ],
   "scenarios": [
     {
+      "id": "native.draft-project-switch",
+      "risk": "high",
+      "actions": ["native.publish", "native.join", "native.remote-update", "native.review", "native.choose-local", "native.choose-remote"],
+      "steps": [
+        "Edit a rich-text note in one encrypted working copy while a second client edits either the same note or its neighbour. Receive the peer revision, then save another local edit or save the original text after undo.",
+        "Switch to another server project with identical note IDs, save an edit there, then let the peer revise the first project again.",
+        "Return to the first project. Auto-merge independent notes or review both latest versions and exercise each choice in its own run.",
+        "Reopen both working copies and download the project to a fresh folder. Reopen the other project separately."
+      ],
+      "expected": "A superseded or suspended review cannot commit. The final local and remote texts are available after returning. Undoing the local change back to the shared base lets the newer remote edit through automatically. Both existing copies and a fresh download converge on the combined or chosen version, and the other project retains its own edit.",
+      "test": "TestServerDraftDuringProjectSwitch",
+      "source": "sync_project_switch_test.go"
+    },
+    {
       "id": "native.vault-lifecycle",
       "risk": "high",
       "actions": [

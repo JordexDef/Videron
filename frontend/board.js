@@ -1,6 +1,7 @@
 import { tr } from './i18n.js';
 import { boardPaper, boardInk, lightPaper } from './board-theme.js';
 import { historyDirection, primaryCommand, shortcutLabel } from './shortcuts.js';
+import {packEditorHistory,restoreEditorHistory} from './editor-history.js';
 import { icon } from './art.js';
 import { boardIcon as pict } from './board-icons.js';
 import { boxFromPoints, pointsInBox, seedFromId } from './board-points.js';
@@ -724,10 +725,9 @@ export function mountBoard(container, options = {}) {
   };
   if (background && lightPaper(background)) defaults.stroke = '#232323';
   const pending = new Set(),
-    past = [],
-    future = [],
     views = new Map(),
     controller = new AbortController();
+  const {past,future}=restoreEditorHistory(options.historySession?.take(),state());
   const earlyText = new Set();
   let fontReady = document.fonts.check('20px Excalifont');
   if (!fontReady) {
@@ -1122,7 +1122,7 @@ export function mountBoard(container, options = {}) {
     updateUI();
   }
   function state() {
-    return { elements, background, selection: [...selection] };
+    return { elements, background:background||null, title:options.noteTitle?.value, selection: [...selection] };
   }
   function remember(s) {
     if (options.onUndo) {
@@ -1143,7 +1143,6 @@ export function mountBoard(container, options = {}) {
     if (next === elements && !titleChange) return;
     const previous = state();
     if (titleChange) {
-      previous.titleChange = titleChange;
       options.noteTitle.value = titleChange.after;
     }
     remember(previous);
@@ -1199,13 +1198,8 @@ export function mountBoard(container, options = {}) {
       to = redo ? past : future,
       s = from.pop();
     if (!s) return;
-    const inverse = state();
-    if (s.titleChange && options.noteTitle.value === s.titleChange.after) {
-      // Keep a later manual title edit when undoing a change to canvas text.
-      inverse.titleChange = {before:s.titleChange.after, after:s.titleChange.before};
-      options.noteTitle.value = s.titleChange.before;
-    }
-    to.push(inverse);
+    to.push(state());
+    if (options.noteTitle && s.title!==undefined) options.noteTitle.value = s.title;
     elements = s.elements;
     background = s.background;
     selection = new Set(s.selection);
@@ -3205,10 +3199,15 @@ export function mountBoard(container, options = {}) {
       commit(next,null,background,undefined,titleChange);
       if (resized.length) updateTextHeights(resized);
     },
-    hasTitleHistory(redo) {
-      const change = (redo ? future : past).at(-1)?.titleChange;
-      return !!change && options.noteTitle?.value === change.after;
+    noteTitleEdited(previous) {
+      if(previous===options.noteTitle?.value)return;
+      const now=performance.now();
+      if(!lastTyping?.title || now-lastTyping.time>900)remember({...state(),title:previous});
+      lastTyping={title:true,time:now};
+      updateUI();
     },
+    captureHistory:()=>packEditorHistory(state(),past,future),
+    clearHistory(){past.length=0;future.length=0;lastTyping=null;updateUI()},
     undo,
     revealTableCell(id, address) {
       setTool('select', false);

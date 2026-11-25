@@ -26,6 +26,7 @@ import { spaceTitle, localFallback, catalogWithStartupFolder, folderEntry, readS
 import { createWorkspaceActivity } from './workspace-activity.js';
 import { openCreateSpace, openSpaceManager } from './workspace-ui.js';
 import { compareIncoming, commitIncoming, commitPreparedMerge, preservesOpenNote } from './workspace-reconcile.js';
+import { NoteHistorySessions } from './note-history-sessions.js';
 import { openWorkspaceConflicts, dismissWorkspaceConflicts } from './workspace-conflicts.js';
 import { openWorkspaceServer, dismissWorkspaceServer } from './workspace-server-ui.js';
 import { rememberServerAddress } from './server-address.js';
@@ -67,6 +68,7 @@ let library=newLibrary(), page='map', currentArea=null, selected=null, editor=nu
 let graph, areaDrag, native, ready=false, revision=0, saved=0, pending=null, timer, dirtySince=0, toastTimer, popover=null;
 let reading,routes,mapMetrics,routeCamera,stageControls,ink;
 let noteSession=null, openingNote=null, projectProtected=false, policyWrite=null;
+let noteHistories;
 // Only IDs and native expiry times are kept here. Native code checks the key on every reopen.
 let rememberedNotes=new Map(), expiringNote=null;
 let idle=null, lockScreen=null, locking=null, lockDuringStartup=false;
@@ -80,6 +82,11 @@ let catalogRecords=null,catalogRevision=null,pendingCatalogPatch=null;
 let folderPoll=null,editorMerge=null,notePrivacyChange=null,reviewing=false,syncTimer,closingApp=false;
 const emptyMap=blankWorkspace();
 const workspace=()=>folderSession?.data ?? library.spaces[library.active] ?? emptyMap;
+function historyRef(record,type=record.type){
+  const protection=isProtectedNote(record)?'note':folderSession?.encrypted?'folder':projectProtected?'project':'plain';
+  const kind=type==='canvas'||type==='data'?type:'text';
+  return {space:library.active,folder:folderSession?.folder||'',note:record.id,kind,protection};
+}
 function byId(id){
   if(id==null)return;
   const notes=workspace().notes,index=graph?.nodes.get(id)?.index;
@@ -398,7 +405,10 @@ function forgetNoteAccess(ids){
   return Promise.all(keys.map(id=>native.LockNote(id)));
 }
 function forgetRemovedNoteAccess(){
-  return forgetNoteAccess([...rememberedNotes.keys()].filter(id=>!isProtectedNote(byId(id))));
+  return Promise.all([
+    forgetNoteAccess([...rememberedNotes.keys()].filter(id=>!isProtectedNote(byId(id)))),
+    noteHistories.reconcile(library.active,workspace().notes,historyRef)
+  ]);
 }
 function syncIdle(){
   idle?.configure(library.autoLockMinutes,ready && !lockScreen && (hasOpenProtectedContent() || hasRememberedNotes() || suspendedSpaceIds.size>0 || reviewing || !!agents.current));
@@ -476,6 +486,7 @@ function requestLock(expired=null){
           return true;
         }
       }
+      await noteHistories.parkForLock();
       await native.LockSession(target);
       ready=false;$('shell').hidden=true;
       location.reload();
@@ -500,7 +511,9 @@ function applyProjectProtection(write,enabled){
     if(await saveSpaceFolder(native,folderSession))branchSaved(folderSession);
     const snapshot=serializeLibrary(catalogWithStartupFolder(library,deferredStartupFolder));
     await write(snapshot);acknowledgeCatalog(snapshot,library);
-    saved=latest;projectProtected=enabled;status('local');syncIdle();
+    saved=latest;projectProtected=enabled;
+    await noteHistories.forget('');
+    status('local');syncIdle();
   })().finally(()=>{
     policyWrite=null;
     if(saved<revision)timer=setTimeout(()=>flush().catch(reportWriteError),320);
@@ -804,7 +817,7 @@ function placeNotes(ids,id,created=false,slot=null,positions=[]){
 function placeArea(id,parentId){
   const previous=areaById(id)?.parentId??null;
   if(!ready||editor||openingNote||lockScreen||!moveArea(workspace(),id,parentId))return;
-  rememberMapAction(workspace(),{kind:'folder',id,parentId:previous});
+  rememberMapAction(workspace(),{kind:'folder',id,parentId:previous,afterParentId:parentId});
   expandTo(parentId);dirty({areas:[areaById(id)]});render();
   notify(tr('Область перемещена','Area moved'),undoButton());
 }
@@ -955,6 +968,7 @@ async function showSpace(next,session){
   $('toast').hidden=true;$('toast').replaceChildren();$('list-stage').replaceChildren();
   graph.select(null);graph.setData([],[]);collapsedAreas.clear();listSelection.clear();lastListId=null;
   library=next;folderSession=session;
+  await noteHistories.reconcile(library.active,workspace().notes,historyRef);
   suspendedSpaceIds.delete(next.active);
   page='map';currentArea=null;selected=null;chooseTool('select');status('local');render();
   graph.resize();restoreMapView();syncIdle();
@@ -1045,6 +1059,7 @@ async function deleteSpace(id,deleteFile){
         throw error;
       }
     }
+    await noteHistories.forget(id);
     if(id===deferredStartupFolder)deferredStartupFolder='';
     if(current){
       await showSpace(next,null);
@@ -1241,13 +1256,21 @@ function pollFolder(force){
   if(graph?.drag || graph?.pinch || ink?.busy){session.pollAfterGesture=true;return Promise.resolve()}
   session.pollAfterGesture=false;
   folderPoll=(async()=>{
-    let update=await checkFolderUpdate(session,force?'':session.incoming?.token||session.deferred,force);
+    let readHead;
+    const readUpdate=(knownToken='',refresh=false)=>{
+      readHead=session.head;
+      return checkFolderUpdate(session,knownToken,refresh);
+    };
+    let update=await readUpdate(force?'':session.incoming?.token||session.deferred,force);
     for(;;){
       if(session!==folderSession || lockScreen || closingApp)return;
       if(!update.token){session.incoming=null;return}
-      if(!force && session.deferred===update.token)return;
       // The native read can finish after the user has started moving a note.
       if(graph?.drag || graph?.pinch || ink?.busy){session.pollAfterGesture=true;return}
+      // A save may have finished while the native preview was on its way back.
+      // Its local version must still match before we show it or use changedNotes.
+      if(readHead!==session.head){update=await readUpdate('',true);continue}
+      if(!force && session.deferred===update.token)return;
       if(!blockedForMerge()){
         // A search can follow conflict-free changes. Leave conflicts for after dismissal.
         const previous=session.incoming;
@@ -1262,7 +1285,7 @@ function pollFolder(force){
       if(!force && previous?.token===update.token && previous.revision===revision &&
           (!openId || previous.conflict || previous.openId===openId))return;
       if(!update.remote && !update.prepared){
-        update=await checkFolderUpdate(session);
+        update=await readUpdate();
         continue;
       }
       const merged=previewFolderUpdate(session,update);
@@ -1280,10 +1303,13 @@ function pollFolder(force){
     cancelTransfers();graph.flushPositions();graph.remaining=0;
     reviewing=true;$('shell').inert=true;syncBadge();
     try{
-      const previewHead=session.head;
       await flush();
       if(lockScreen || closingApp || spaceOperation)return;
-      if(!update.prepared || previewHead!==session.head)update=await checkFolderUpdate(session,'',true);
+      if(!update.prepared || readHead!==session.head){
+        update=await readUpdate('',true);
+        if(lockScreen || closingApp || spaceOperation)return;
+        if(readHead!==session.head)throw new Error('VD_CHANGED');
+      }
       if(!update.token){session.incoming=null;return}
       let merged=previewFolderUpdate(session,update),choices;
       session.incoming={token:update.token,conflict:merged.conflicts.length>0,revision};
@@ -1301,6 +1327,13 @@ function pollFolder(force){
       if(lockScreen || closingApp || spaceOperation || session!==folderSession)return;
       if(update.prepared)await commitPreparedMerge(native,session,update,choices);
       else await commitIncoming(native,session,update,merged);
+      // A deliberately discarded local version is no longer an ancestor of
+      // the chosen note, even when both versions contain identical passages.
+      if(choices?.['setting:notes']==='remote')await noteHistories.forget(library.active);
+      else if(choices){
+        const rejected=Object.keys(choices).filter(key=>key.startsWith('note:') && choices[key]==='remote');
+        if(rejected.length)await noteHistories.forget(library.active,rejected.map(key=>key.slice(5)));
+      }
       await forgetRemovedNoteAccess();
       refreshOpenSearch();
       branchSaved(session);
@@ -1528,7 +1561,20 @@ async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
   const id=record.id;
   const hiddenRouteFragments=new Map();
   const unlocks=rememberedNotes;
-  let session,openEditor,deadline;
+  let session,openEditor,deadline,historyHandle,historySetup;
+  const historySession={
+    take:()=>historyHandle?.take(),
+    save:async value=>{await historySetup;return historyHandle?.save(value)}
+  };
+  function changeHistoryProtection(){
+    historyHandle=null;
+    editor?.clearHistory?.();
+    historySetup=(async()=>{
+      await noteHistories.forget(library.active,[id]);
+      historyHandle=await noteHistories.open(historyRef(record,session.note.type||'text'));
+    })();
+    return historySetup;
+  }
   try{
     if(lockScreen || closingApp)return;
     session=await openNoteSession({record,bridge:native,prompt:promptForVault,spaceId:library.active,tryResume:unlocks.has(id),
@@ -1547,12 +1593,14 @@ async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
       refreshOpenSearch();
       dirty({meta:true});
       $('list-stage').replaceChildren();$('toast').hidden=true;render();syncIdle();
+      return changeHistoryProtection();
     },onError:reportWriteError});
   }catch(error){notify(storageErrorMessage(error));return}
   if(!session)return;
   noteSession=session;
   try{
     openEditor=session.note.type==='data'?(await import('./data-editor.js')).openDataEditor:(await import('./editor.js')).openEditor;
+    historyHandle=await noteHistories.open(historyRef(record,session.note.type||'text'));
   }catch(error){
     if(await session.beforeClose())noteSession=null;
     notify(storageErrorMessage(error));return;
@@ -1570,7 +1618,7 @@ async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
   const saveStatus=createEditorSaveStatus();
   const source=fromMap && visit.space===library.active && showingMap() && !lockScreen?graph.noteViewportRect(id):null;
   const agentControls=agentEditorButton(record,session);
-  editor=openEditor({note:session.note,notes:workspace().notes,areas:workspace().areas,saveIndicator:saveStatus.element,
+  editor=openEditor({note:session.note,notes:workspace().notes,areas:workspace().areas,saveIndicator:saveStatus.element,historySession,
     agentButton:agentControls.element,agentTaskActions:{setStatus:manualTaskStatus},
     textAreaDefaults:{style:library.view?.textAreaStyle,save(style){
       library.view={...library.view,textAreaStyle:style};dirty({settings:['view']})
@@ -1815,6 +1863,7 @@ function removeNotes(ids){
     graph.flushPositions();
     const removed=deleteNotes(space,ids);
     if(!removed)return;
+    void noteHistories.forget(library.active,removed.map(n=>n.id)).catch(reportWriteError);
     rememberMapAction(space,{kind:'deletion',ids:removed.map(n=>n.id)});
     selected=null;graph.select(null);listSelection.clear();lastListId=null;chooseTool('select');dirty();render();
     (showingMap()?$('graph'):$('list-stage').querySelector('.note-row')||$('new-note')).focus({preventScroll:true});
@@ -2517,6 +2566,7 @@ async function init(){
     drawAtlas($('atlas'));graph?.repaint();reading?.invalidate();
   });
   native=window.go?.main?.App;
+  noteHistories=new NoteHistorySessions(native);
   if(!native&&(!/^https?:$/.test(location.protocol)||!['localhost','127.0.0.1','[::1]'].includes(location.hostname)))
     throw new Error(tr('Не удалось подключить локальное хранилище.','Could not connect to local storage.'));
   if(native&&window.runtime){
@@ -2633,9 +2683,9 @@ async function init(){
       if(showingMap())renderMapPlacement(change.after);else render();
       notify(tr('Перенесено на карту','Moved onto the map'),undoButton());
     },
-    onManualMove:before=>{
+    onManualMove:(before,after)=>{
       if(!before.length)return;
-      rememberMapAction(workspace(),{kind:'positions',before});
+      rememberMapAction(workspace(),{kind:'positions',before,after});
       if(before.length>1)notify(tr('Перемещено заметок · ','Notes moved · ')+before.length,undoButton());
       else if($('toast').querySelector('.toast-action'))$('toast').hidden=true;
     },
@@ -2649,7 +2699,7 @@ async function init(){
       if(!g)return false;
       const before={x:g.x,y:g.y};
       if(!moveAreaGrid(workspace(),id,x,y))return false;
-      rememberMapAction(workspace(),{kind:'grid',id,before});dirty(gridRecords(id));render();
+      rememberMapAction(workspace(),{kind:'grid',id,before,after:{x,y}});dirty(gridRecords(id));render();
       notify(g.stages?tr('Дорожка перемещена','Stage track moved'):tr('Сетка перемещена','Grid moved'),undoButton());return true;
     },
     onMove:changes=>{

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
+import { scriptedPeer } from './workspace-sync.mjs';
 
 const libraryKey = 'videron.library.v1',
   cameraKey = 'videron.map-camera.v1.personal';
@@ -90,6 +91,23 @@ async function menu(p, label) {
 }
 async function setup(seed, notes, areas = [], mapInk = []) {
   await seed({ notes, areas, mapInk });
+}
+
+async function seedProjects(p, origin, spaces) {
+  await p.goto(origin + '/__qa_seed');
+  await p.evaluate(({ spaces, libraryKey }) => {
+    localStorage.setItem(libraryKey, JSON.stringify({
+      version: 3, active: 'personal', spaces, view: { manualLayout: true }, plugins: []
+    }));
+  }, { spaces, libraryKey });
+  await p.goto(origin);
+  await eventually(() => p.locator('#space-name').innerText(), label => assert.equal(label, spaces.personal.name));
+}
+
+async function switchProject(p, name) {
+  await p.locator('#workspace-switch').click();
+  await p.getByRole('menuitemradio', { name, exact: true }).click();
+  await eventually(() => p.locator('#space-name').innerText(), label => assert.equal(label, name));
 }
 
 export const cases = {
@@ -566,40 +584,16 @@ export const cases = {
       },
       other: { name: 'Second audit space', areas: [], notes: [note('Same', 0, 0, { title: 'Second copy' })] }
     };
-    await p.goto(origin + '/__qa_seed');
-    await p.evaluate(
-      ({ spaces, libraryKey }) => {
-        localStorage.setItem(
-          libraryKey,
-          JSON.stringify({
-            version: 3,
-            active: 'personal',
-            spaces,
-            view: { manualLayout: true },
-            plugins: []
-          })
-        );
-      },
-      { spaces, libraryKey }
-    );
-    await p.goto(origin);
+    await seedProjects(p, origin, spaces);
     await tree(p, 'Same').focus();
     await press(p, 'Delete');
     await confirm(p, 'Delete');
     await saved(p, (s) => assert.deepEqual(sorted(s), ['Peer']));
-    async function switchTo(name) {
-      await p.locator('#workspace-switch').click();
-      await p.getByRole('menuitemradio', { name, exact: true }).click();
-      await eventually(
-        () => p.locator('#space-name').innerText(),
-        (n) => assert.equal(n, name)
-      );
-    }
-    await switchTo('Second audit space');
+    await switchProject(p, 'Second audit space');
     await onMap(p).focus();
     await press(p, primary + '+z');
     assert.equal((await tree(p, 'Same').innerText()).trim(), 'Second copy');
-    await switchTo('First audit space');
+    await switchProject(p, 'First audit space');
     await onMap(p).focus();
     await press(p, primary + '+z');
     await saved(p, (s) => {
@@ -607,6 +601,99 @@ export const cases = {
       assert.deepEqual(s.notes.find((n) => n.id === 'Same').links, ['Peer']);
       assert.equal(s.notes.find((n) => n.id === 'Same').title, 'First copy');
     });
+  },
+  async 'map.editor-project-history'({page:p,primary,origin,openNote}) {
+    const spaces={
+      personal:{name:'Writing',areas:[],notes:[note('shared',0,0)]},
+      other:{name:'Analysis',areas:[],notes:[note('shared',150,30,{
+        title:'Data copy',type:'data',body:[],dataText:'in B',dataLanguage:'text'
+      })]}
+    };
+    await seedProjects(p,origin,spaces);
+    await drag(p,0,0,80,-30);
+    await saved(p,s=>assert.ok(s.notes[0].x>60));
+    await openNote('shared');
+    const text=p.locator('.ve-content .ve-text').first();
+    const end=primary==='Meta'?'Meta+ArrowRight':'End';
+    await text.press(end);
+    await p.keyboard.insertText(' in A');
+    assert.equal(await text.innerText(),'shared in A');
+    await back(p);
+    await switchProject(p,'Analysis');
+    await openNote('shared');
+    const field=p.locator('.cm-content');
+    const dataText=async()=>(await field.locator('.cm-line').allTextContents()).join('\n');
+    await field.press(end);
+    await p.keyboard.press(primary+'+z');
+    assert.equal(await dataText(),'in B');
+    await p.keyboard.insertText(' only');
+    assert.equal(await dataText(),'in B only');
+    await p.keyboard.press(primary+'+z');
+    assert.equal(await dataText(),'in B');
+    await p.keyboard.press(primary+'+Shift+z');
+    assert.equal(await dataText(),'in B only');
+    await back(p);
+    await switchProject(p,'Writing');
+    await openNote('shared');
+    await text.press(end);
+    await p.keyboard.press(primary+'+z');
+    assert.equal(await text.innerText(),'shared');
+    await p.keyboard.press(primary+'+Shift+z');
+    assert.equal(await text.innerText(),'shared in A');
+    await p.keyboard.insertText(' again');
+    await p.keyboard.press(primary+'+z');
+    assert.equal(await text.innerText(),'shared in A');
+    await back(p);
+    await onMap(p).focus();
+    await p.keyboard.press(primary+'+z');
+    await saved(p,(s,l)=>{
+      assert.deepEqual([s.notes[0].x,s.notes[0].y,s.notes[0].plain],[0,0,'shared in A']);
+      const [copy]=l.spaces.other.notes;
+      assert.deepEqual([copy.x,copy.y,copy.dataText],[150,30,'in B only']);
+    });
+    await switchProject(p,'Analysis');await openNote('shared');
+    await field.press(end);await p.keyboard.press(primary+'+z');
+    assert.equal(await dataText(),'in B');
+    await back(p);await switchProject(p,'Writing');await switchProject(p,'Analysis');await openNote('shared');
+    await field.press(end);await p.keyboard.press(primary+'+Shift+z');
+    assert.equal(await dataText(),'in B only');
+    await back(p);await switchProject(p,'Writing');
+    await p.reload();
+    await openNote('shared');
+    await text.press(end);await p.keyboard.press(primary+'+z');
+    assert.equal(await text.innerText(),'shared in A');
+    await back(p);
+    await switchProject(p,'Analysis');
+    await openNote('shared');
+    await field.press(end);await p.keyboard.press(primary+'+z');
+    assert.equal(await dataText(),'in B only');
+  },
+  async 'map.undo-peer-move'({page:p,primary}) {
+    await p.evaluate(()=>localStorage.setItem('videron.map-camera.v1.shared',JSON.stringify({x:0,y:0,zoom:1})));
+    const peer=await scriptedPeer(p);
+    await drag(p,240,0,-35,45);
+    await eventually(()=>peer.record('peer'),n=>assert.ok(n.x<225 && n.y>35));
+    await drag(p,0,0,65,30);
+    await eventually(()=>peer.record('draft'),n=>assert.ok(n.x>55 && n.y>20));
+    await peer.publishFields('draft','Base',{x:-70,y:110});
+    await eventually(()=>peer.record('draft'),n=>assert.deepEqual([n.x,n.y],[-70,110]));
+    await onMap(p).focus();
+    await press(p,primary+'+z');
+    const toast=p.locator('#toast');
+    await toast.filter({hasText:/previous location is no longer available|Move undone/i}).waitFor();
+    const firstFeedback=await toast.innerText();
+    await press(p,primary+'+z');
+    await eventually(()=>peer.record('peer'),n=>assert.deepEqual([n.x,n.y],[240,0]));
+    const draft=peer.record('draft');
+    assert.deepEqual([draft.x,draft.y,draft.plain],[-70,110,'Base']);
+    assert.match(firstFeedback,/previous location is no longer available/i);
+    await switchProject(p,'Other');
+    await switchProject(p,'Shared');
+    // A fresh drag at the remote position must actually pick up the shared note.
+    await drag(p,-70,110,25,0);
+    await eventually(()=>peer.record('draft'),n=>assert.deepEqual([n.x,n.y],[-45,110]));
+    await press(p,primary+'+z');
+    await eventually(()=>peer.record('draft'),n=>assert.deepEqual([n.x,n.y],[-70,110]));
   },
   async 'map.camera-return'({ page: p, primary, seed }) {
     await setup(seed, [note('Keep', 200)]);

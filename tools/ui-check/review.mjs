@@ -1,8 +1,11 @@
 import {spawn} from 'node:child_process';
 import {mkdir,mkdtemp,copyFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
+import {parseArgs} from 'node:util';
 import path from 'node:path';
 
+const {values}=parseArgs({options:{'windows-shell':{type:'boolean'}}});
+if (values['windows-shell'] && process.platform!=='win32') throw Error('--windows-shell requires a Windows desktop session.');
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const output=path.join(root,'output','qa');
 await mkdir(output,{recursive:true});
@@ -21,8 +24,13 @@ const reports=[ui,native];
 let desktopStatus=0;
 if (process.platform==='win32') {
   const desktop=path.join(dir,'desktop.json');
-  desktopStatus=await run('./windows-credentials.mjs',[desktop]);
+  const shell=values['windows-shell']?['--system-clipboard','--explorer']:[];
+  desktopStatus=await run('./windows-credentials.mjs',[desktop,...shell]);
   reports.push(desktop);
+  const sync=path.join(dir,'desktop-sync.json');
+  const syncStatus=await run('./windows-sync.mjs',[sync]);
+  desktopStatus=desktopStatus||syncStatus;
+  reports.push(sync);
 }
 const reportStatus=await run('./render-audit.mjs',['--out',html,...reports]);
 if (!reportStatus) {

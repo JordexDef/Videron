@@ -25,6 +25,7 @@ type App struct {
 	protected            bool
 	projectKey           *vaultKey
 	noteKeys             map[string]*vaultKey
+	editorHistories      map[editorHistoryID]editorHistoryEntry
 	rememberedNotes      map[string]*rememberedNote
 	folderSpaces         map[string]*folderSpaceSession
 	suspendedFolderKeys  map[string]*vaultKey
@@ -75,6 +76,7 @@ func (a *App) shutdown(context.Context) {
 	stop := a.stopSessionMonitor
 	a.stopSessionMonitor = nil
 	a.dropKeys()
+	a.forgetEditorHistories("", nil)
 	a.loaded = false
 	a.mu.Unlock()
 	if stop != nil {
@@ -192,6 +194,7 @@ func (a *App) FinishClose() {
 	a.mu.Lock()
 	a.closeGuard = false
 	a.dropKeys()
+	a.forgetEditorHistories("", nil)
 	a.loaded = false
 	ctx := a.ctx
 	a.mu.Unlock()

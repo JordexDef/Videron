@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {syncCases} from './workspace-sync.mjs';
 
 const pack={apiVersion:1,type:'language',id:'qa.audit-locale',locale:'fr',name:'Audit French',messages:{Settings:'Audit réglages'}};
 const name='Audit space';
@@ -47,6 +48,28 @@ async function chooseTheme(page,value) {
 }
 
 export const cases={
+  ...syncCases,
+  async 'workspace.demo-extension-return'({page,openNote}) {
+    const initial=await page.locator('#space-name').innerText();
+    await switchTo(page,'Demo map');
+    const demo=page.locator('.tree-note-link[data-note-id]').first();
+    await demo.waitFor();
+    const demoId=await demo.getAttribute('data-note-id');
+    assert.notEqual(demoId,'sample');
+    assert.equal(await note(page).count(),0);
+    await page.locator('#extensions').click();
+    await button(page,'Open').click();
+    await page.frameLocator('iframe').getByRole('button',{name:/#/}).first().waitFor();
+    await button(page,'← All extensions').click();
+    await page.getByRole('heading',{name:'Tag spectrum',exact:true}).waitFor();
+    assert.equal(await page.locator('iframe').count(),0);
+    await button(page,'Close').click();
+    assert.equal(await page.locator('#space-name').innerText(),'Demo map');
+    await switchTo(page,initial);
+    assert.equal(await page.locator('.tree-note-link').count(),1);
+    await openNote('sample');
+    assert.equal(await page.locator('.ve-text').first().innerText(),'Sample text');
+  },
   async 'workspace.follow-system'({page}) {
     await page.locator('#settings').click();
     assert.ok(await page.locator('input[value=system]').isChecked());

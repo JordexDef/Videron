@@ -201,6 +201,136 @@
   ],
   "scenarios": [
     {
+      "id": "workspace.undo-after-peer-shape",
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "Nudge one shape on the canvas. Leave the project and have a peer move the other shape. Return and undo, then reopen and redo.",
+        "Let the peer move the originally nudged shape. Return to the canvas and try Undo and Redo."
+      ],
+      "expected": "Undo and redo preserve an independent shape's new position. When the peer moves the same shape, both commands preserve the more recent layout.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.identical-text-isolated-history",
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "Give two notes in the shared project and a note with the same ID in a second project identical final text.",
+        "Reopen each note and press Undo. Return to the first note and press Redo."
+      ],
+      "expected": "Undo restores each note's own distinct original text despite identical final contents and repeated IDs across projects. The first note retains its own redo.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.undo-after-peer-data-row",
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "Append a digit to a CSV row and rename the note. Switch projects, let a peer change another row, return and undo both edits. Reopen and redo both edits.",
+        "Have the peer overwrite the edited number. Return and press Undo and Redo."
+      ],
+      "expected": "The title and number undo and redo in chronological order while the other row retains the peer's number. When the peer replaces the edited number, undo and redo leave the peer's CSV intact.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.undo-after-peer-paragraph",
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "Edit the first paragraph, switch projects and receive a second paragraph from the peer. Return to the note, undo, reopen and redo.",
+        "Switch projects again. Have the peer replace the entire edited paragraph, return to the note and try undo and redo."
+      ],
+      "expected": "Undo and redo change only the original paragraph while its edit is still applicable. Both peer paragraphs remain intact after the overlapping replacement, repeated commands and reload.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.live-peer-paragraph-undo",
+      "requires": "Runs in the Windows desktop app with a local Videron Sync server.",
+      "runtimes": ["webview2"],
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "A edits the first paragraph and leaves the project. B receives the edit, updates the second paragraph and synchronizes it.",
+        "A returns and undoes the first edit. Check both paragraphs on B, reopen on A and redo. B then replaces the first paragraph while A is away.",
+        "A returns and presses Undo and Redo. Read both paragraphs again on each desktop."
+      ],
+      "expected": "A's first Undo reaches B while B's second paragraph survives. Redo restores A's text. Once B replaces that text, neither command brings back an old version or changes B's other paragraph.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.switch-with-response-pending",
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "Save a paragraph, hold an incoming update for the neighbouring note, close the editor and select another project while the response is pending.",
+        "Release the response. Check the note with the same ID in the destination project. Return to the source project and reopen both notes."
+      ],
+      "expected": "The switch completes once. The destination keeps its own note and Undo history. After returning, the local edit is undoable, redo survives closing again, and the peer's neighbouring note stays intact.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.live-conflict-undo",
+      "requires": "Runs in the Windows desktop app with a local Videron Sync server.",
+      "runtimes": ["webview2"],
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "Stop the loopback server. Write different endings in the same note on two clients, close the peer's editor, and restart the server while the first editor remains open.",
+        "With a conflict pending, undo and redo local input, append a final phrase, close the editor and inspect both versions. Choose Later, switch projects and return.",
+        "Apply the local version, reopen the note, undo the last local phrase and redo it. Read the result on the other computer."
+      ],
+      "expected": "Both conflict previews include the complete latest edits. Choosing the unchanged local version preserves its typing history. Undo and redo work on the final phrase, and both computers receive the selected text.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.live-sync-undo",
+      "requires": "Runs in the Windows desktop app with a local Videron Sync server.",
+      "runtimes": ["webview2"],
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "Edit a paragraph on desktop A. Rename a neighbouring note on desktop B and wait for its new title to reach the open editor's sidebar.",
+        "Undo and redo the paragraph edit. Switch to Personal, open its note with the same ID and press Undo. Return to the shared note, undo, reopen and redo.",
+        "Inspect the text on B and in a fresh download. Restart A and press Undo before typing."
+      ],
+      "expected": "Undo survives switching projects, redo survives closing again, and the other project's text is intact. A fresh process starts with empty history. The local paragraph and the peer's title survive restart and converge through the server.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.recheck-late-preview",
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "Delay two successive conflict responses. Type and save during each request, then close the editor before the second response arrives.",
+        "Read the first conflict dialog, choose the local version, switch away and back, and press Undo in the reopened editor."
+      ],
+      "expected": "The first selectable local preview includes everything already saved. The choice applies once. Reopening preserves the local typing history and redo restores the complete text.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.typing-during-merge",
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "Save a local paragraph. Hold the desktop bridge response to an independent change in a second note, type another paragraph and undo and redo that input.",
+        "Finish the merge, close the editor, open the other project and press Undo in a note with the same ID. Return to the first project and reopen both notes."
+      ],
+      "expected": "Undo and redo affect only local typing during the merge and after returning. The independent peer edit survives, and the other project's matching note ID has a separate history.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.defer-conflict-switch",
+      "actions": ["workspace.space-menu", "workspace.switch"],
+      "steps": [
+        "Edit the same note locally and on the peer. With the conflict pending, undo and redo local input, type another word and return to the map.",
+        "Defer the decision, switch projects and return. Choose a peer version that contains the full local phrase plus its own ending. Reopen and press Undo and Redo."
+      ],
+      "expected": "The conflict preview includes the last local word and the peer's version before and after switching. The chosen peer branch retains the entire phrase and its ending through Undo and Redo.",
+      "risk": "high"
+    },
+    {
+      "id": "workspace.demo-extension-return",
+      "actions": ["workspace.space-menu", "workspace.demo", "workspace.extensions", "workspace.open-extension", "workspace.back-extension", "workspace.switch"],
+      "steps": [
+        "Switch from Personal to the Demo map and open Tag spectrum.",
+        "Go back to All extensions, close the manager and switch back to Personal.",
+        "Inspect the sidebar and open the original note."
+      ],
+      "expected": "The demo shows its own notes and tags. Returning to the list closes the extension view. Personal contains only the original note with its original text.",
+      "risk": "medium"
+    },
+    {
       "id": "workspace.follow-system",
       "actions": [
         "workspace.settings",

@@ -3,8 +3,50 @@ import assert from 'node:assert/strict';
 import { moveAreaGrid, placeAreaNotes, releaseGridNotes } from '../frontend/areas.js';
 import { deleteNote } from '../frontend/note-deletion.js';
 import { deleteAreaWithHistory, deleteMapInk, editMapInk, lastMapAction, rememberMapAction, resizeGridWithHistory, undoMapAction } from '../frontend/map-history.js';
+import { commitPreparedMerge } from '../frontend/workspace-reconcile.js';
+import { WorkspaceRecords } from '../frontend/workspace-records.js';
 
 const note = (id, areaId, x) => ({id,areaId,x,y:24,title:id,links:[]});
+
+for (const kind of ['positions','grid','folder']) {
+  test(`undo after synchronization preserves a newer ${kind} change and still allows the preceding action`,async()=>{
+    const data={name:'Shared',notes:[note('one',null,50),note('two',null,80)],areas:[
+      {id:'grid',grid:{rows:1,cols:2,x:90,y:10}},{id:'parent'},{id:'other'},{id:'child',parentId:'parent'}
+    ]};
+    const session={folder:'shared',data,link:{},records:new WorkspaceRecords(data)};
+    const ink={id:'ink',type:'rect',x:0,y:0,w:80,h:20};
+    editMapInk(data,'ink',null,ink);
+    let lists;
+    if(kind==='positions'){
+      const after=data.notes.map(({id,x,y})=>({id,x,y}));
+      rememberMapAction(data,{kind,before:after.map(p=>({...p,x:p.x-30})),after});
+      lists={notes:{upsert:[{...data.notes[1],x:110,title:'Changed on B'}]}};
+    }else if(kind==='grid'){
+      const grid=data.areas[0];
+      rememberMapAction(data,{kind,id:grid.id,before:{x:0,y:0},after:{x:90,y:10}});
+      lists={areas:{upsert:[{...grid,grid:{...grid.grid,x:190}}]}};
+    }else{
+      rememberMapAction(data,{kind,id:'child',parentId:null,afterParentId:'parent'});
+      lists={areas:{upsert:[{id:'child',parentId:'other'}]}};
+    }
+    await commitPreparedMerge({CommitFolderMergeChoices:async()=>({head:'second-device',lists})},session,{token:'head-pair'});
+    const merged=structuredClone(data);
+    assert.equal(undoMapAction(data),null);
+    assert.deepEqual(data,merged);
+    assert.equal(undoMapAction(data)?.kind,'ink');
+    assert.deepEqual(data,{...merged,mapInk:[]});
+  });
+}
+
+test('a manual move remains undoable after another computer edits the same note text',async()=>{
+  const data={name:'Shared',areas:[],notes:[note('one',null,80),note('two',null,200)]};
+  const session={folder:'shared',data,link:{},records:new WorkspaceRecords(data)};
+  rememberMapAction(data,{kind:'positions',before:[{id:'one',x:20,y:24}],after:[{id:'one',x:80,y:24}]});
+  const upsert=data.notes.map(n=>({...n,title:n.id+' from B'}));
+  await commitPreparedMerge({CommitFolderMergeChoices:async()=>({head:'both',lists:{notes:{upsert}}})},session,{token:'head-pair'});
+  assert.equal(undoMapAction(data)?.kind,'positions');
+  assert.deepEqual(data.notes.map(({x,y,title})=>[x,y,title]),[[20,24,'one from B'],[200,24,'two from B']]);
+});
 
 test('undo a track deletion after promotion into a partly full grid and a freeform ancestor', () => {
   const parent = {id:'parent',parentId:'root',grid:{rows:1,cols:2,x:-50,y:10,spacing:100}};

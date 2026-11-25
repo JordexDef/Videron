@@ -138,7 +138,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
 
   function policyChanged() {
     dirty()
-    onPrivacyChange?.()
+    return onPrivacyChange?.()
   }
   async function protect({password}) {
     // Include task status updates that arrived while this editor was open.
@@ -150,7 +150,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
       hasKey = true
       replaceRecord(record, lockedRecord(record, sealed))
       sealedRevision = saving
-      policyChanged()
+      await policyChanged()
     })().finally(() => { preparingSeal = null })
     await preparingSeal
     // A folder save can succeed before the catalog write reports an error.
@@ -167,7 +167,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
     const hadMapAppearance = Object.hasOwn(record, 'appearance')
     const previousRevision = sealedRevision
     replaceRecord(record, currentNote())
-    policyChanged()
+    await policyChanged()
     try { await persist() }
     catch (error) {
       // An older note may have a private style that was never visible on its map.
@@ -175,7 +175,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
       replaceRecord(record, lockedRecord(record, previous))
       if (publicLabel) record.mapLabel = publicLabel
       sealedRevision = previousRevision
-      policyChanged()
+      await policyChanged()
       throw error
     }
     await releaseKey()
@@ -191,7 +191,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
     } finally { managing = false }
   }
 
-  async function beforeClose() {
+  async function beforeClose(beforeRelease) {
     if (managing) return false
     if (closed) return true
     try {
@@ -199,6 +199,7 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
         await flush()
         await persist()
       }
+      await beforeRelease?.()
       await releaseKey(true)
       closed = true
       return true

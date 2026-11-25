@@ -33,8 +33,8 @@ const endings = StateField.define({
   }
 })
 
-export function lineEndingSupport(source) {
-  const initial = inspect(source)
+export function lineEndingSupport(source) { return lineEndingState(inspect(source)) }
+export function lineEndingState(initial) {
   return [endings.init(() => initial), invertedEffects.of(tr => {
     const prior = tr.startState.field(endings)
     // Ordinary intra-line typing on a homogeneous document needs no snapshot.
@@ -42,6 +42,11 @@ export function lineEndingSupport(source) {
       ? [replaceEndings.of(prior)] : []
   })]
 }
+
+// Undo snapshots include the physical separators. CodeMirror itself represents
+// all line breaks as a single character and its history JSON omits state effects.
+export const lineEndings = state => state.field(endings)
+export const restoreLineEndings = info => info ? replaceEndings.of(info) : []
 
 export function sourceSlice(state,from=0,to=state.doc.length) {
   const info = state.field(endings)

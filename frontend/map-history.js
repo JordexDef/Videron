@@ -183,11 +183,20 @@ export function undoMapAction(space) {
       return restoreAreaPlacement(space,action.before,action.after) ? action : null;
     case 'positions': {
       const notes = new Map(space.notes.map(note=>[note.id,note]));
-      if (!action.before.every(({id})=>notes.has(id) && !Number.isInteger(notes.get(id).slot))) return null;
+      // Check the whole selection first so a later move on another device
+      // cannot be overwritten or leave half the selection restored.
+      for (const {id,x,y} of action.after) {
+        const note = notes.get(id);
+        if (!note || Number.isInteger(note.slot) || note.x!==x || note.y!==y) return null;
+      }
       for (const {id,x,y} of action.before) Object.assign(notes.get(id),{x,y});
       return action;
     }
-    case 'grid': return moveAreaGrid(space,action.id,action.before.x,action.before.y) ? action : null;
+    case 'grid': {
+      const grid = space.areas.find(area=>area.id===action.id)?.grid;
+      if (!grid || grid.x!==action.after.x || grid.y!==action.after.y) return null;
+      return moveAreaGrid(space,action.id,action.before.x,action.before.y) ? action : null;
+    }
     case 'stage-delete':
     case 'stage-insert': return undoStageStructure(space,action) ? action : null;
     case 'stage-order': {
@@ -196,7 +205,11 @@ export function undoMapAction(space) {
       return reorderAreaStage(area,space.notes,action.to,action.from) ? action : null;
     }
     case 'grid-size': return undoGridResize(space,action) ? action : null;
-    case 'folder': return moveArea(space,action.id,action.parentId) ? action : null;
+    case 'folder': {
+      const area = space.areas.find(area=>area.id===action.id);
+      if (!area || (area.parentId??null)!==action.afterParentId) return null;
+      return moveArea(space,action.id,action.parentId) ? action : null;
+    }
     default: return null;
   }
 }

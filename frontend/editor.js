@@ -13,6 +13,7 @@ import { createCodeBlockView, pastedCode } from './code-block-view.js'
 import { attachTextToolbar } from './canvas-text-toolbar.js'
 import { blockText, textTypes } from './search-location.js'
 import { historyDirection, primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
+import {canRestoreRelations,packEditorHistory,restoreEditorHistory} from './editor-history.js'
 import { blockTagText } from './board-rich-text.js'
 import { readClipboardParagraphs } from './clipboard-runs.js'
 import { sliceRuns, selectedBlocks, replaceTextRange, moveTextRange } from './editor-text-range.js'
@@ -348,12 +349,15 @@ function notePrivacyButton(manageProtection, isProtected) {
   return control
 }
 
-async function finishNoteSession(root, beforeClose) {
-  if (!beforeClose) return true
+async function finishNoteSession(root, beforeClose, beforeRelease) {
   const previous = document.activeElement, wasInert = root.inert
   let closing = false
   root.inert = true
-  try { closing = await beforeClose(); return closing }
+  try {
+    if(beforeClose)closing=await beforeClose(beforeRelease)
+    else {await beforeRelease?.();closing=true}
+    return closing
+  }
   finally {
     if (!closing) {
       root.inert = wasInert
@@ -362,7 +366,7 @@ async function finishNoteSession(root, beforeClose) {
   }
 }
 
-function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator,agentButton,agentTaskActions}){
+function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator,agentButton,agentTaskActions,historySession}){
   const previousFocus=document.activeElement
   const root=el('section','vd-editor ve-canvas-editor'), head=el('header','ve-head')
   root.setAttribute('role','dialog');root.setAttribute('aria-modal','true')
@@ -392,7 +396,10 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
     details.setTags(tags)
     onChange?.({title:title.value,type:'canvas',board:boardDoc,plain:summary.plain,tags,weight:summary.weight})
   }
-  title.oninput=emit
+  function saveTitle(){
+    if(title.value!==savedTitle){board.noteTitleEdited(savedTitle);emit()}
+  }
+  title.oninput=saveTitle
   const back=button(backLabel,'back',goBack,true)
   head.append(back,el('span','ve-head-divider'),crumb,title,saveIndicator ?? el('span','ve-spacer'))
   const findBtn=button(shortcutLabel(tr('Найти в заметке (Ctrl+F)','Find in note (Ctrl+F)')),'findInNote',()=>localFind.open())
@@ -405,7 +412,7 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   head.append(details.toggle)
   const tasks=mountAgentTaskList(note.id,notes,{...agentTaskActions,openNote:navigateTo})
   workspace.append(host,details.panel);root.append(head,workspace,tasks.element);document.body.append(root)
-  const board=mountBoard(host,{document:boardDoc,noteTitle:title,onFileMenu:openBoardFiles,textAreaDefaults,
+  const board=mountBoard(host,{document:boardDoc,noteTitle:title,historySession,onFileMenu:openBoardFiles,textAreaDefaults,
     mountRichText:(host,options)=>openEditor({
       note:{id:note.id,body:options.body,plain:options.text},notes,
       onChange:options.onChange,onOpenNote:onOpenNote && navigateTo,embed:{...options,host}
@@ -441,16 +448,16 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
     else board.focus()
   }
   function commitDraft(){
-    if(title.value!==savedTitle)emit()
+    saveTitle()
     return board.commitDraft()
   }
   function close(reason){
     if(finished)return Promise.resolve(true)
     if(closePending)return closePending
     closePending=(async()=>{
-      if(title.value!==savedTitle)emit()
+      saveTitle()
       if(!await board.prepareClose())return false
-      if(!await finishNoteSession(root,beforeClose))return false
+      if(!await finishNoteSession(root,beforeClose,()=>historySession?.save(board.captureHistory())))return false
       localFind.destroy();searchReveal.clear();tagNav.destroy();board.destroy();root.remove();finished=true
       previousFocus?.focus?.({preventScroll:true})
       onClose?.(reason)
@@ -467,7 +474,7 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
     const direction=historyDirection(e)
     if(direction && !host.contains(e.target) &&
         (!e.target.closest('dialog,input,select,textarea,[contenteditable="true"]') ||
-          e.target===title && board.hasTitleHistory(direction==='redo'))){
+          e.target===title)){
       e.preventDefault();e.stopPropagation()
       board.undo(direction==='redo')
       return
@@ -476,7 +483,7 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
     keepTabInEditor(e,root)
   })
   details.sync();details.setTags(noteTags(title.value,summary.tagText));focus()
-  return {element:root,focus,close,commitDraft,prepareClose:close,refreshAgentTasks:tasks.refresh,revealSearchMatch(target){
+  return {element:root,focus,close,commitDraft,prepareClose:close,clearHistory:board.clearHistory,refreshAgentTasks:tasks.refresh,revealSearchMatch(target){
     if(target?.kind==='canvasText')board.revealTextBlock(target.id,target.match)
     else if(target?.kind==='canvasLabel')board.revealTextBlock(target.id,target)
     else if(target?.kind==='tableCell')board.revealTableCell(target.id,target.address)
@@ -484,8 +491,8 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   }}
 }
 
-export function openEditor({note, notes = [], areas = [], onChange, onClose, onOpenNote, onSearch, onReturn, beforeClose, manageProtection, isProtected, textAreaDefaults, saveIndicator, agentButton, agentTaskActions, embed, backLabel=tr('К карте','Back to map')}) {
-  if(note.type==='canvas')return canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator,agentButton,agentTaskActions})
+export function openEditor({note, notes = [], areas = [], onChange, onClose, onOpenNote, onSearch, onReturn, beforeClose, manageProtection, isProtected, textAreaDefaults, saveIndicator, agentButton, agentTaskActions, historySession, embed, backLabel=tr('К карте','Back to map')}) {
+  if(note.type==='canvas')return canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator,agentButton,agentTaskActions,historySession})
   let body = Array.isArray(note.body) && note.body.length ? note.body :
     (note.plain || '').split('\n').map(s => ({type:'paragraph',runs:s ? [{text:s}] : []}))
   if (!body.length) body = [paragraph()]
@@ -494,7 +501,6 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   const pendingImages = new Set()
   const inlineIds = new WeakMap(), inlineViews = new Map()
   let activeInline = null
-  const past = [], future = []
   const previousFocus = document.activeElement
   const root = el('section',embed?'vd-editor ve-embedded-editor':'vd-editor')
   if(!embed){root.setAttribute('role','dialog');root.setAttribute('aria-modal','true')}
@@ -608,8 +614,10 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     return {index:active,start:offsetAt(root,r.startContainer,r.startOffset),end:offsetAt(root,r.endContainer,r.endOffset)}
   }
   const mapRecord=notes.find(n=>n.id===note.id)||note
+  const currentState=()=>({title,body,relations,point:{x:mapRecord.x,y:mapRecord.y}})
+  const {past,future}=restoreEditorHistory(historySession?.take(),currentState())
   function capture() {
-    return {title, body, relations, point:{x:mapRecord.x,y:mapRecord.y}, mark:currentSelection() || {index:active,start:0}, range:textSelection.across, inTitle:document.activeElement === titleBox, titleOffset:titleBox.selectionStart}
+    return {...currentState(),mark:currentSelection() || {index:active,start:0}, range:textSelection.across, inTitle:document.activeElement === titleBox, titleOffset:titleBox.selectionStart}
   }
   let checkpoint=false
   function remember(key) {
@@ -673,6 +681,9 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     activeInline?.flush()
     const from=redo?future:past,to=redo?past:future
     if(!from.length)return
+    if(!canRestoreRelations(note.id,relations,from.at(-1).relations,notes,areas)){
+      from.length=0;indicators(meta());return
+    }
     to.push(capture())
     const snap=from.pop()
     const moved=snap.relations.areaId!==relations.areaId||snap.relations.slot!==relations.slot
@@ -713,18 +724,22 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   // Closing can interrupt input-method composition. Compare the editing
   // surface with the model before an awaited import or board flush can redraw it.
   function finishTextInput(){
-    let updated=title!==titleBox.value
+    let updated=false
+    function captureInput(){
+      if(!updated)remember();updated=true
+    }
+    if(title!==titleBox.value)captureInput()
     title=titleBox.value
     const block=body[active], row=blockRefs[active]
     if(row && textTypes.has(block?.type)){
       const runs=readRuns(row)
       if(runs.map(run=>run.text).join('')!==blockText(block)){
-        body=[...body];body[active]={...block,runs};updated=true
+        captureInput();body=[...body];body[active]={...block,runs}
       }
     }else if(row && block?.type==='code'){
       const input=row.querySelector('.ve-code-source')
       if(input && input.value!==(block.text||'').replace(/\r\n?/g,'\n')){
-        body=[...body];body[active]={...block,text:input.value};updated=true
+        captureInput();body=[...body];body[active]={...block,text:input.value}
       }
     }
     if(updated){checkpoint=true;emit()}
@@ -757,7 +772,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(closePending)return closePending
     closePending=(async()=>{
       if(!await flush())return false
-      if(!await finishNoteSession(root,beforeClose))return false
+      if(!await finishNoteSession(root,beforeClose,()=>historySession?.save(packEditorHistory(currentState(),past,future))))return false
       destroy();previousFocus?.focus?.({preventScroll:true})
       onClose?.(reason)
       return true
@@ -856,10 +871,13 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     const changed=await manageProtection()
     if(changed && wasProtected && !isProtected()){
       // Older undo entries may still contain a removed password block.
-      past.length=0;future.length=0;lastKey='';indicators(meta())
+      clearHistory()
     }
     privacyControl?.refresh()
     return changed
+  }
+  function clearHistory(){
+    past.length=0;future.length=0;lastKey='';indicators(meta())
   }
   async function insertCredentials(mark=position()){
     if(embed || !manageProtection || addingCredentials)return
@@ -1879,5 +1897,5 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(target?.kind==='body')details.uncoverNote()
     searchReveal.reveal(target)
   }
-  return {element:root,close,focus,commitDraft:()=>flush(false),prepareClose,refreshAgentTasks:tasks.refresh,revealSearchMatch}
+  return {element:root,close,focus,commitDraft:()=>flush(false),prepareClose,clearHistory,refreshAgentTasks:tasks.refresh,revealSearchMatch}
 }

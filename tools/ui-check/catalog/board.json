@@ -577,10 +577,10 @@
         "board.redo"
       ],
       "steps": [
-        "Duplicate one shape. Nudge the new selection one step and undo twice.",
-        "Redo both operations."
+        "Duplicate one shape, nudge the new selection, close and reopen the canvas, then undo twice.",
+        "Close and reopen the canvas again and redo both operations."
       ],
-      "expected": "The original never moves; one undo reverses the nudge, the next removes the duplicate. Redo recreates just one duplicate at the new position.",
+      "expected": "Undo and redo both survive reopening. Undo restores the nudge and then removes the duplicate. Redo recreates exactly one duplicate at its moved position. The original stays in place.",
       "risk": "medium"
     },
     {
@@ -937,6 +937,66 @@
         "Undo rotation, undo resize and redo both. Close and reopen the note."
       ],
       "expected": "Each transformation undoes independently. The original pixels and sibling shape stay intact; on reopen the image retains the resized geometry and snapped rotation.",
+      "risk": "high"
+    },
+    {
+      "id": "board.group-pan-nudge",
+      "actions": [
+        "board.inside-group",
+        "board.pan",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "Group two shapes beside a third. Clear selection and Ctrl/Cmd-click one member, then nudge it to the right.",
+        "Pan using the hand tool. Undo the nudge, redo it and reopen the canvas. Select the group normally and nudge it again."
+      ],
+      "expected": "Only the chosen member moves on the first nudge. Panning translates all shapes on screen equally and retains their document coordinates and edit history. After reopening, a normal nudge moves both group members and leaves the third shape still.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.stroke-corners-pattern",
+      "actions": [
+        "board.stroke",
+        "board.rounded",
+        "board.pattern",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "Select one of two rectangles. Change its stroke color, round its corners and apply a crosshatched fill.",
+        "Undo the three changes individually, redo them and reopen the canvas."
+      ],
+      "expected": "The rendered rectangle changes at each step. Undo and redo recover the corresponding appearance at each step. Reopening retains all three choices and the sibling keeps its original appearance.",
+      "risk": "medium"
+    },
+    {
+      "id": "board.inline-frame-history",
+      "actions": [
+        "board.inline-resize",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "Open a drawing embedded between two paragraphs. Drag its bottom corner outward, then use Shift+ArrowDown on the resize handle.",
+        "Undo the keyboard resize and the drag, redo both and reopen the note."
+      ],
+      "expected": "Dragging changes both frame dimensions. The keyboard adds forty pixels of height. Both steps undo separately. Reopening retains the final frame, the original shape geometry and the two surrounding paragraphs.",
+      "risk": "high"
+    },
+    {
+      "id": "board.tsv-row-history",
+      "actions": [
+        "board.table-paste",
+        "board.insert-row",
+        "board.undo",
+        "board.redo"
+      ],
+      "steps": [
+        "Paste a two-by-two block of tab-separated values into B2 beside a label, a footer and a dependent formula.",
+        "Insert a row above the pasted block. Inspect the formula, undo the row and paste, redo both and reopen."
+      ],
+      "expected": "All four cells are pasted in one edit. Row insertion shifts the block, footer and formula references together. Each undo and redo restores the corresponding grid and computed result. The final grid and formula persist.",
       "risk": "high"
     }
   ]
