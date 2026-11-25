@@ -315,4 +315,6 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -s -skipbindings -tr
 
 For a browser preview, run `python -m http.server 8745 --bind 127.0.0.1 --directory frontend` and open `http://127.0.0.1:8745`. In the preview, data is kept in the browser's local storage. Run `node --test` with Node.js 22 or later for the formula, chart and drawing-format tests.
 
+For browser interaction tests, run `npm ci` and `npm run browsers` once in `tools/ui-check`, then run `npm test` there. The tests open temporary Chromium and WebKit profiles with sample notes.
+
 To build the desktop client for another operating system, follow the platform-specific setup instructions for its compiler and WebView. [Wails environment setup](https://v2.wails.io/docs/gettingstarted/installation/)

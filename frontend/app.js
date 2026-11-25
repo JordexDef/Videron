@@ -2332,8 +2332,17 @@ function bindUI(){
   $('new-data').onclick=()=>addNote(graph.worldCenter(),'data');
   $('routes').onclick=e=>{closeMenu();if(tool!=='select')chooseTool('select');routes.open(e.currentTarget)};
   $('cancel-link').onclick=()=>chooseTool('select');
-  $('plus').onclick=()=>graph.zoomBy(1.2);$('minus').onclick=()=>graph.zoomBy(1/1.2);
-  $('actual-size').onclick=()=>graph.zoomBy(1/graph.zoom);$('fit').onclick=()=>graph.fit();
+  for(const [id,changeView] of [
+    ['plus',()=>graph.zoomBy(1.2)],['minus',()=>graph.zoomBy(1/1.2)],
+    ['actual-size',()=>graph.zoomBy(1/graph.zoom)],['fit',()=>graph.fit()]
+  ]){
+    $(id).onclick=event=>{
+      changeView();
+      // A pointer user can act on the selection immediately. Keep keyboard focus
+      // on the button when it was activated with Enter or Space.
+      if(event.detail>0)$('graph').focus({preventScroll:true});
+    };
+  }
   $('map-stage').querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>chooseTool(tool===b.dataset.tool && (tool==='link'||tool==='ink')?'select':b.dataset.tool));
   $('view').onclick=e=>{
     if(page==='area'){areaActions(areaById(currentArea),e.currentTarget);return}

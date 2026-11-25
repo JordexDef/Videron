@@ -256,6 +256,7 @@ export function createDirectTables(initial, callbacks) {
   })
   return {
     row, key:callbacks.key, direct:true, focus,
+    findSelection:ui.findSelection,
     revealTableCell:ui.revealSearchCell,
     mount() {
       if (mounted) return

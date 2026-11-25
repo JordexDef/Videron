@@ -517,6 +517,13 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   })
   function findSelection(){
     const field=document.activeElement
+    if(activeInline?.row.contains(field)){
+      const mark=activeInline.findSelection?.()
+      if(!mark)return null
+      const index=blockRefs.indexOf(activeInline.row)
+      const nested=r=>({...r,id:index+'/'+r.id})
+      return mark.ranges?{...mark,ranges:mark.ranges.map(nested)}:nested(mark)
+    }
     if(field===titleBox || field?.matches('.ve-code-source') && blockRefs[active]?.contains(field)){
       const from=field.selectionStart,to=field.selectionEnd
       return {id:field===titleBox?'title':String(active),from,to,text:field.value.slice(from,to)}

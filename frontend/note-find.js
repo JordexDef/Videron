@@ -1,6 +1,6 @@
 import { tr } from './i18n.js';
 import { isMacPlatform, primaryCommand, shortcutLabel } from './shortcuts.js';
-import { findNoteMatches, replacementText } from './note-find-matches.js';
+import { findNoteMatches, replacementText, trackFindSelection } from './note-find-matches.js';
 
 const glyphs = {
   expand:'m9 5 7 7-7 7', prev:'M12 19V5m-6 6 6-6 6 6',
@@ -77,6 +77,7 @@ export function mountNoteFind(root,adapter) {
   const options={matchCase:false,wholeWord:false,regex:false,preserveCase:false};
   const history=new Map([[search,[]],[replacement,[]]]),historyState=new Map();
   let matches=[], current=-1, records=[], anchor, selectionRanges, scoped=false;
+  let selectionRecords, inputLocation;
   let cancelWorker, timer, pending=false, scanning=false, refreshQueued=false, returnFocus, destroyed=false;
   function toggle(key,label,mark) {
     const node=button(key,label,()=>{
@@ -114,6 +115,12 @@ export function mountNoteFind(root,adapter) {
   panel.append(expand,row,replaceRow);root.append(panel);showReplace(false);
   const events=new AbortController();
   root.addEventListener('keydown',keydown,{capture:true,signal:events.signal});
+  root.addEventListener('beforeinput',e=>{
+    inputLocation=null;
+    if (!selectionRanges?.length || panel.contains(e.target) || e.target.closest('.ve-credentials,input[type=password]')) return;
+    const mark=adapter.selection?.();
+    if (mark?.id!=null) inputLocation={id:mark.id,from:mark.from,to:mark.to,type:e.inputType};
+  },{capture:true,signal:events.signal});
   root.addEventListener('input',e=>{if (!panel.contains(e.target)) refresh()},{signal:events.signal});
   // Keep native input undo and typing out of the editor's formatting shortcuts.
   panel.addEventListener('keydown',e=>{if (e.key!=='Tab') e.stopPropagation()});
@@ -159,6 +166,7 @@ export function mountNoteFind(root,adapter) {
       const sel=focused?.closest('.ve-credentials,input[type=password]')?null:adapter.selection?.();
       anchor=sel?.id!=null?{id:sel.id,from:sel.from}:null;
       selectionRanges=sel?.ranges?.length?sel.ranges.map(r=>({...r})):sel?.to>sel?.from?[{id:sel.id,from:sel.from,to:sel.to}]:null;
+      selectionRecords=null;inputLocation=null;
       if (sel?.text && !/[\r\n]/.test(sel.text)) search.value=sel.text;
       scoped=false;scope.disabled=!selectionRanges;scope.setAttribute('aria-pressed','false');
     }
@@ -183,6 +191,7 @@ export function mountNoteFind(root,adapter) {
     remember(search);remember(replacement);
     const active=matches[current];
     cancel();panel.hidden=true;matches=[];current=-1;records=[];selectionRanges=null;anchor=null;
+    selectionRecords=null;inputLocation=null;
     paint(false);
     if (restore) {
       if (active && adapter.focus) adapter.focus(active);
@@ -196,9 +205,11 @@ export function mountNoteFind(root,adapter) {
     const value=error==='syntax'?tr('Ошибка выражения','Invalid regex'):
       error==='timeout'?tr('Поиск занял слишком долго','Search timed out'):
       error==='worker'?tr('Обработчик поиска недоступен','Search worker unavailable'):
+      scoped && !selectionRanges?.length?tr('Выделите заново','Reselect text'):
       pending?'…':!search.value?'':matches.length?(current+1)+' / '+matches.length:tr('Совпадений нет','No matches');
     if (count.textContent!==value) count.textContent=value;
-    count.title=value;
+    count.title=scoped && !selectionRanges?.length
+      ? shortcutLabel(tr('Выделите текст в заметке и нажмите Ctrl+F','Select text in the note and press Ctrl+F')) : value;
     if (error) search.setAttribute('aria-invalid','true'); else search.removeAttribute('aria-invalid');
     prev.disabled=next.disabled=pending || !matches.length;
     one.disabled=pending || !matches[current] || !!matches[current].readOnly;
@@ -227,13 +238,20 @@ export function mountNoteFind(root,adapter) {
     if (panel.hidden || destroyed) return;
     cancel();
     matches=[];current=-1;
-    records=search.value?adapter.records().map(({id,text,readOnly})=>({id,text,readOnly:!!readOnly})):[];
+    records=search.value || selectionRanges?.length?adapter.records().map(({id,text,readOnly})=>({id,text,readOnly:!!readOnly})):[];
+    if (selectionRanges?.length) {
+      selectionRanges=trackFindSelection(selectionRanges,selectionRecords,records,inputLocation);
+      selectionRecords=selectionRanges.length?records:null;
+    }
+    inputLocation=null;
+    scope.disabled=!scoped && !selectionRanges?.length;
     const data={records,options:{...options,query:search.value},ranges:scoped?selectionRanges:null};
     function done(result) {
       if (panel.hidden || destroyed) return;
       pending=false;matches=result.matches;current=choose(at);update(result.error);paint(reveal);
     }
-    if (search.value && (options.regex || records.reduce((n,r)=>n+r.text.length,0)>250000)) {
+    if (scoped && !selectionRanges?.length) done({matches:[]});
+    else if (search.value && (options.regex || records.reduce((n,r)=>n+r.text.length,0)>250000)) {
       pending=true;update();paint(false);
       timer=setTimeout(()=>{cancelWorker=runWorker(data,done)},45);
     } else done(findNoteMatches(records,data.options,data.ranges));
@@ -271,6 +289,7 @@ export function mountNoteFind(root,adapter) {
       const deltas=new Map();
       for (const edit of edits) deltas.set(edit.id,(deltas.get(edit.id)??0)+edit.text.length-(edit.to-edit.from));
       for (const range of selectionRanges) range.to+=deltas.get(range.id)??0;
+      selectionRecords=null;
     }
     if (panel.contains(focused) && focused!==document.activeElement) focused.focus({preventScroll:true});
     scan(true,at);

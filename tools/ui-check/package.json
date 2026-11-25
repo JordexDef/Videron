@@ -1,0 +1,12 @@
+{
+  "name": "videron-ui-check",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "browsers": "playwright-core install chromium webkit",
+    "test": "node --test scenarios.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.54.1"
+  }
+}

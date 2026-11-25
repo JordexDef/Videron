@@ -1,8 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findNoteMatches, replacementText } from '../frontend/note-find-matches.js';
+import { findNoteMatches, replacementText, trackFindSelection } from '../frontend/note-find-matches.js';
 
 const rows=[{id:'a',text:'Кот котёнок скот КОТ (кот) кот_1 кот́.'},{id:'code',text:'a.b A.B axb'}];
+test('a saved search selection follows the edited position even among identical words',()=>{
+  const rows=text=>[{id:'p',text}], range=[{id:'p',from:4,to:7}];
+  const before=rows('fox fox'), after=rows('fox fox fox');
+  assert.deepEqual(trackFindSelection(range,before,after,{id:'p',from:0,to:0,type:'insertText'}),[{id:'p',from:8,to:11}]);
+  assert.deepEqual(trackFindSelection(range,before,after,{id:'p',from:7,to:7,type:'insertText'}),range);
+  assert.deepEqual(trackFindSelection(range,before,rows('ox fox'),{id:'p',from:1,to:1,type:'deleteContentBackward'}),[{id:'p',from:3,to:6}]);
+  assert.deepEqual(trackFindSelection(range,before,rows('fox fx'),{id:'p',from:5,to:5,type:'deleteContentForward'}),[{id:'p',from:4,to:6}]);
+  assert.deepEqual(trackFindSelection(range,before,after,null),[]);
+  assert.deepEqual(trackFindSelection(range,before,[...before,{id:'p2',text:'fox'}],null),[]);
+  const empty=[{id:'empty-cell',from:0,to:0}];
+  assert.deepEqual(trackFindSelection(empty,before,after,null),empty);
+});
 test('literal, case and Unicode whole-word matching keep native editor offsets',()=>{
   const matches=options=>findNoteMatches(rows,options).matches;
   assert.deepEqual(matches({query:'кот',wholeWord:true}).map(m=>[m.id,m.from,m.value]),

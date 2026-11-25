@@ -77,6 +77,24 @@ function isSelected(selection, bounds, row, col) {
   return !!bounds && row >= bounds.top && row <= bounds.bottom && col >= bounds.left && col <= bounds.right;
 }
 
+function cellFindId(tableId, address) {
+  return JSON.stringify([tableId, 'cell', address]);
+}
+
+export function tableFindRanges(item, selection) {
+  const bounds = sortedRange(selection.first, selection.last);
+  const ranges = [];
+  for (const [address, raw] of Object.entries(item.cells)) {
+    const at = parseAddress(address);
+    if (at && isSelected(selection, bounds, at.row, at.col))
+      ranges.push({id:cellFindId(item.id, address), from:0, to:String(raw).length});
+  }
+  // An empty selection of cells is still a scope. Falling back to the entire
+  // table here would replace values outside the user's selection.
+  if (!ranges.length) ranges.push({id:cellFindId(item.id, selection.first), from:0, to:0});
+  return ranges;
+}
+
 function boundedCell(item, row, col) {
   return addressOf(Math.max(0, Math.min(item.rows - 1, row)), Math.max(0, Math.min(item.cols - 1, col)));
 }
@@ -1325,6 +1343,15 @@ export function makeTableUI({
     makeView,
     updateView,
     focusCell,
+    findSelection() {
+      const view = active && views.get(active.id);
+      if (!view?.root.contains(document.activeElement)) return null;
+      if (edit && edit.field === document.activeElement) {
+        const from = edit.field.selectionStart, to = edit.field.selectionEnd;
+        return {id:cellFindId(view.id, edit.address), from, to, text:edit.field.value.slice(from, to)};
+      }
+      return {ranges:tableFindRanges(view.item, active)};
+    },
     revealSearchCell,
     finishEdit,
     commitDraft,

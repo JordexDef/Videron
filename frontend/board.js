@@ -3188,7 +3188,7 @@ export function mountBoard(container, options = {}) {
   return {
     getDocument,
     findRecords: () => canvasFindRecords(elements),
-    findSelection: () => canvasFindSelection(elements,selection,views),
+    findSelection: () => tableUI.findSelection() ?? canvasFindSelection(elements,selection,views),
     paintFind,
     replaceFind(edits, newTitle) {
       const next = replaceCanvasMatches(elements,edits);

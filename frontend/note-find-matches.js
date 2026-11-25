@@ -1,3 +1,35 @@
+// Keep the saved selection attached to its original text while the panel is open.
+// Only map a change with a verified edit location: equal neighbouring words make
+// a prefix/suffix diff alone ambiguous. An empty scope requires a new selection.
+export function trackFindSelection(ranges, before, after, edit) {
+  if (!before || !ranges?.length) return ranges;
+  if (before.length!==after.length || before.some((row,i)=>row.id!==after[i].id)) return [];
+  let remapped=ranges, byId;
+  for (let i=0;i<before.length;i++) {
+    const old=before[i], text=after[i].text;
+    if (old.text===text) continue;
+    byId??=new Map(ranges.map(r=>[r.id,r]));
+    const range=byId.get(old.id);
+    if (!range) continue;
+    if (edit?.id!==old.id) return [];
+    const delta=text.length-old.text.length;
+    let {from,to}=edit;
+    if (from===to && delta<0) {
+      if (edit.type==='deleteContentBackward') from+=delta;
+      else if (edit.type==='deleteContentForward') to-=delta;
+    }
+    if (from<0 || to>old.text.length || to+delta<from ||
+        !text.startsWith(old.text.slice(0,from)) || !text.endsWith(old.text.slice(to))) return [];
+    let next;
+    if (to<=range.from) next={...range,from:range.from+delta,to:range.to+delta};
+    else if (from>=range.to) continue;
+    else if (from>=range.from && to<=range.to) next={...range,to:range.to+delta};
+    else return [];
+    remapped=ranges.map(r=>r===range?next:r);
+  }
+  return remapped;
+}
+
 // Positions are UTF-16 offsets, shared by DOM ranges, textareas and the note model.
 export function findNoteMatches(records, options, ranges) {
   const {query, regex, matchCase, wholeWord} = options;

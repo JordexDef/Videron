@@ -321,4 +321,6 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -s -skipbindings -tr
 
 Проверки формул, графиков и формата рисунков запускаются командой `node --test` в Node.js 22 и новее.
 
+Чтобы проверить действия мышью и клавиатурой, один раз выполните `npm ci` и `npm run browsers` в `tools/ui-check`, затем запускайте там `npm test`. Проверки открывают временные профили Chromium и WebKit с тестовыми заметками.
+
 Для самостоятельной сборки клиента под другую ОС установите компилятор и системный WebView для нужной платформы. [Инструкция Wails по настройке среды](https://v2.wails.io/docs/gettingstarted/installation/)

@@ -1,10 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { arrowDestination, pasteCellsAtRange, tabDestination } from '../frontend/table-view.js';
+import { arrowDestination, pasteCellsAtRange, tabDestination, tableFindRanges } from '../frontend/table-view.js';
 import { tableBarPosition } from '../frontend/table-canvas-footer.js';
 
 const item = {rows:3, cols:3, cells:{A1:'keep', B2:'old'}};
 const selection = {top:1, left:1, bottom:2, right:2};
+
+test('find in selected table cells respects disjoint headers, sparse cells and empty ranges', () => {
+  const item = {id:'sheet',cells:{A1:2,A2:'first',B2:'middle',C3:'last'}};
+  const ranges = (first,last,axes) => tableFindRanges(item,{first,last,...axes})
+    .map(range => [JSON.parse(range.id),range.from,range.to]);
+  assert.deepEqual(ranges('A1','C3',{axis:'cols',indices:new Set([0,2])}),[
+    [['sheet','cell','A1'],0,1],[['sheet','cell','A2'],0,5],[['sheet','cell','C3'],0,4]
+  ]);
+  assert.deepEqual(ranges('A1','C3',{axis:'rows',indices:new Set([0,2])}),[
+    [['sheet','cell','A1'],0,1],[['sheet','cell','C3'],0,4]
+  ]);
+  assert.deepEqual(ranges('C1','C2'),[[['sheet','cell','C1'],0,0]]);
+});
 
 test('canvas formula bar stays clear of the selected cell and the docks at the screen edges', () => {
   const view={left:0,right:720,top:58,bottom:520};
