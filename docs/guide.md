@@ -50,7 +50,7 @@ If you sync notes with individual passwords, update Videron on each computer bef
 
 Choose the pencil in the lower-left map toolbar (**P**) to draw around notes. Use the pen for a freehand outline or drag out a rectangle or ellipse. Hold **Shift** for a square or circle. With **Text**, click where the caption should start and type. **Enter** adds a line, **Ctrl+Enter** finishes, and a double-click opens the caption for editing.
 
-Click a drawing’s outline on the map to select it. Drag the outline to move it or a handle to resize it. Hold **Shift** while resizing a shape to keep its proportions. For a caption, drag a corner to change its font size. Open the color swatch and move over the palette to preview the result on the map. Click to keep the color or press **Esc** to restore it. **Glow** adds a halo. **Delete** removes the selection and **Ctrl+Z** undoes the last change.
+Click a drawing’s outline on the map to select it. Drag the outline to move it or a handle to resize it. Hold **Shift** while resizing a shape to keep its proportions. For a caption, drag a corner to change its font size. Open the color swatch and move over the palette to preview the result on the map. Click to keep the color or press **Esc** to restore it. **Glow** adds a halo. Box-select several drawings and press **Delete** to remove them together. One **Ctrl+Z** restores them in their original stacking order.
 
 To move a frame, its caption and its notes together, use the selection arrow (**V**) and drag a box around them. You can also add or remove individual objects with **Shift**+click. Choose **Group** below the selection or press **Ctrl+G**. Drag the frame's outline, the caption or a member note to move the whole group. **Ctrl+Z** restores every member's position in one step. Choose **Ungroup** or press **Ctrl+Shift+G** to edit the objects separately. On macOS, use **⌘** for these shortcuts.
 
@@ -58,6 +58,7 @@ Grouping a note from a grid frees its seat. Undoing the grouping restores the se
 
 ### Routes, charts and search
 
+- In an open note, **Ctrl+F** finds text and **Ctrl+H** opens replacement (**⌘F** and **⌥⌘F** on macOS). Use **Enter** or **Shift+Enter** in the find field to move between matches. The text and canvas editors support case, whole-word and regular-expression matching. In regex mode, use `$1`, `$2` and so on to reuse captured text in the replacement. **Replace all** is a single undo step. **Esc** closes the panel. Credential entries are excluded.
 - Open **Routes**, create a route, and click the notes in presentation order. Reorder the stops and pick an excerpt for each. Save the route and press Play. **←** and **→** move between stops. **Esc** returns to your original map view.
 - Choose **Progress from table…** in an area's menu, then pick a cell and a target. A value of 7 with a target of 10 fills 70% of the outline. Choose **Chart from table…** on a note to link it to a series. Hover over the note to see the chart. Both features read from tables in the current space, including calculated values.
 - On the map, **Ctrl+K** searches note titles, text and tags in the current space. Filter by area or pin status, enable case sensitivity, or use JavaScript regular expressions. Matches are highlighted. Press **Enter** to open a result. Regex searches run in a separate worker and time out if they take too long.

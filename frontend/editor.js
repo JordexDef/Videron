@@ -19,7 +19,10 @@ import { sliceRuns, selectedBlocks, replaceTextRange, moveTextRange } from './ed
 import { installTextMove } from './editor-text-move.js'
 import { createCredentialBlock } from './credential-block.js'
 import { hasCredentialBlock } from './data.js'
-import { offsetAt } from './note-text-dom.js'
+import { offsetAt, textRangeCursor } from './note-text-dom.js'
+import { mountNoteFind } from './note-find.js'
+import { replaceNoteString } from './note-find-text.js'
+import { documentFindRecords, inlineFindTarget, replaceFindDocument } from './note-find-document.js'
 import { isListStyle, listStyleOf, indentOf, listMarkers, atParentLevel, isTaskStyle, taskStateOf, taskCounts,
   withListStyle, toggleTask, listItemForPrefix, continuedListItem } from './note-lists.js'
 import { createSearchReveal, rangeInText } from './search-reveal.js'
@@ -37,6 +40,7 @@ const icons = {
   key:'M15 3a6 6 0 1 1-1.8 11.7L7 21H3v-4l6.3-6.2A6 6 0 0 1 15 3z M17 7h.01',
   openPadlock:'M5 10h14v11H5z M8 10V7a4 4 0 0 1 7.6-1.8',
   search: 'M16 10a6 6 0 1 1-12 0 6 6 0 1 1 12 0m-1.5 4.5L21 21',
+  findInNote: 'M10 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v1 M13 3v5h5 M18 15a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0m-1 2.5 4 4',
   back: 'M19 12H5m7 7-7-7 7-7', file: 'M6 3h8l4 4v14H6z M14 3v5h4',
   folder: 'M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z M3 9h18',
   bold: 'M6 4h7a4 4 0 0 1 0 8H6z M6 12h8a4 4 0 0 1 0 8H6z',
@@ -371,7 +375,7 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   const crumb=el('div','ve-crumb')
   crumb.append(icon('board'),el('span','',tr('Холст','Canvas')))
   let boardDoc=normalizeBoard(note.board), summary=boardSummary(boardDoc), relations=noteRelations(note)
-  let finished=false, closePending, navigating=false, savedTitle=title.value
+  let finished=false, closePending, navigating=false, savedTitle=title.value, localFind
   async function navigateTo(id){
     if(navigating||!onOpenNote)return
     navigating=true
@@ -391,19 +395,47 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   title.oninput=emit
   const back=button(backLabel,'back',goBack,true)
   head.append(back,el('span','ve-head-divider'),crumb,title,saveIndicator ?? el('span','ve-spacer'))
+  const findBtn=button(shortcutLabel(tr('Найти в заметке (Ctrl+F)','Find in note (Ctrl+F)')),'findInNote',()=>localFind.open())
+  findBtn.setAttribute('aria-keyshortcuts',shortcutAria('Ctrl+F'))
+  findBtn.onmousedown=e=>e.preventDefault()
+  head.append(findBtn)
   if(onSearch)head.append(noteSearchButton(onSearch))
   if(agentButton)head.append(agentButton)
   if(manageProtection)head.append(notePrivacyButton(manageProtection,isProtected))
   head.append(details.toggle)
   const tasks=mountAgentTaskList(note.id,notes,{...agentTaskActions,openNote:navigateTo})
   workspace.append(host,details.panel);root.append(head,workspace,tasks.element);document.body.append(root)
-  const board=mountBoard(host,{document:boardDoc,onFileMenu:openBoardFiles,textAreaDefaults,
+  const board=mountBoard(host,{document:boardDoc,noteTitle:title,onFileMenu:openBoardFiles,textAreaDefaults,
     mountRichText:(host,options)=>openEditor({
       note:{id:note.id,body:options.body,plain:options.text},notes,
       onChange:options.onChange,onOpenNote:onOpenNote && navigateTo,embed:{...options,host}
     }),onChange:doc=>{
-    boardDoc=doc;summary=boardSummary(doc);emit()
+    boardDoc=doc;summary=boardSummary(doc);emit();localFind?.refresh()
   }})
+  localFind=mountNoteFind(root,{
+    records:()=>[{id:'title',text:title.value},...board.findRecords()],
+    selection(){
+      if(document.activeElement!==title)return board.findSelection()
+      const from=title.selectionStart,to=title.selectionEnd
+      return {id:'title',from,to,text:title.value.slice(from,to)}
+    },
+    paint(matches,index,{reveal}){
+      const match=matches[index]
+      board.paintFind(matches,index,reveal)
+      if(match?.id==='title')searchReveal.reveal({kind:'title',start:match.from,end:match.to},{persistent:true,scrollTo:reveal})
+      else searchReveal.clear()
+    },
+    focus(match){
+      if(match?.id==='title'){
+        title.focus({preventScroll:true})
+        title.setSelectionRange(match.from,match.to)
+      }else board.focus()
+    },
+    replace(edits){
+      const titleEdits=edits.filter(edit=>edit.id==='title')
+      board.replaceFind(edits.filter(edit=>edit.id!=='title'),titleEdits.length?replaceNoteString(title.value,titleEdits):undefined)
+    }
+  })
   function focus(){
     if(!title.value)title.focus()
     else board.focus()
@@ -419,7 +451,7 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
       if(title.value!==savedTitle)emit()
       if(!await board.prepareClose())return false
       if(!await finishNoteSession(root,beforeClose))return false
-      searchReveal.clear();tagNav.destroy();board.destroy();root.remove();finished=true
+      localFind.destroy();searchReveal.clear();tagNav.destroy();board.destroy();root.remove();finished=true
       previousFocus?.focus?.({preventScroll:true})
       onClose?.(reason)
       return true
@@ -433,8 +465,9 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   root.addEventListener('keydown',e=>{
     if(e.defaultPrevented||e.isComposing||e.keyCode===229)return
     const direction=historyDirection(e)
-    if(direction &&
-        !host.contains(e.target) && !e.target.closest('dialog,input,select,textarea,[contenteditable="true"]')){
+    if(direction && !host.contains(e.target) &&
+        (!e.target.closest('dialog,input,select,textarea,[contenteditable="true"]') ||
+          e.target===title && board.hasTitleHistory(direction==='redo'))){
       e.preventDefault();e.stopPropagation()
       board.undo(direction==='redo')
       return
@@ -471,7 +504,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   const titleBox = el('textarea','ve-title')
   titleBox.rows=1; titleBox.placeholder=tr('Без названия','Untitled');titleBox.setAttribute('aria-label',tr('Название заметки','Note title'));titleBox.value=title
   const toolbar=el('div','ve-toolbar'), content=el('div','ve-content'), count=el('span','ve-count'), message=el('span','ve-message')
-  let privacyControl, addingCredentials=false
+  let privacyControl, localFind, addingCredentials=false
   toolbar.setAttribute('role','group')
   toolbar.setAttribute('aria-label',tr('Форматирование текста','Text formatting'))
   message.setAttribute('role','status')
@@ -482,6 +515,28 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     visibleTop:()=>embed?0:toolbar.getBoundingClientRect().bottom,
     moveVertically,reveal:revealTextCaret,
   })
+  function findSelection(){
+    const field=document.activeElement
+    if(field===titleBox || field?.matches('.ve-code-source') && blockRefs[active]?.contains(field)){
+      const from=field.selectionStart,to=field.selectionEnd
+      return {id:field===titleBox?'title':String(active),from,to,text:field.value.slice(from,to)}
+    }
+    if(!content.contains(field) && !toolbar.contains(field))return null
+    const range=selectedTextRange()
+    if(range){
+      const ranges=[]
+      for(let index=range.start.index;index<=range.end.index;index++){
+        const text=blockText(body[index])
+        const from=index===range.start.index?range.start.offset:0,to=index===range.end.index?range.end.offset:text.length
+        ranges.push({id:String(index),from,to,text:text.slice(from,to)})
+      }
+      if(ranges.length===1)return ranges[0]
+      return {ranges,text:ranges.map(range=>range.text).join('\n')}
+    }
+    const mark=currentSelection()
+    return mark && textTypes.has(body[mark.index]?.type)
+      ? {id:String(mark.index),from:mark.start,to:mark.end,text:''} : null
+  }
   function selectedTextRange(){return textSelection.selected()}
   function selectTextRange(anchor,focus){textSelection.select(anchor,focus)}
   function copyTextRange(event,range){
@@ -509,14 +564,14 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   if(!embed)tagNav.trackTitle(titleBox)
   const searchReveal=createSearchReveal({root,scroll:embed?content:scroll,title:titleBox,focusBlock,
     visibleTop:embed?undefined:()=>toolbar.getBoundingClientRect().bottom,
-    onSearchPoint:embed?.onSearchPoint,blockAt(index){
+    onSearchPoint:embed?.onSearchPoint,blockAt(index,persistent){
     const block=body[index],row=blockRefs[index]
     if(!row||!block)return null
     if(block.type==='code')return {node:row.querySelector('.ve-code-mirror'),input:row.querySelector('.ve-code-source')}
     if(!textTypes.has(block.type))return null
     // A native line break in a still-open contenteditable may currently be a
     // <br>. Restore the saved runs before mapping its searchable text offsets.
-    if(row.textContent!==blockText(block)){row.replaceChildren();appendRuns(row,block.runs);tagNav.paint(row)}
+    if(!persistent && row.textContent!==blockText(block)){row.replaceChildren();appendRuns(row,block.runs);tagNav.paint(row)}
     return {node:row}
   }})
   const resizeTitle=()=>{
@@ -600,6 +655,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     else onChange?.(point?{...data,...point}:data)
     checkpoint=false
     indicators(data)
+    localFind?.refresh()
   }
   function refreshEmbeddedHistory(){
     const available=embed.historyState()
@@ -683,7 +739,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(finished)return
     removeFloatingTools?.()
     stopColorPicker?.()
-    finished=true;textSelection.destroy();searchReveal.clear();tagNav.destroy();sizeObserver.disconnect()
+    finished=true;localFind?.destroy();textSelection.destroy();searchReveal.clear();tagNav.destroy();sizeObserver.disconnect()
     for(const v of inlineViews.values())v.destroy()
     inlineViews.clear()
     document.removeEventListener('selectionchange',syncTools)
@@ -1541,12 +1597,14 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   const tableBtn=button(tr('Вставить таблицу','Insert table'),'table',()=>insertInline(true))
   const codeBtn=button(tr('Вставить блок кода','Insert code block'),'code',()=>insertCode())
   const credentialsBtn=!embed && manageProtection?button(tr('Вставить логины и пароли','Insert logins and passwords'),'key',()=>insertCredentials()):null
+  const findBtn=!embed && button(shortcutLabel(tr('Найти в заметке (Ctrl+F)','Find in note (Ctrl+F)')),'findInNote',()=>localFind.open())
+  if(findBtn)findBtn.setAttribute('aria-keyshortcuts',shortcutAria('Ctrl+F'))
   const colorBtn=button(tr('Цвет текста','Text color'),'color',colors),linkBtn=button(tr('Вставить ссылку','Insert link'),'link',()=>linkDialog())
   linkBtn.title+=' ('+shortcutLabel('Ctrl+K')+')'
   for(const [control,key] of [[boldBtn,'Ctrl+B'],[italicBtn,'Ctrl+I'],[linkBtn,'Ctrl+K']])control.setAttribute('aria-keyshortcuts',shortcutAria(key))
   const folderBtn=button(tr('Ссылка на папку','Link to folder'),'folder',insertFolder)
   const outdentBtn=button(tr('Уменьшить отступ','Decrease indent'),'outdent',()=>indent(-1)),indentBtn=button(tr('Увеличить отступ','Increase indent'),'indent',()=>indent(1))
-  toolbar.append(kind,el('span','ve-divider'),taskFormats,el('span','ve-divider'),boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,el('span','ve-divider'),outdentBtn,indentBtn,el('span','ve-divider'),imageBtn,...(embed?[]:[sketchBtn,tableBtn]),codeBtn,...(credentialsBtn?[credentialsBtn]:[]),el('span','ve-spacer'),undoBtn,redoBtn)
+  toolbar.append(kind,el('span','ve-divider'),taskFormats,el('span','ve-divider'),boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,el('span','ve-divider'),outdentBtn,indentBtn,el('span','ve-divider'),imageBtn,...(embed?[]:[sketchBtn,tableBtn]),codeBtn,...(credentialsBtn?[credentialsBtn]:[]),el('span','ve-spacer'),...(findBtn?[findBtn]:[]),undoBtn,redoBtn)
   toolbar.addEventListener('mousedown',e=>{if(e.target.closest('button'))e.preventDefault()})
   function syncTools(){
     const b=body[active]
@@ -1672,8 +1730,8 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       }
     })
     render()
-    return {focus:()=>focusBlock(active,blockText(body[active]).length),flush,prepareClose:flush,destroy,overflowHeight,caretBounds,
-      refreshHistory:refreshEmbeddedHistory,revealSearchMatch:target=>searchReveal.reveal(target),
+    return {focus:()=>focusBlock(active,blockText(body[active]).length),flush,prepareClose:flush,destroy,overflowHeight,caretBounds,findSelection,
+      refreshHistory:refreshEmbeddedHistory,revealSearchMatch:(target,options)=>searchReveal.reveal(target,options),clearSearchMatch:()=>searchReveal.clear(),
       update(next){
         if(next?.length && body!==next){
           const focused=content.contains(document.activeElement), mark=focused && currentSelection()
@@ -1694,6 +1752,93 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   main.append(titleBox,toolbar,content,tasks.element)
   layout.append(main,details.panel);scroll.append(layout);root.append(head,scroll,filePicker)
   document.body.append(root);sizeObserver.observe(titleBox);sizeObserver.observe(toolbar);document.addEventListener('selectionchange',syncTools)
+  let paintedMatches,paintedPage,clearInlineFind
+  localFind=mountNoteFind(root,{
+    records:()=>[{id:'title',text:title},...documentFindRecords(body)],
+    selection:findSelection,
+    paint(matches,activeIndex,{reveal=true}={}){
+      clearInlineFind?.();clearInlineFind=null
+      // Native ranges paint behind editable text and syntax tokens without touching saved markup.
+      // Navigation/counts/replacements use all matches. Keep only the current page
+      // of passive native ranges when a large code block contains a common term.
+      const pageSize=2000,page=Math.floor(Math.max(0,activeIndex)/pageSize)
+      if(paintedMatches!==matches || paintedPage!==page){
+        paintedMatches=matches;paintedPage=page
+        const registry=globalThis.CSS?.highlights
+        const titleInk=titleBox.parentElement?.querySelector('.ve-tag-ink')
+        const painted=matches.slice(page*pageSize,(page+1)*pageSize)
+        titleInk?.parentElement.classList.toggle('ve-find-title',painted.some(hit=>hit.id==='title'))
+        if(registry && globalThis.Highlight){
+          const highlight=new Highlight()
+          let previousId,cursor
+          for(const {id,from,to} of painted){
+            if(id!==previousId){
+              previousId=id
+              const row=blockRefs[Number(id)]
+              const node=id==='title'?titleInk:body[id]?.type==='code'?row?.querySelector('.ve-code-mirror'):row
+              cursor=node && textRangeCursor(node)
+            }
+            if(cursor && to>from)highlight.add(cursor(from,to))
+          }
+          if(highlight.size)registry.set('videron-find-match',highlight)
+          else registry.delete('videron-find-match')
+        }
+      }
+      const match=matches[activeIndex]
+      if(!match){searchReveal.clear();return}
+      const targetInline=inlineFindTarget(match.id)
+      if(targetInline){
+        searchReveal.clear()
+        const view=inlineRows.get(blockRefs[targetInline.index])
+        if(!view)return
+        if(reveal){details.uncoverNote();view.row.scrollIntoView({block:'nearest'})}
+        view.mount()
+        if(view.paintFind){
+          view.paintFind([{...match,id:targetInline.id}],0,reveal)
+          clearInlineFind=()=>view.paintFind([],-1,false)
+        }else{
+          const [id,,address]=JSON.parse(targetInline.id)
+          const cell=reveal?view.revealTableCell(id,address,true):
+            view.row.querySelector('[data-table-id="'+CSS.escape(id)+'"] [data-vt-addr="'+CSS.escape(address)+'"]')
+          if(cell){
+            if(reveal)cell.scrollIntoView({block:'nearest',inline:'nearest'})
+            cell.classList.add('vb-find-active')
+            clearInlineFind=()=>cell.classList.remove('vb-find-active')
+          }
+        }
+        return
+      }
+      const target=match.id==='title'?{kind:'title',start:match.from,end:match.to}
+        : {kind:'body',ranges:[{index:Number(match.id),start:match.from,end:match.to}]}
+      if(reveal && target.kind==='body')details.uncoverNote()
+      searchReveal.reveal(target,{persistent:true,scrollTo:reveal})
+    },
+    replace(edits){
+      if(!edits.length || finished)return
+      remember()
+      const titleChanges=edits.filter(edit=>edit.id==='title')
+      if(titleChanges.length){
+        title=replaceNoteString(title,titleChanges)
+        titleBox.value=title;resizeTitle()
+      }
+      const bodyChanges=edits.filter(edit=>edit.id!=='title')
+      if(bodyChanges.length){
+        const next=replaceFindDocument(body,bodyChanges)
+        // Keep mounted boards and workbook identities. Undo can then restore
+        // the old cells while retaining the viewport and peer formula links.
+        next.forEach((block,index)=>{
+          if(block!==body[index] && inlineIds.has(body[index]))inlineIds.set(block,inlineIds.get(body[index]))
+        })
+        body=next;render()
+      }
+      emit()
+    },
+    focus(match){
+      if(!match){focus();return}
+      if(match.id==='title'){titleBox.focus({preventScroll:true});titleBox.setSelectionRange(match.from,match.to)}
+      else focusBlock(inlineFindTarget(match.id)?.index??Number(match.id),match.from,match.to)
+    },
+  })
   render();details.sync();indicators(meta());resizeTitle()
   const focus=()=>{
     if(!title||body[0]?.type==='drawing'){titleBox.focus();if(!title)titleBox.select()}

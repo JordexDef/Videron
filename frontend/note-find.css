@@ -1,0 +1,40 @@
+.note-find {
+  position:absolute; z-index:18; inset-block-start:64px; inset-inline-end:12px;
+  display:grid; grid-template-columns:18px minmax(0,1fr); align-items:center; gap:3px;
+  width:max-content; max-width:calc(100% - 20px); padding:5px 6px 5px 2px;
+  color:var(--ve-text); background:var(--ve-popup,#222); border:1px solid var(--ve-line);
+  border-radius:7px; box-shadow:var(--ve-shadow,0 4px 14px #0004);
+  font:12px/1.3 var(--sans,"Segoe UI",sans-serif);
+}
+.note-find [data-find-action=expand] { grid-row:1 / span 2; width:18px; height:100%; min-height:26px; }
+.note-find [data-find-action=expand][aria-expanded=true] svg { transform:rotate(90deg); }
+.nf-row { grid-column:2; display:flex; align-items:center; min-width:0; gap:2px; }
+.nf-field {
+  display:flex; align-items:center; flex:0 1 225px; min-width:0; height:30px; padding-inline-end:2px;
+  color:var(--ve-text); background:var(--ve-bg); border:1px solid var(--ve-line); border-radius:4px;
+}
+.nf-field:focus-within { border-color:var(--ve-focus-line,#999); }
+.note-find .nf-input {
+  width:100%; min-width:26px; height:100%; padding:0 6px; border:0; outline:0;
+  color:inherit; background:transparent; box-shadow:none; font:inherit;
+}
+.note-find .nf-input::placeholder { color:var(--ve-placeholder,#979797); }
+.note-find .nf-input:focus-visible { outline:0; }
+.note-find .nf-button {
+  display:inline-flex; align-items:center; justify-content:center; flex:none; width:23px; height:24px;
+  padding:0; border:0; border-radius:3px; color:var(--ve-muted); background:transparent;
+  font:600 12px/1 var(--sans,"Segoe UI",sans-serif);
+}
+.note-find .nf-button svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round; }
+.note-find .nf-button:enabled:hover, .note-find .nf-button[aria-pressed=true] { color:var(--ve-text);background:var(--ve-pressed,#404044); }
+.note-find .nf-button:disabled { opacity:.35; }
+.note-find [data-find-action=wholeWord] { text-decoration:underline; text-underline-offset:2px; }
+.nf-count { min-width:3.7em; max-width:8em; overflow:hidden; margin:0 4px; color:var(--ve-muted); text-align:center; text-overflow:ellipsis; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.nf-row:has([aria-invalid=true]) .nf-count { color:var(--ve-error,#eab6a8); }
+.nf-replace-row .nf-field { width:225px; flex:0 1 225px; }
+@media (max-width:520px) {
+  .note-find { inset-inline:5px; max-width:calc(100% - 10px); padding-inline-end:3px; }
+  .nf-count { min-width:2.7em; max-width:5.5em; margin:0 1px; }
+  .note-find .nf-button { width:20px; }
+  .nf-field { flex-shrink:1; }
+}

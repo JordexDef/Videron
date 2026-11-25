@@ -24,6 +24,23 @@ test('one map stroke autosaves independently, including erasing while a write is
   assert.deepEqual(draftValue(tracker.prepare(space)),{mapInk:{edit:[{id:'frame',set:{glow:true}}]}});
 })
 
+test('undoing a bulk erasure in flight persists only restored strokes and their paint order',()=>{
+  const strokes=['back','first','middle','second','front'].map(id=>({id,type:'rect'}));
+  const space={notes:[],areas:[],mapInk:[...strokes]}, tracker=new WorkspaceRecords(space);
+  Object.defineProperty(strokes[2],'points',{enumerable:true,get(){throw Error('untouched drawing read')}});
+  space.mapInk=[strokes[0],strokes[2],strokes[4]];
+  tracker.mark({removedInk:['first','second']});
+  const erase=tracker.prepare(space);
+  assert.deepEqual(draftValue(erase),{mapInk:{remove:['first','second']}});
+
+  space.mapInk=[...strokes];tracker.mark({mapInk:[strokes[1],strokes[3]],mapInkOrder:true});
+  erase.commit();
+  const restore=tracker.prepare(space);
+  assert.deepEqual(draftValue(restore),{mapInk:{put:[strokes[1],strokes[3]],order:strokes.map(row=>row.id)}});
+  restore.commit();
+  assert.equal(tracker.prepare(space).patch,null);
+});
+
 test('editing one title neither reads nor transfers another note or plugin',()=>{
   const live=library(), [a,b]=live.spaces.personal.notes;
   live.plugins=[{html:'large plugin'}];

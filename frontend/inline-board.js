@@ -125,6 +125,7 @@ export function createInlineBoard(initial, callbacks) {
   update(initial)
   return {
     row, update, mount, setActive, key: callbacks.key,
+    paintFind:(matches,active,reveal)=>board?.paintFind(matches,active,reveal),
     revealTableCell: (id, address) => board?.revealTableCell(id, address),
     tableAt(target) {
       const id = target.closest('[data-vt-addr]')?.closest('[data-table-id]')?.dataset.tableId

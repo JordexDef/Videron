@@ -22,6 +22,7 @@ import {
 import { freehandPath, pressureSamples } from './freehand.js';
 import { alignDrag } from './board-alignment.js';
 import { richBlocks, richBlockText, richFrameStyle, richPlain } from './board-rich-text.js';
+import { canvasFindRecords, canvasFindSelection, canvasFindPainter, replaceCanvasMatches } from './canvas-note-find.js';
 import { taskMarker, taskStateOf } from './note-lists.js';
 import { taskTextContainer } from './task-preview.js';
 import { boardShapes as shapes } from './board-summary.js';
@@ -1131,9 +1132,14 @@ export function mountBoard(container, options = {}) {
     checkpoint = false;
     options.onChange?.(getDocument(), { checkpoint: record, structure });
   }
-  function commit(next, ids = null, newBackground = background, structure) {
-    if (next === elements) return;
-    remember(state());
+  function commit(next, ids = null, newBackground = background, structure, titleChange) {
+    if (next === elements && !titleChange) return;
+    const previous = state();
+    if (titleChange) {
+      previous.titleChange = titleChange;
+      options.noteTitle.value = titleChange.after;
+    }
+    remember(previous);
     lastTyping = null;
     if (ids) selection = new Set(ids);
     if (newBackground !== background) {
@@ -1186,7 +1192,13 @@ export function mountBoard(container, options = {}) {
       to = redo ? past : future,
       s = from.pop();
     if (!s) return;
-    to.push(state());
+    const inverse = state();
+    if (s.titleChange && options.noteTitle.value === s.titleChange.after) {
+      // Keep a later manual title edit when undoing a change to canvas text.
+      inverse.titleChange = {before:s.titleChange.after, after:s.titleChange.before};
+      options.noteTitle.value = s.titleChange.before;
+    }
+    to.push(inverse);
     elements = s.elements;
     background = s.background;
     selection = new Set(s.selection);
@@ -3172,8 +3184,24 @@ export function mountBoard(container, options = {}) {
   resize.observe(stage);
   draw();
   fit();
+  const paintFind = canvasFindPainter(views,tableUI,rect => bringRichPointIntoView(rect,Math.min(100,stage.clientHeight/3)));
   return {
     getDocument,
+    findRecords: () => canvasFindRecords(elements),
+    findSelection: () => canvasFindSelection(elements,selection,views),
+    paintFind,
+    replaceFind(edits, newTitle) {
+      const next = replaceCanvasMatches(elements,edits);
+      const resized = next.filter((item,i) => item.type === 'text' && !item.body && item.text !== elements[i].text);
+      const titleChange = newTitle !== undefined && options.noteTitle && newTitle !== options.noteTitle.value
+        ? {before:options.noteTitle.value, after:newTitle} : null;
+      commit(next,null,background,undefined,titleChange);
+      if (resized.length) updateTextHeights(resized);
+    },
+    hasTitleHistory(redo) {
+      const change = (redo ? future : past).at(-1)?.titleChange;
+      return !!change && options.noteTitle?.value === change.after;
+    },
     undo,
     revealTableCell(id, address) {
       setTool('select', false);

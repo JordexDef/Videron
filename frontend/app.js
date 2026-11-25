@@ -10,7 +10,7 @@ import { resolveMapMetrics, openMetricPicker, drawAreaMetric, drawNoteMetric } f
 import { areaDisplayName, areaPath, createArea, moveArea, descendantAreaIds, placeAreaNotes, releaseGridNotes, moveAreaGrid } from './areas.js';
 import { suggestGrid, slotAt } from './map-slots.js';
 import { DEFAULT_GRID_SPACING, MAX_GRID_SPACING, MIN_GRID_SPACING, fullGridIds, gridRowSpacing, gridSpacing, inSlot, isPinned } from './area-grid.js';
-import { rememberMapAction, lastMapAction, resizeGridWithHistory, reorderStageWithHistory, insertStageWithHistory, deleteStageWithHistory, deleteAreaWithHistory, editMapInk, groupMapItems, ungroupMapItems, moveMapGroup, undoMapAction } from './map-history.js';
+import { rememberMapAction, lastMapAction, resizeGridWithHistory, reorderStageWithHistory, insertStageWithHistory, deleteStageWithHistory, deleteAreaWithHistory, editMapInk, deleteMapInk, groupMapItems, ungroupMapItems, moveMapGroup, undoMapAction } from './map-history.js';
 import { mountMapInk } from './map-ink.js';
 import { areaPicker } from './area-picker.js';
 import { mountAreaDrag } from './area-drag.js';
@@ -892,6 +892,8 @@ function showHelp(){
     [tr('Отменить перенос или удаление','Undo a move or deletion'),'Ctrl Z'],
     [tr('Поиск с карты','Search from the map'),'Ctrl K'],
     [tr('Поиск из любого редактора','Search from any editor'),'Ctrl Shift F'],
+    [tr('Найти в открытой заметке','Find in the current note'),'Ctrl F'],
+    [tr('Заменить в открытой заметке','Replace in the current note'),isMacPlatform()?'⌥⌘F':'Ctrl H'],
     [tr('Открыть выбранную заметку','Open the selected note'),tr('Enter или двойной щелчок','Enter or double-click')],
     [tr('Действия и внешний вид','Actions and appearance'),tr('Правый щелчок','Right-click')],
     [tr('Выбрать заметки и рисунки на карте','Select notes and drawings on the map'),tr('Рамка или Ctrl / Shift + щелчок','Drag a box or Ctrl / Shift + click')],
@@ -1739,8 +1741,19 @@ function undoWorkspaceChange(){
   if(!change){
     notify(tr('Прежнее место больше недоступно.','The previous location is no longer available.'),undoButton());return;
   }
+  if(change.kind==='ink-delete'){
+    const restored=change.removed.map(({item})=>item);
+    dirty({mapInk:restored,mapInkOrder:true});
+    graph.refreshMapGroups();
+    if(showingMap()){
+      chooseTool('select');graph.changeSelection(new Set(),null,new Set(restored.map(item=>item.id)));
+      $('graph').focus({preventScroll:true});
+    }
+    graph.repaint();updateEmptyMap();
+    notify(tr('Изменение рисунка отменено','Drawing change undone'),undoButton());return;
+  }
   if(change.kind==='ink'){
-    dirty(change.before ? {mapInk:change.after?[change.before]:true} : {removedInk:change.id});
+    dirty(change.before ? {mapInk:[change.before],mapInkOrder:!change.after} : {removedInk:change.id});
     if(change.before?.mapGroupId!==change.after?.mapGroupId || (!change.before && graph.selectedInkIds.has(change.id)))graph.refreshMapGroups();
     ink?.refreshSelection();graph.repaint();updateEmptyMap();
     notify(tr('Изменение рисунка отменено','Drawing change undone'),undoButton());return;
@@ -2401,6 +2414,14 @@ function bindUI(){
         if(grid?.grid){e.preventDefault();deleteFolder(grid)}
         else if(graph.selectedInkIds.size && graph.selectedIds.size){
           e.preventDefault();notify(tr('Для удаления заметок выделите их отдельно.','Select the notes separately to delete them.'));
+        }else if(graph.selectedInkIds.size){
+          e.preventDefault();
+          const change=deleteMapInk(workspace(),graph.selectedInkIds);
+          if(change){
+            dirty({removedInk:change.removed.map(({item})=>item.id)});
+            graph.refreshMapGroups();graph.repaint();updateEmptyMap();
+            notify(tr('Удалено рисунков · {count}','Drawings deleted · {count}',{count:change.removed.length}),undoButton());
+          }
         }else if(graph.selectedIds.size){e.preventDefault();removeNotes([...graph.selectedIds])}
       }else if(!showingMap() && ($('list-stage').contains(e.target) || $('list-selection').contains(e.target))){
         const row=e.target.closest('[data-note-id]');

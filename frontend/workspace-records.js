@@ -88,7 +88,7 @@ function editRow(before, after, isNote) {
   return edit;
 }
 
-function diffRows(previous, rows, touched, isNote) {
+function diffRows(previous, rows, touched, isNote, checkOrder) {
   const put = [], edit = [], remove = [], updates = new Map();
   for (const row of touched ? touched.values() : rows) {
     if (!row) continue;
@@ -105,12 +105,13 @@ function diffRows(previous, rows, touched, isNote) {
   let order;
   if (touched) {
     for (const [id,row] of touched) if (row === null && previous.has(id)) remove.push(id);
-  } else {
+  }
+  if (!touched || checkOrder) {
     const ids = new Set(rows.map(row => row.id));
-    for (const id of previous.keys()) if (!ids.has(id)) remove.push(id);
+    if (!touched) for (const id of previous.keys()) if (!ids.has(id)) remove.push(id);
     // New records append in put order. Send an order only for insertion or reordering.
     const appended = [...previous.keys()].filter(id => ids.has(id));
-    for (const id of ids) if (!previous.has(id)) appended.push(id);
+    for (const row of put) appended.push(row.id);
     if (rows.some((row, i) => appended[i] !== row.id)) order = [...ids];
   }
   const patch = {};
@@ -140,6 +141,7 @@ export class WorkspaceRecords {
   clearMarks() {
     this.all = false;
     this.meta = false;
+    this.mapInkOrder = false;
     this.touched = {notes: new Map(), areas: new Map(), mapInk: new Map()};
   }
   mark(scope) {
@@ -147,7 +149,11 @@ export class WorkspaceRecords {
     if (!scope || scope.all) this.all = true;
     else if (!this.all) {
       if (scope.meta) this.meta = true;
-      if (scope.removedInk) this.touched.mapInk?.set(scope.removedInk, null);
+      if (scope.mapInkOrder) this.mapInkOrder = true;
+      if (scope.removedInk && this.touched.mapInk) {
+        for (const id of typeof scope.removedInk === 'string' ? [scope.removedInk] : scope.removedInk)
+          this.touched.mapInk.set(id,null);
+      }
       for (const key of collections) {
         if (scope[key] === true) this.touched[key] = null;
         else if (scope[key] && this.touched[key]) for (const row of scope[key]) this.touched[key].set(row.id, row);
@@ -163,7 +169,7 @@ export class WorkspaceRecords {
     }
     for (const key of collections) {
       if (!this.all && this.touched[key]?.size === 0) continue;
-      const result = diffRows(this.rows[key], space[key] ?? [], this.all ? null : this.touched[key], key === 'notes');
+      const result = diffRows(this.rows[key], space[key] ?? [], this.all ? null : this.touched[key], key === 'notes', key === 'mapInk' && this.mapInkOrder);
       if (Object.keys(result.patch).length) patch[key] = result.patch;
       commits.push(result.commit);
     }

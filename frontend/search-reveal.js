@@ -53,11 +53,12 @@ function titleMirror(input, layer) {
 // syntax mirror. They never enter selection, undo history, copying or saving.
 export function createSearchReveal({root, title, scroll, blockAt, focusBlock, onSearchPoint, visibleTop}) {
   let dismiss = () => {}
-  function reveal(target) {
+  function reveal(target, {persistent = false, scrollTo = true} = {}) {
     dismiss()
     if (!target) return
     const layer = document.createElement('div'), paint = document.createElement('div')
     layer.className = 've-search-flash'
+    if (persistent) layer.classList.add('ve-find-current')
     layer.setAttribute('aria-hidden','true')
     layer.append(paint)
     const ranges = []
@@ -76,7 +77,7 @@ export function createSearchReveal({root, title, scroll, blockAt, focusBlock, on
       }
     } else if (target.kind === 'body') {
       for (const {index,start,end} of target.ranges) {
-        const block = blockAt?.(index)
+        const block = blockAt?.(index, persistent)
         if (!block) continue
         add(block.node, start, end, block.input)
         focus ??= () => focusBlock(index, start)
@@ -84,7 +85,7 @@ export function createSearchReveal({root, title, scroll, blockAt, focusBlock, on
       if (ranges.length) (root.closest('.ve-canvas-editor') || root).append(layer)
     }
     if (!ranges.length) return
-    focus()
+    if (!persistent) focus()
 
     const first = ranges[0]
     const caret = first.range.cloneRange()
@@ -101,10 +102,12 @@ export function createSearchReveal({root, title, scroll, blockAt, focusBlock, on
       }
     }
     syncInner()
-    if (first.clip) { panTo(first.clip, bounds(), first.range.getBoundingClientRect()); syncInner() }
     const contentTop=target.kind==='body'?visibleTop:undefined
-    if (scroll) panTo(scroll, bounds(), first.range.getBoundingClientRect(),contentTop?.())
-    if (onSearchPoint) onSearchPoint(bounds())
+    if (scrollTo) {
+      if (first.clip) { panTo(first.clip, bounds(), first.range.getBoundingClientRect()); syncInner() }
+      if (scroll) panTo(scroll, bounds(), first.range.getBoundingClientRect(),contentTop?.())
+      if (onSearchPoint) onSearchPoint(bounds())
+    }
 
     let frame
     function draw() {
@@ -139,8 +142,8 @@ export function createSearchReveal({root, title, scroll, blockAt, focusBlock, on
       listeners.abort(); layer.remove()
       dismiss = () => {}
     }
-    const timer = setTimeout(dismiss, 2200)
-    for (const event of ['pointerdown','keydown','beforeinput']) root.addEventListener(event,dismiss,options)
+    const timer = persistent ? null : setTimeout(dismiss, 2200)
+    if (!persistent) for (const event of ['pointerdown','keydown','beforeinput']) root.addEventListener(event,dismiss,options)
     root.addEventListener('scroll', scheduleDraw, options)
     window.addEventListener('resize', scheduleDraw, options)
     draw()

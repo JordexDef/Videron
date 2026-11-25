@@ -48,6 +48,46 @@ export function editMapInk(space, id, before, after) {
   return true;
 }
 
+export function deleteMapInk(space, ids) {
+  const selected = new Set(ids), items = space.mapInk ?? [];
+  if (!selected.size) return null;
+  const kept = [], removed = [];
+  let endOfRun = 0;
+  for (const item of items) {
+    if (selected.has(item.id)) {
+      removed.push({item, at:kept.length, previous:kept.at(-1)?.id});
+    } else {
+      while (endOfRun < removed.length) removed[endOfRun++].next = item.id;
+      kept.push(item);
+    }
+  }
+  if (removed.length !== selected.size) return null;
+  space.mapInk = kept;
+  const action = {kind:'ink-delete', removed};
+  rememberMapAction(space,action);
+  return action;
+}
+
+function restoreMapInk(space, removed) {
+  const items = space.mapInk ?? [], indexes = new Map(items.map((item,i)=>[item.id,i]));
+  if (removed.some(({item})=>indexes.has(item.id))) return false;
+  // Preserve any edits or new strokes from another device. Use the original
+  // neighbours for each run, falling back to its offset when both disappeared.
+  const insertions = new Map();
+  for (const {item,at,previous,next} of removed) {
+    const index = indexes.get(next) ?? (indexes.has(previous) ? indexes.get(previous)+1 : Math.min(at,items.length));
+    if (!insertions.has(index)) insertions.set(index,[]);
+    insertions.get(index).push(item);
+  }
+  const restored = [];
+  for (let i=0;i<=items.length;i++) {
+    for (const item of insertions.get(i) ?? []) restored.push(item);
+    if (i<items.length) restored.push(items[i]);
+  }
+  space.mapInk = restored;
+  return true;
+}
+
 export function deleteAreaWithHistory(space, id) {
   return removeArea(space,id,change => rememberMapAction(space,{kind:'area-delete',...change}));
 }
@@ -131,6 +171,7 @@ export function undoMapAction(space) {
   const action = histories.get(space)?.pop();
   if (!action) return null;
   switch (action.kind) {
+    case 'ink-delete': return restoreMapInk(space,action.removed) ? action : null;
     case 'map-group':
     case 'map-ungroup':
     case 'map-group-move': return undoGroupChange(space,action) ? action : null;

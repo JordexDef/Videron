@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { moveAreaGrid, placeAreaNotes, releaseGridNotes } from '../frontend/areas.js';
 import { deleteNote } from '../frontend/note-deletion.js';
-import { deleteAreaWithHistory, editMapInk, lastMapAction, rememberMapAction, resizeGridWithHistory, undoMapAction } from '../frontend/map-history.js';
+import { deleteAreaWithHistory, deleteMapInk, editMapInk, lastMapAction, rememberMapAction, resizeGridWithHistory, undoMapAction } from '../frontend/map-history.js';
 
 const note = (id, areaId, x) => ({id,areaId,x,y:24,title:id,links:[]});
 
@@ -252,3 +252,24 @@ test('map drawing undo restores paint order and preserves concurrent strokes',()
   assert.equal(undoMapAction(space),null);
   assert.equal(space.mapInk[1].glow,true);
 })
+
+test('bulk drawing deletion has one undo and restores separate layers around surviving neighbours',()=>{
+  const items=['first','a','b','between','c','last'].map(id=>({id,type:'pen'}));
+  items[1].mapGroupId=items[2].mapGroupId='group';
+  const space={mapInk:[...items],notes:[{id:'a'}]};
+  assert.equal(deleteMapInk(space,['a','missing']),null);
+  const action=deleteMapInk(space,new Set(['c','b','a']));
+  assert.deepEqual(space.mapInk.map(i=>i.id),['first','between','last']);
+  const updated={...items[3],stroke:'red'},remote={id:'remote'};
+  space.mapInk=[updated,items[5],remote]; // A peer removed the first stroke and edited the middle one.
+  assert.equal(undoMapAction(space),action);
+  assert.deepEqual(space.mapInk,[items[1],items[2],updated,items[4],items[5],remote]);
+  assert.deepEqual(space.notes,[{id:'a'}]);
+  assert.equal(lastMapAction(space),undefined);
+
+  deleteMapInk(space,['a','b']);
+  space.mapInk.push({id:'b',type:'text',text:'Recreated remotely'});
+  const before=structuredClone(space.mapInk);
+  assert.equal(undoMapAction(space),null);
+  assert.deepEqual(space.mapInk,before);
+});

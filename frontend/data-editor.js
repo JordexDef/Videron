@@ -7,7 +7,7 @@ import {
 } from './vendor/codemirror/editor-core.js'
 import { tr, getLanguage } from './i18n.js'
 import { isLightTheme } from './theme.js'
-import { historyDirection, primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
+import { historyDirection, isMacPlatform, primaryCommand, shortcutAria, shortcutLabel } from './shortcuts.js'
 import { editorButton, noteRelations, noteDetails, notePrivacyButton, noteSearchButton,
   finishNoteSession, keepTabInEditor } from './editor.js'
 import { createTagNavigator, noteTags } from './note-tags.js'
@@ -204,7 +204,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   const tableButton = editorButton(tr('Таблица','Table'),null,showTable,true)
   textButton.dataset.dataView = 'text'; tableButton.dataset.dataView = 'table'
   mode.append(textButton,tableButton)
-  const find = editorButton(tr('Найти и заменить','Find and replace'),'search',findInText)
+  const find = editorButton(tr('Найти и заменить','Find and replace'),'findInNote',findInText)
   const undoButton = editorButton(tr('Отменить','Undo'),'undo',() => applyHistory(undo))
   const redoButton = editorButton(tr('Повторить','Redo'),'redo',() => applyHistory(redo))
   const divider = element('span','ve-divider')
@@ -315,6 +315,12 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
     } else view.requestMeasure()
   }
   function findInText() { showText(); openSearchPanel(view) }
+  function openReplacement() {
+    findInText()
+    const field=host.querySelector('.cm-search input[name="replace"]')
+    field?.focus({preventScroll:true})
+    field?.select()
+  }
   function applyTableTransaction(transaction) {
     tableState = transaction.state
     if (transaction.docChanged) { textScroll = undefined; docRevision++; scheduleFlush() }
@@ -446,6 +452,16 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   }
   async function navigateTo(id) { if (await close()) onOpenNote?.(id) }
   async function goBack() { if (await close('back')) onReturn?.() }
+  root.addEventListener('keydown',event => {
+    if (event.defaultPrevented || event.isComposing || event.keyCode===229 || event.shiftKey || root.inert ||
+        event.target.closest('dialog,[popover]')) return
+    const replace=primaryCommand(event) && event.code==='KeyH' ||
+      isMacPlatform() && event.metaKey && event.altKey && !event.ctrlKey && event.code==='KeyF'
+    if (replace) {
+      event.preventDefault(); event.stopPropagation()
+      if (!event.repeat) openReplacement()
+    }
+  },true)
   root.addEventListener('keydown',event => {
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
     if (primaryCommand(event)) {

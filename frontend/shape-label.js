@@ -72,7 +72,7 @@ export function createShapeLabel(wrap, onInput, onBlur, onKey) {
       if (field.value !== (item.label || '')) field.value = item.label || '';
     } else {
       display.textContent = box.lines.join('\n');
-      if (match?.text === item.label && performance.now() - match.time < 2200) paintMatch();
+      if (match?.text === item.label && (match.persistent || performance.now() - match.time < 2200)) paintMatch();
     }
   }
   function start() {
@@ -95,9 +95,9 @@ export function createShapeLabel(wrap, onInput, onBlur, onKey) {
     wrap.append(field); update(shape);
     field.focus({preventScroll:true}); field.select();
   }
-  function highlight(start, end) {
+  function highlight(start, end, persistent = false) {
     if (!shape.label || field) return;
-    match = {start, end, text:shape.label, time:performance.now()};
+    match = {start, end, text:shape.label, time:performance.now(), persistent};
     paintMatch();
   }
   function paintMatch() {
@@ -112,8 +112,8 @@ export function createShapeLabel(wrap, onInput, onBlur, onKey) {
       const from = Math.max(start - pos, 0), to = Math.min(end - pos, line.length);
       if (from < to) {
         const mark = document.createElement('span');
-        mark.className = 'vb-search-caption';
-        mark.style.animationDelay = (match.time - performance.now()) + 'ms';
+        mark.className = match.persistent ? 'vb-find-mark' : 'vb-search-caption';
+        if (!match.persistent) mark.style.animationDelay = (match.time - performance.now()) + 'ms';
         mark.textContent = line.slice(from, to);
         content.append(line.slice(0, from), mark, line.slice(to));
       } else content.append(line);
@@ -121,5 +121,5 @@ export function createShapeLabel(wrap, onInput, onBlur, onKey) {
     }
     display.replaceChildren(content);
   }
-  return {update, start, highlight, get field() { return field; }};
+  return {update, start, highlight, clearHighlight() {match = null; update(shape);}, get field() { return field; }};
 }

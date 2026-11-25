@@ -27,6 +27,11 @@ export function textLength(root) {
 }
 
 export function rangeInText(root, start, end = start) {
+  return textRangeCursor(root)(start,end)
+}
+
+// Reuse the walk for a sequence of non-overlapping matches in document order.
+export function textRangeCursor(root) {
   const doc = root.ownerDocument
   const walk = doc.createTreeWalker(root,NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,{
     acceptNode:node => node.nodeType === Node.TEXT_NODE || softBreak(node)
@@ -46,8 +51,10 @@ export function rangeInText(root, start, end = start) {
     }
     return [root,root.childNodes.length]
   }
-  const range = doc.createRange()
-  range.setStart(...point(start))
-  range.setEnd(...point(end))
-  return range
+  return (start,end) => {
+    const range = doc.createRange()
+    range.setStart(...point(start))
+    range.setEnd(...point(end))
+    return range
+  }
 }

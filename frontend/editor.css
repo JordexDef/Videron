@@ -106,6 +106,10 @@
 .ve-search-flash { position: fixed; inset: 0; z-index: 6; pointer-events: none; overflow: hidden; }
 .ve-search-flash > div:first-child { opacity: .44; animation: ve-search-fade 2.2s linear both; }
 .ve-search-flash i { position: absolute; border-radius: 2px; background: #e9bc73; }
+.ve-search-flash.ve-find-current > div:first-child { animation: none; opacity: 1; }
+.ve-find-current i { background: #e7ac4c55; outline: 1px solid #c79142; }
+::highlight(videron-find-match) { background-color: #daa44e40; }
+.ve-tag-field.ve-find-title .ve-tag-ink[hidden] { display: block !important; }
 .ve-search-measure { position: fixed; visibility: hidden; margin: 0; border: 0; }
 @keyframes ve-search-fade { 0%, 78% { opacity: .44; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .ve-search-flash > div:first-child { animation: none; } }

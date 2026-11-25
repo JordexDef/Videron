@@ -541,17 +541,17 @@ export function makeTableUI({
     selectRange(v, bounded);
   }
 
-  function revealSearchCell(id, sourceAddress) {
+  function revealSearchCell(id, sourceAddress, passive = false) {
     const v = views.get(id), at = parseAddress(sourceAddress);
     if (!v || !at || at.row >= v.item.rows || at.col >= v.item.cols) return null;
     const addr = addressOf(at.row, at.col);
-    if (isInteractive(v)) {
+    if (!passive && isInteractive(v)) {
       finishEdit();
       selectRange(v, addr);
-    } else v.root.focus({preventScroll:true});
+    } else if (!passive) v.root.focus({preventScroll:true});
     reveal(v, addr);
     const cell = v.cells.get(addr)?.cell;
-    if (cell) {
+    if (cell && !passive) {
       const tint = 'rgba(233,188,115,.44)';
       const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
       cell.animate([{backgroundColor:tint, offset:0}, {backgroundColor:tint, offset:reduced ? 1 : .78},
