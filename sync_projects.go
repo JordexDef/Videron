@@ -2,41 +2,19 @@ package main
 
 import (
 	"context"
-	"errors"
 	"strings"
-	"time"
 
 	"videron/internal/syncclient"
+	"videron/internal/syncworkspace"
 )
 
 type ServerProject = syncclient.Project
 type ServerProjectList = syncclient.ProjectList
 
-// Connection preferences belong to the working copy. An enrollment ticket can
-// come from a different copy of the same project with its own preference.
-func bindWorkingCopy(p *syncclient.Profile, dir string) error {
-	existing, err := loadProfile(dir)
-	if err != nil {
-		return err
-	}
-	if existing == nil {
-		p.ManualConnect = false
-		return nil
-	}
-	if !p.SameProject(existing) {
-		if p.Address == existing.Address && p.Pin != existing.Pin {
-			return syncclient.ErrCert
-		}
-		return syncclient.ErrSpace
-	}
-	p.ManualConnect = existing.ManualConnect
-	return nil
-}
-
 // Project management uses an unlocked, verified session. A legacy pairing
 // code still connects to its original default project via Connect/Join.
 func (a *App) projectProfile(ticket string) (syncclient.Profile, error) {
-	if !strings.HasPrefix(ticket, verificationTicketPrefix) {
+	if !syncworkspace.IsTicket(ticket) {
 		return syncclient.Profile{}, errServerTicket
 	}
 	return a.resolveServerTicket(ticket)
@@ -47,11 +25,7 @@ func (a *App) ListServerProjects(ticket string) (ServerProjectList, error) {
 	if err != nil {
 		return ServerProjectList{}, err
 	}
-	c := p.Client()
-	defer c.CloseIdleConnections()
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	return p.ListProjects(ctx, c)
+	return syncworkspace.ListProjects(p)
 }
 
 func (a *App) SelectServerProject(ticket, id string) (VerifiedSyncServer, error) {
@@ -59,15 +33,7 @@ func (a *App) SelectServerProject(ticket, id string) (VerifiedSyncServer, error)
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}
-	c := before.Client()
-	defer c.CloseIdleConnections()
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	p, err := before.SelectProject(ctx, c, id)
-	if err != nil {
-		return VerifiedSyncServer{}, err
-	}
-	return a.updateProjectTicket(ticket, before, p)
+	return a.serverTickets.SelectProject(ticket, before, id)
 }
 
 func (a *App) CreateServerProject(ticket, name string) (VerifiedSyncServer, error) {
@@ -75,15 +41,7 @@ func (a *App) CreateServerProject(ticket, name string) (VerifiedSyncServer, erro
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}
-	c := before.Client()
-	defer c.CloseIdleConnections()
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	p, err := before.CreateProject(ctx, c, ticket, name)
-	if err != nil {
-		return VerifiedSyncServer{}, err
-	}
-	return a.updateProjectTicket(ticket, before, p)
+	return a.serverTickets.CreateProject(ticket, before, name)
 }
 
 func (a *App) RenameServerProject(ticket, id, newName, expectedName string) (VerifiedSyncServer, error) {
@@ -94,15 +52,7 @@ func (a *App) RenameServerProject(ticket, id, newName, expectedName string) (Ver
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}
-	c := before.Client()
-	defer c.CloseIdleConnections()
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	p, err := before.RenameProject(ctx, c, id, newName, expectedName)
-	if err != nil {
-		return VerifiedSyncServer{}, err
-	}
-	return a.updateProjectTicket(ticket, before, p)
+	return a.serverTickets.RenameProject(ticket, before, id, newName, expectedName)
 }
 
 func (a *App) DeleteServerProject(ticket, id, expectedName string) error {
@@ -110,30 +60,7 @@ func (a *App) DeleteServerProject(ticket, id, expectedName string) error {
 	if err != nil {
 		return err
 	}
-	c := before.Client()
-	defer c.CloseIdleConnections()
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	p, err := before.DeleteProject(ctx, c, id, expectedName)
-	if err != nil {
-		return err
-	}
-	// The server already deleted the project, even if the ticket expired in flight.
-	_, _ = a.updateProjectTicket(ticket, before, p)
-	return nil
-}
-
-func (a *App) updateProjectTicket(ticket string, before, p syncclient.Profile) (VerifiedSyncServer, error) {
-	tickets := &a.serverTickets
-	tickets.mu.Lock()
-	defer tickets.mu.Unlock()
-	saved, ok := tickets.entries[ticket]
-	if !ok || time.Now().After(saved.expires) || saved.profile != before {
-		return VerifiedSyncServer{}, errServerTicket
-	}
-	saved.profile = p
-	tickets.entries[ticket] = saved
-	return verifiedServer(p, ticket), nil
+	return a.serverTickets.DeleteProject(ticket, before, id, expectedName)
 }
 
 // Reuse the protected credential for this connected folder. Confirm both the
@@ -149,7 +76,7 @@ func (a *App) ConnectedServerTicket(folder string) (VerifiedSyncServer, error) {
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}
-	p, err := loadProfile(dir)
+	p, err := syncworkspace.LoadProfile(dir)
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}
@@ -160,23 +87,66 @@ func (a *App) ConnectedServerTicket(folder string) (VerifiedSyncServer, error) {
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}
-	if lineage != p.Lineage {
-		return VerifiedSyncServer{}, syncclient.ErrSpace
+	return a.serverTickets.ConfirmCopy(ctx, generation, *p, lineage)
+}
+
+type VerifiedSyncServer = syncworkspace.VerifiedSyncServer
+
+var errServerTicket = syncworkspace.ErrTicket
+
+// A sync operation belongs to the vault session that initiated it. The caller
+// holds app.mu while reading a local record or committing an enrollment.
+type syncSession struct {
+	app        *App
+	generation uint64
+}
+
+func (a *App) syncSession() *syncSession {
+	return &syncSession{a, a.serverTickets.Generation()}
+}
+
+func (s *syncSession) check() error {
+	if !s.app.loaded {
+		return errLocked
 	}
-	c := p.Client()
-	defer c.CloseIdleConnections()
-	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
-	defer cancel()
-	m, err := p.ManifestSummary(ctx, c)
-	if errors.Is(err, syncclient.ErrProjectDeleted) {
-		p.ProjectDeleted = true
-		return a.issueServerTicket(*p, generation)
+	if s.app.serverTickets.Generation() != s.generation {
+		return errServerTicket
 	}
+	return nil
+}
+
+func (a *App) ticketContext() (context.Context, uint64, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.loaded {
+		return nil, 0, errLocked
+	}
+	ctx := a.ctx
+	// Capture the ticket generation while the unlocked state is still current.
+	// A lock during the network request invalidates its result, even after unlock.
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return ctx, a.serverTickets.Generation(), nil
+}
+
+func (a *App) VerifySyncServer(address, password string) (VerifiedSyncServer, error) {
+	ctx, generation, err := a.ticketContext()
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}
-	if m.Lineage != p.Lineage {
-		return VerifiedSyncServer{}, syncclient.ErrSpace
+	return a.serverTickets.Verify(ctx, generation, address, password)
+}
+
+func (a *App) DiscardSyncServerTicket(ticket string) {
+	a.serverTickets.Discard(ticket)
+}
+
+func (a *App) resolveServerTicket(input string) (syncclient.Profile, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.loaded {
+		return syncclient.Profile{}, errLocked
 	}
-	return a.issueServerTicket(*p, generation)
+	return a.serverTickets.Resolve(input)
 }

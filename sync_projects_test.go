@@ -6,11 +6,11 @@ import (
 
 	"os"
 	"slices"
-	"strings"
 	"testing"
 
 	"videron/internal/localprotect"
 	"videron/internal/syncclient"
+	"videron/internal/syncworkspace"
 )
 
 func TestClientSelectsAndReopensScopedProject(t *testing.T) {
@@ -106,7 +106,7 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 		t.Fatal("persisted project metadata", err)
 	}
 	for _, dir := range []string{first, second} {
-		file, err := profilePath(canonicalTestFolder(t, dir))
+		file, err := syncworkspace.ProfilePath(canonicalTestFolder(t, dir))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -241,7 +241,7 @@ func TestClientRenamesDeletesAndKeepsOfflineCopies(t *testing.T) {
 	if _, err = b.WaitSpaceServerChange(peer, cursor); !errors.Is(err, syncclient.ErrProjectDeleted) {
 		t.Fatal("watch tombstone", err)
 	}
-	if p, err := loadProfile(canonicalTestFolder(t, peer)); err != nil || p != nil {
+	if p, err := syncworkspace.LoadProfile(canonicalTestFolder(t, peer)); err != nil || p != nil {
 		t.Fatal("peer connection still active", err)
 	}
 	b.CloseFolderSpace(peer)
@@ -285,22 +285,5 @@ func TestClientRenamesDeletesAndKeepsOfflineCopies(t *testing.T) {
 	orphan := verify(a)
 	if _, err = a.SelectServerProject(orphan.Ticket, replacement.ProjectID); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestProjectDeletionPreservesReboundFolder(t *testing.T) {
-	original := syncclient.Profile{Address: "https://test.invalid:443", ProjectID: strings.Repeat("a", 64), Pin: strings.Repeat("b", 64), Lineage: strings.Repeat("c", 64), Token: strings.Repeat("d", 64)}
-	_, _ = testStore(t)
-	folder := t.TempDir()
-	other := original
-	other.ProjectID = strings.Repeat("f", 64)
-	if err := storeProfile(folder, other); err != nil {
-		t.Fatal(err)
-	}
-	if err := detachDeletedProject(folder, &original, syncclient.ErrProjectDeleted); !errors.Is(err, errChanged) {
-		t.Fatal(err)
-	}
-	if p, err := loadProfile(folder); err != nil || p == nil || p.ProjectID != other.ProjectID {
-		t.Fatal("newly rebound folder lost its connection", err)
 	}
 }

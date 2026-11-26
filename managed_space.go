@@ -2,10 +2,10 @@ package main
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 
 	"videron/internal/syncclient"
+	"videron/internal/syncworkspace"
 	"videron/internal/workspacestore"
 )
 
@@ -21,16 +21,7 @@ func (a *App) ManagedServerFolder(ticket string) (string, error) {
 	if !a.loaded {
 		return "", errLocked
 	}
-	catalog, err := workspacestore.CatalogPath()
-	if err != nil {
-		return "", err
-	}
-	id := hexID([]byte(profile.Pin + "/" + profile.ProjectID))
-	dir := filepath.Join(filepath.Dir(catalog), "spaces", "sync-"+id)
-	if err = os.MkdirAll(dir, 0700); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return syncworkspace.ManagedFolder(profile)
 }
 
 type SpaceMoveResult struct {
@@ -75,11 +66,11 @@ func (a *App) MoveFolderSpace(source, destination, catalog string) (result Space
 	if workspacestore.SessionID(active.Folder) != newID || active.Encrypted != (s.Key() != nil) {
 		return result, errInvalid
 	}
-	oldProfile, err := profilePath(oldDir)
+	oldProfile, err := syncworkspace.ProfilePath(oldDir)
 	if err != nil {
 		return result, err
 	}
-	newProfile, err := profilePath(dir)
+	newProfile, err := syncworkspace.ProfilePath(dir)
 	if err != nil {
 		return result, err
 	}

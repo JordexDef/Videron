@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"videron/internal/syncclient"
+	"videron/internal/syncworkspace"
 )
 
 func movedCatalog(t *testing.T, dir string, encrypted bool) string {
@@ -28,7 +29,7 @@ func TestMoveWorkingCopyPreservesStorageAndHistory(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		verified, err := a.issueServerTicket(profile, generation)
+		verified, err := a.serverTickets.Issue(profile, generation)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,7 +67,7 @@ func TestMoveWorkingCopyPreservesStorageAndHistory(t *testing.T) {
 	}
 	p.Lineage = before
 	profileDir := canonicalTestFolder(t, from)
-	if err = storeProfile(profileDir, p); err != nil {
+	if err = syncworkspace.StoreProfile(profileDir, p); err != nil {
 		t.Fatal(err)
 	}
 	main := stored(t, filepath.Join(from, folderSpaceFilename))
@@ -92,10 +93,10 @@ func TestMoveWorkingCopyPreservesStorageAndHistory(t *testing.T) {
 	if !bytes.Equal(main, stored(t, filepath.Join(to, folderSpaceFilename))) {
 		t.Fatal("encrypted main changed")
 	}
-	if p2, err := loadProfile(canonicalTestFolder(t, to)); err != nil || p2 == nil || *p2 != p {
+	if p2, err := syncworkspace.LoadProfile(canonicalTestFolder(t, to)); err != nil || p2 == nil || *p2 != p {
 		t.Fatal("profile missing", err)
 	}
-	if p2, err := loadProfile(profileDir); err != nil || p2 != nil {
+	if p2, err := syncworkspace.LoadProfile(profileDir); err != nil || p2 != nil {
 		t.Fatal("old profile retained", err)
 	}
 	if _, err = os.Stat(filepath.Join(from, folderSpaceFilename)); !errors.Is(err, os.ErrNotExist) {

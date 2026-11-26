@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -20,9 +22,15 @@ import (
 
 	"videron/internal/syncclient"
 	"videron/internal/syncclient/synctest"
+	"videron/internal/syncworkspace"
 	"videron/internal/vault"
 	"videron/internal/workspacestore"
 )
+
+func hexID(data []byte) string {
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
 
 type uploadRecorder func(*http.Request) (*http.Response, error)
 
@@ -118,7 +126,7 @@ func TestJoinCommitsOnlyInOriginalSession(t *testing.T) {
 			}))
 			defer remote.Close()
 			profile := syncclient.Profile{Address: remote.URL, Pin: hexID(remote.Certificate().Raw), Token: strings.Repeat("1", 64)}
-			ticket, err := a.issueServerTicket(profile, a.serverTickets.currentGeneration())
+			ticket, err := a.serverTickets.Issue(profile, a.serverTickets.Generation())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -130,7 +138,7 @@ func TestJoinCommitsOnlyInOriginalSession(t *testing.T) {
 			if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
 				t.Fatal("interrupted join left local files", entries, err)
 			}
-			if p, err := loadProfile(canonicalTestFolder(t, dir)); err != nil || p != nil {
+			if p, err := syncworkspace.LoadProfile(canonicalTestFolder(t, dir)); err != nil || p != nil {
 				t.Fatal("interrupted join saved a connection", err)
 			}
 		})
@@ -163,7 +171,7 @@ func TestConnectRechecksSessionBeforePublishing(t *testing.T) {
 	if err := a.ConnectSpaceServer(dir, code); !errors.Is(err, errServerTicket) {
 		t.Fatal("connect completed in a different session", err)
 	}
-	if p, err := loadProfile(canonicalTestFolder(t, dir)); err != nil || p != nil {
+	if p, err := syncworkspace.LoadProfile(canonicalTestFolder(t, dir)); err != nil || p != nil {
 		t.Fatal("interrupted connect saved a profile", err)
 	}
 }
@@ -325,7 +333,7 @@ func TestSyncSaveDuringObjectUpload(t *testing.T) {
 	})}
 	for pass := 1; pass <= 2; pass++ {
 		m := syncclient.Manifest{Lineage: lineage, Files: maps.Clone(files)}
-		if err := p.Exchange(client, folder, m, a.syncSession().transferRecord, workspacestore.PublishNewFile); err != nil {
+		if err := p.Exchange(client, folder, m, a.syncSession().TransferRecord, workspacestore.PublishNewFile); err != nil {
 			t.Fatal(err)
 		}
 		if revisions != pass {
@@ -478,12 +486,12 @@ func TestLiveSyncTwoDesktops(t *testing.T) {
 		t.Fatal(err)
 	}
 	profileDir := canonicalTestFolder(t, copyDir)
-	legacy, err := loadProfile(profileDir)
+	legacy, err := syncworkspace.LoadProfile(profileDir)
 	if err != nil || legacy == nil || legacy.Transport != syncclient.TransportDirect || legacy.LastSync <= 0 {
 		t.Fatal("pairing link did not persist actual connection details", err)
 	}
 	legacy.Transport, legacy.LastSync = "", 0
-	if err = storeProfile(profileDir, *legacy); err != nil {
+	if err = syncworkspace.StoreProfile(profileDir, *legacy); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := b.ServerConnection(copyDir); err != nil || info.Address != first.Address || info.Transport != "" || info.LastSync != 0 {
@@ -703,7 +711,7 @@ func TestRejoinWorkingFolder(t *testing.T) {
 				if err = b.JoinSpaceServer(verified.Ticket, copyDir); !errors.Is(err, errLocked) {
 					t.Fatal("encrypted rejoin must authenticate the document", err)
 				}
-				if p, err := loadProfile(profileDir); err != nil || p != nil {
+				if p, err := syncworkspace.LoadProfile(profileDir); err != nil || p != nil {
 					t.Fatal("locked candidate acquired a profile", err)
 				}
 				if _, err = b.OpenFolderSpace(copyDir, tc.password); err != nil {
@@ -761,7 +769,7 @@ func TestRejoinChecksCurrentServerAndDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	profileDir := canonicalTestFolder(t, dir)
-	profile, err := loadProfile(profileDir)
+	profile, err := syncworkspace.LoadProfile(profileDir)
 	if err != nil || profile == nil {
 		t.Fatal("missing original profile", err)
 	}
@@ -816,7 +824,7 @@ func TestRejoinChecksCurrentServerAndDocument(t *testing.T) {
 	if err = a.JoinSpaceServer(server.Code, dir); !errors.Is(err, syncclient.ErrSpace) {
 		t.Fatal("attached the old local folder to a replacement space", err)
 	}
-	last, err := loadProfile(profileDir)
+	last, err := syncworkspace.LoadProfile(profileDir)
 	if err != nil || last == nil || *last != *profile || !bytes.Equal(local, stored(t, main)) {
 		t.Fatal("failed reopen replaced main or profile", err)
 	}
@@ -838,7 +846,7 @@ func TestEncryptedSyncUploadBodies(t *testing.T) {
 		t.Fatal(err)
 	}
 	profileDir := canonicalTestFolder(t, folder)
-	p, err := loadProfile(profileDir)
+	p, err := syncworkspace.LoadProfile(profileDir)
 	if err != nil || p == nil {
 		t.Fatal("missing test profile", err)
 	}
@@ -877,7 +885,7 @@ func TestEncryptedSyncUploadBodies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = p.Exchange(client, profileDir, m, a.syncSession().transferRecord, workspacestore.PublishNewFile); err != nil {
+		if err = p.Exchange(client, profileDir, m, a.syncSession().TransferRecord, workspacestore.PublishNewFile); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"regexp"
 	"sync"
 
@@ -46,11 +44,6 @@ func (*storedNote) UnmarshalJSON(data []byte) error {
 }
 
 var workspaceStore = workspacestore.New[storedNote]()
-
-func hexID(data []byte) string {
-	digest := sha256.Sum256(data)
-	return hex.EncodeToString(digest[:])
-}
 
 func (a *App) Load() (string, error) {
 	a.mu.Lock()

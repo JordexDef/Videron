@@ -8,6 +8,7 @@ import (
 	"videron/internal/acp"
 	"videron/internal/agentmcp"
 	"videron/internal/desktop"
+	"videron/internal/syncworkspace"
 	"videron/internal/vault"
 	"videron/internal/workspacestore"
 
@@ -20,7 +21,7 @@ type App struct {
 	agentRuns            acp.Runs
 	mu                   sync.Mutex
 	serverMu             sync.Mutex
-	serverTickets        syncServerTickets
+	serverTickets        syncworkspace.Tickets
 	ctx                  context.Context
 	closeGuard           bool
 	loaded               bool
@@ -49,7 +50,7 @@ func (a *App) sessionLocked(ctx context.Context) {
 	a.revokingFolderKeys.Store(true)
 	a.sessionLockPending.Store(true)
 	a.ResetAgentConnections()
-	a.serverTickets.reset()
+	a.serverTickets.Reset()
 	if a.sessionLockListening.Load() {
 		go runtime.EventsEmit(ctx, "videron:session-lock")
 	}
@@ -89,7 +90,7 @@ func (a *App) dropKeys() {
 	a.catalog.ClearIndex()
 	// A pending connection carries a verified server credential. Expire it
 	// together with the vault session, including verifications still in flight.
-	a.serverTickets.reset()
+	a.serverTickets.Reset()
 	a.projectKey.Forget()
 	a.projectKey = nil
 	a.forgetRememberedNotes()

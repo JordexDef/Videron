@@ -1,11 +1,11 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 
 	"videron/internal/desktop"
 	"videron/internal/syncclient"
+	"videron/internal/syncworkspace"
 	"videron/internal/vault"
 	"videron/internal/workspacestore"
 )
@@ -241,10 +241,8 @@ func (a *App) DeleteFolderSpace(folder string) error {
 	id := workspacestore.SessionID(filepath.Dir(session.Path()))
 	a.forgetSuspendedFolder(id)
 	delete(a.folderSpaces, id)
-	if path, e := profilePath(filepath.Dir(session.Path())); e == nil {
-		// The document is already deleted. A credentials cleanup failure cannot roll back the file deletion.
-		_ = os.Remove(path)
-	}
+	// The document is already deleted. Credential cleanup does not roll it back.
+	_ = syncworkspace.RemoveProfile(filepath.Dir(session.Path()))
 	return nil
 }
 
