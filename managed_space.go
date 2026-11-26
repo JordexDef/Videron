@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 
+	"videron/internal/foldersession"
 	"videron/internal/syncclient"
 	"videron/internal/syncworkspace"
 	"videron/internal/workspacestore"
@@ -40,7 +41,7 @@ func (a *App) MoveFolderSpace(source, destination, catalog string) (result Space
 	if err != nil {
 		return result, err
 	}
-	dir, err := spaceDir(destination)
+	dir, err := foldersession.CanonicalFolder(destination)
 	if err != nil {
 		return result, err
 	}
@@ -49,7 +50,7 @@ func (a *App) MoveFolderSpace(source, destination, catalog string) (result Space
 	if oldID == newID {
 		return result, syncclient.ErrFolder
 	}
-	if a.folderSpaces[newID] != nil {
+	if a.folderSessions.At(dir) != nil {
 		return result, errSpaceExists
 	}
 	var library struct {
@@ -78,10 +79,6 @@ func (a *App) MoveFolderSpace(source, destination, catalog string) (result Space
 	if err != nil {
 		return result, err
 	}
-	a.forgetSuspendedFolder(newID)
-	delete(a.folderSpaces, oldID)
-	relocated := *s
-	relocated.Session = next
-	a.folderSpaces[newID] = &relocated
+	a.folderSessions.Relocate(oldDir, dir, next)
 	return SpaceMoveResult{KeptSource: keptSource}, nil
 }

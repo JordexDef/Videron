@@ -82,6 +82,7 @@ Keep one local desktop build at the path shown above. Close the running app befo
 | [internal/acp](internal/acp/) | ACP client protocol, agent process lifecycle and one-time permissions |
 | [internal/agentmcp](internal/agentmcp/) | Local MCP transport, saved agent pairings and per-note access |
 | [internal/desktop](internal/desktop/) | Window placement, session-lock notifications, native folder picker and file manager integration |
+| [internal/foldersession](internal/foldersession/) | Open and suspended folder workspace sessions and key lifetimes |
 | [internal/localprotect](internal/localprotect/) | Device-local credential protection shared by MCP pairing and sync profiles |
 | [internal/vault](internal/vault/) | Storage encryption, protected note validation and compatibility tests for the v1 file format |
 | [internal/workspacestore](internal/workspacestore/) | Local workspace catalog, folder workspace files, revision history and compatibility tests |

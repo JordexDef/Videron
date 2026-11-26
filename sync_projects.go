@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"videron/internal/foldersession"
 	"videron/internal/syncclient"
 	"videron/internal/syncworkspace"
 )
@@ -72,7 +73,7 @@ func (a *App) ConnectedServerTicket(folder string) (VerifiedSyncServer, error) {
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}
-	dir, err := spaceDir(folder)
+	dir, err := foldersession.CanonicalFolder(folder)
 	if err != nil {
 		return VerifiedSyncServer{}, err
 	}

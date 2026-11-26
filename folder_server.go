@@ -1,6 +1,7 @@
 package main
 
 import (
+	"videron/internal/foldersession"
 	"videron/internal/syncclient"
 	"videron/internal/syncworkspace"
 	"videron/internal/workspacestore"
@@ -20,7 +21,7 @@ func (a *App) useOpenFolder(folder string, action func(*workspacestore.Session, 
 	if err != nil {
 		return err
 	}
-	return action(s.Session, &s.connection)
+	return action(s.Session, &s.Connection)
 }
 
 // An upload or enrollment commit must still belong to the vault session that
@@ -55,7 +56,7 @@ func (a *App) openLineage(dir string) (string, error) {
 }
 
 func (a *App) ServerConnection(folder string) (ServerConnectionInfo, error) {
-	dir, err := spaceDir(folder)
+	dir, err := foldersession.CanonicalFolder(folder)
 	if err != nil {
 		return ServerConnectionInfo{}, err
 	}
@@ -79,7 +80,7 @@ func (a *App) ConnectSpaceServer(folder, code string) error {
 	if p.ProjectDeleted {
 		return syncclient.ErrProjectDeleted
 	}
-	dir, err := spaceDir(folder)
+	dir, err := foldersession.CanonicalFolder(folder)
 	if err != nil {
 		return err
 	}
@@ -90,7 +91,7 @@ func (a *App) SyncSpaceServer(folder string) (string, error) {
 	session := a.syncSession()
 	a.serverMu.Lock()
 	defer a.serverMu.Unlock()
-	dir, err := spaceDir(folder)
+	dir, err := foldersession.CanonicalFolder(folder)
 	if err != nil {
 		return "", err
 	}
@@ -98,7 +99,7 @@ func (a *App) SyncSpaceServer(folder string) (string, error) {
 }
 
 func (a *App) WaitSpaceServerChange(folder, cursor string) (string, error) {
-	dir, err := spaceDir(folder)
+	dir, err := foldersession.CanonicalFolder(folder)
 	if err != nil {
 		return "", err
 	}
@@ -113,13 +114,13 @@ func (a *App) DisconnectSpaceServer(folder string) error {
 	if !a.loaded {
 		return errLocked
 	}
-	dir, err := spaceDir(folder)
+	dir, err := foldersession.CanonicalFolder(folder)
 	if err != nil {
 		return err
 	}
 	var conn *syncworkspace.FolderConnection
-	if s := a.folderSpaces[workspacestore.SessionID(dir)]; s != nil {
-		conn = &s.connection
+	if s := a.folderSessions.At(dir); s != nil {
+		conn = &s.Connection
 	}
 	return syncworkspace.Disconnect(dir, conn)
 }
@@ -135,7 +136,7 @@ func (a *App) JoinSpaceServer(code, folder string) error {
 	if p.ProjectDeleted {
 		return syncclient.ErrProjectDeleted
 	}
-	dir, err := spaceDir(folder)
+	dir, err := foldersession.CanonicalFolder(folder)
 	if err != nil {
 		return err
 	}
@@ -147,7 +148,7 @@ func (a *App) MatchingServerFolders(code string, folders []string) ([]string, er
 	if err != nil {
 		return nil, err
 	}
-	return syncworkspace.SuggestWorkingCopies(p, folders, a.openFolderLineages, spaceDir)
+	return syncworkspace.SuggestWorkingCopies(p, folders, a.openFolderLineages, foldersession.CanonicalFolder)
 }
 
 func (a *App) openFolderLineages() (map[string]string, error) {
@@ -156,11 +157,7 @@ func (a *App) openFolderLineages() (map[string]string, error) {
 	if !a.loaded {
 		return nil, errLocked
 	}
-	open := make(map[string]string, len(a.folderSpaces))
-	for id, s := range a.folderSpaces {
-		open[id] = s.Lineage()
-	}
-	return open, nil
+	return a.folderSessions.Lineages(), nil
 }
 
 // WithFolder confirms the desktop session is still current while checking
@@ -173,7 +170,7 @@ func (session *syncSession) WithFolder(dir string, check func(*workspacestore.Se
 		return err
 	}
 	var current *workspacestore.Session
-	if s := a.folderSpaces[workspacestore.SessionID(dir)]; s != nil {
+	if s := a.folderSessions.At(dir); s != nil {
 		current = s.Session
 	}
 	return check(current)
@@ -183,16 +180,14 @@ func (session *syncSession) WithFolder(dir string, check func(*workspacestore.Se
 // The cleanup leaves any session opened during the transfer in place.
 func (session *syncSession) MountFolder(dir string, prepare func(*workspacestore.Session) (*workspacestore.Session, error)) (func(), error) {
 	a := session.app
-	var temporary *folderSpaceSession
-	id := workspacestore.SessionID(dir)
+	var temporary *foldersession.Session
 	err := session.WithFolder(dir, func(current *workspacestore.Session) error {
 		opened, err := prepare(current)
 		if err != nil {
 			return err
 		}
 		if current == nil {
-			temporary = &folderSpaceSession{Session: opened}
-			a.setSpaceSession(dir, temporary)
+			temporary = a.folderSessions.Install(dir, opened)
 		}
 		return nil
 	})
@@ -205,8 +200,6 @@ func (session *syncSession) MountFolder(dir string, prepare func(*workspacestore
 		}
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		if a.folderSpaces[id] == temporary {
-			delete(a.folderSpaces, id)
-		}
+		a.folderSessions.CloseIfCurrent(dir, temporary)
 	}, nil
 }

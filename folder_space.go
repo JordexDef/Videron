@@ -3,9 +3,8 @@ package main
 import (
 	"path/filepath"
 
-	"videron/internal/desktop"
+	"videron/internal/foldersession"
 	"videron/internal/syncworkspace"
-	"videron/internal/vault"
 	"videron/internal/workspacestore"
 )
 
@@ -17,99 +16,31 @@ var errSpaceExists = workspacestore.ErrExists
 
 type SpaceFolderInfo = workspacestore.SpaceFolderInfo
 
-// Folder grants and network caches belong to this desktop session.
-type folderSpaceSession struct {
-	*workspacestore.Session
-	discardKeyOnSuspend bool
-	connection          syncworkspace.FolderConnection
-}
-
-func spaceDir(folder string) (string, error) {
-	dir, err := desktop.ExistingFolder(folder)
-	if err != nil {
-		return "", err
-	}
-	dir, err = filepath.EvalSymlinks(dir)
-	if err != nil {
-		return "", desktop.ErrFolderAccess
-	}
-	return dir, nil
-}
-
 func (a *App) InspectSpaceFolder(folder string) (SpaceFolderInfo, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	var result SpaceFolderInfo
 	if !a.loaded {
-		return result, errLocked
+		return SpaceFolderInfo{}, errLocked
 	}
-	dir, err := spaceDir(folder)
-	if err != nil {
-		a.forgetSuspendedFolder(workspacestore.SessionID(folder))
-		return result, err
-	}
-
-	id := workspacestore.SessionID(dir)
-	result, err = workspaceStore.Inspect(dir, a.suspendedFolderKeys[id])
-	if !result.CanResume || err != nil {
-		a.forgetSuspendedFolder(id)
-	}
-	return result, err
-}
-
-func (a *App) setSpaceSession(dir string, session *folderSpaceSession) {
-	if a.folderSpaces == nil {
-		a.folderSpaces = make(map[string]*folderSpaceSession)
-	}
-	id := workspacestore.SessionID(dir)
-	a.forgetSuspendedFolder(id)
-	if old := a.folderSpaces[id]; old != nil {
-		old.Key().Forget()
-	}
-	a.folderSpaces[id] = session
+	return a.folderSessions.Inspect(workspaceStore, folder)
 }
 
 func (a *App) OpenFolderSpace(folder, password string) (string, error) {
-	return a.openFolderSpace(folder, password, false)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.loaded {
+		return "", errLocked
+	}
+	return a.folderSessions.Open(workspaceStore, folder, password)
 }
 
 func (a *App) ResumeFolderSpace(folder string) (string, error) {
-	return a.openFolderSpace(folder, "", true)
-}
-
-func (a *App) openFolderSpace(folder, password string, resume bool) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded || (resume && a.revokingFolderKeys.Load()) {
+	if !a.loaded {
 		return "", errLocked
 	}
-	dir, err := spaceDir(folder)
-	if err != nil {
-		a.forgetSuspendedFolder(workspacestore.SessionID(folder))
-		return "", err
-	}
-	id := workspacestore.SessionID(dir)
-	var key *vault.Key
-	if resume {
-		key = a.suspendedFolderKeys[id]
-		if key == nil {
-			return "", errLocked
-		}
-		delete(a.suspendedFolderKeys, id)
-	} else {
-		a.forgetSuspendedFolder(id)
-	}
-
-	opened, payload, err := workspaceStore.Open(dir, password, key)
-	if err != nil {
-		return "", err
-	}
-	if resume && a.revokingFolderKeys.Load() {
-		opened.Key().Forget()
-		return "", errLocked
-	}
-	a.setSpaceSession(dir, &folderSpaceSession{Session: opened})
-	return payload, nil
+	return a.folderSessions.Resume(workspaceStore, folder)
 }
 
 func (a *App) CreateFolderSpace(folder, payload, password string) error {
@@ -118,32 +49,14 @@ func (a *App) CreateFolderSpace(folder, payload, password string) error {
 	if !a.loaded {
 		return errLocked
 	}
-	dir, err := spaceDir(folder)
-	if err != nil {
-		return err
-	}
-
-	opened, err := workspaceStore.Create(dir, payload, password)
-	if err != nil {
-		return err
-	}
-	a.setSpaceSession(dir, &folderSpaceSession{Session: opened})
-	return nil
+	return a.folderSessions.Create(workspaceStore, folder, payload, password)
 }
 
-func (a *App) currentSpaceSession(folder string) (*folderSpaceSession, error) {
+func (a *App) currentSpaceSession(folder string) (*foldersession.Session, error) {
 	if !a.loaded {
 		return nil, errLocked
 	}
-	dir, err := spaceDir(folder)
-	if err != nil {
-		return nil, err
-	}
-	session := a.folderSpaces[workspacestore.SessionID(dir)]
-	if session == nil {
-		return nil, errLocked
-	}
-	return session, nil
+	return a.folderSessions.Current(folder)
 }
 
 func (a *App) SaveFolderSpace(folder, payload string) error {
@@ -157,71 +70,22 @@ func (a *App) SaveFolderSpace(folder, payload string) error {
 	return session.Save(payload)
 }
 
-func (a *App) folderKeyID(folder string) string {
-	// The canonical path returned by InspectSpaceFolder also works offline.
-	id := workspacestore.SessionID(folder)
-	if a.folderSpaces[id] == nil && a.suspendedFolderKeys[id] == nil {
-		if dir, err := spaceDir(folder); err == nil {
-			id = workspacestore.SessionID(dir)
-		}
-	}
-	return id
-}
-
-func (a *App) forgetSuspendedFolder(id string) {
-	a.suspendedFolderKeys[id].Forget()
-	delete(a.suspendedFolderKeys, id)
-}
-
-func (a *App) forgetSuspendedFolderKeys() {
-	for id := range a.suspendedFolderKeys {
-		a.forgetSuspendedFolder(id)
-	}
-}
-
 func (a *App) ForgetSuspendedFolderKeys() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.forgetSuspendedFolderKeys()
-	// A pending save still needs its live key. A concurrent workspace
-	// switch may finish after the lock event; never cache that key again.
-	for _, s := range a.folderSpaces {
-		s.discardKeyOnSuspend = true
-	}
+	a.folderSessions.ForgetSuspended()
 }
 
-// Keep only the derived key. Closed spaces cannot be edited or synced through
-// their old session; returning to one reopens the file from disk.
 func (a *App) SuspendFolderSpace(folder string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	id := a.folderKeyID(folder)
-	session := a.folderSpaces[id]
-	if session == nil {
-		return a.suspendedFolderKeys[id] != nil
-	}
-	delete(a.folderSpaces, id)
-	if session.Key() == nil || session.discardKeyOnSuspend || a.revokingFolderKeys.Load() {
-		session.Key().Forget()
-		return false
-	}
-	if a.suspendedFolderKeys == nil {
-		a.suspendedFolderKeys = make(map[string]*vault.Key)
-	}
-	a.suspendedFolderKeys[id] = session.Key().Clone()
-	session.Key().Forget()
-	return true
+	return a.folderSessions.Suspend(folder)
 }
 
 func (a *App) CloseFolderSpace(folder string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	id := a.folderKeyID(folder)
-	a.forgetSuspendedFolder(id)
-	if session := a.folderSpaces[id]; session != nil {
-		session.Key().Forget()
-		delete(a.folderSpaces, id)
-	}
+	a.folderSessions.Close(folder)
 }
 
 func (a *App) DeleteFolderSpace(folder string) error {
@@ -237,11 +101,10 @@ func (a *App) DeleteFolderSpace(folder string) error {
 	if err = session.Delete(); err != nil {
 		return err
 	}
-	id := workspacestore.SessionID(filepath.Dir(session.Path()))
-	a.forgetSuspendedFolder(id)
-	delete(a.folderSpaces, id)
+	dir := filepath.Dir(session.Path())
+	a.folderSessions.Close(dir)
 	// The document is already deleted. Credential cleanup does not roll it back.
-	_ = syncworkspace.RemoveProfile(filepath.Dir(session.Path()))
+	_ = syncworkspace.RemoveProfile(dir)
 	return nil
 }
 

@@ -10,7 +10,7 @@ type UnlockedNote = notesession.UnlockedNote
 // Workspace readiness can change while the key is being derived. Keep the
 // callback live so note access rechecks the Windows lock before granting it.
 func (a *App) canUnlockNote() bool {
-	return a.loaded && !a.sessionLockPending.Load() && !a.revokingFolderKeys.Load()
+	return a.loaded && !a.sessionLockPending.Load() && !a.folderSessions.Revoking()
 }
 
 func (a *App) UnlockNoteFor(spaceID, id, sealed, password string, minutes int) (UnlockedNote, error) {
@@ -87,7 +87,7 @@ func (a *App) editorHistoryKey(r EditorHistoryRef) (*vault.Key, error) {
 	case "note":
 		key = a.noteSession.EditorKey(r.Note)
 	case "folder":
-		if s := a.folderSpaces[r.FolderID()]; s != nil {
+		if s := a.folderSessions.At(r.FolderID()); s != nil {
 			key = s.Key()
 		}
 	case "project":

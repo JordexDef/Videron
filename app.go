@@ -8,6 +8,7 @@ import (
 	"videron/internal/acp"
 	"videron/internal/agentmcp"
 	"videron/internal/desktop"
+	"videron/internal/foldersession"
 	"videron/internal/notesession"
 	"videron/internal/syncworkspace"
 	"videron/internal/vault"
@@ -29,13 +30,11 @@ type App struct {
 	projectKey           *vault.Key
 	noteSession          notesession.NoteKeys
 	editorHistory        notesession.History
-	folderSpaces         map[string]*folderSpaceSession
-	suspendedFolderKeys  map[string]*vault.Key
+	folderSessions       foldersession.Manager
 	resumeNote           string
 	catalog              workspacestore.Catalog
 	sessionLockPending   atomic.Bool
 	sessionLockListening atomic.Bool
-	revokingFolderKeys   atomic.Bool
 	stopSessionMonitor   func()
 }
 
@@ -47,7 +46,7 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) sessionLocked(ctx context.Context) {
-	a.revokingFolderKeys.Store(true)
+	a.folderSessions.SetRevoking(true)
 	a.sessionLockPending.Store(true)
 	a.ResetAgentConnections()
 	a.serverTickets.Reset()
@@ -57,7 +56,7 @@ func (a *App) sessionLocked(ctx context.Context) {
 	// Show the lock screen immediately even if the storage mutex is busy.
 	a.ForgetRememberedNotes()
 	a.ForgetSuspendedFolderKeys()
-	a.revokingFolderKeys.Store(false)
+	a.folderSessions.SetRevoking(false)
 }
 
 // The WebView subscribes before consuming. The latch also covers its loading
@@ -94,11 +93,7 @@ func (a *App) dropKeys() {
 	a.projectKey.Forget()
 	a.projectKey = nil
 	a.noteSession.Clear()
-	a.forgetSuspendedFolderKeys()
-	for _, session := range a.folderSpaces {
-		session.Key().Forget()
-	}
-	clear(a.folderSpaces)
+	a.folderSessions.Clear()
 }
 
 func (a *App) EnableCloseGuard() {

@@ -82,6 +82,7 @@ go run -tags webkit2_41 github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -ta
 | [internal/acp](internal/acp/) | Клиентский протокол ACP, запуск и остановка агентов, разовые разрешения |
 | [internal/agentmcp](internal/agentmcp/) | Локальный транспорт MCP, сохранённые клиенты и доступ к отдельным заметкам |
 | [internal/desktop](internal/desktop/) | Положение окна, уведомления о блокировке сеанса, выбор и открытие папок в системе |
+| [internal/foldersession](internal/foldersession/) | Открытые и приостановленные папочные пространства, время жизни ключей |
 | [internal/localprotect](internal/localprotect/) | Защита локальных учётных данных для MCP-клиентов и профилей синхронизации |
 | [internal/vault](internal/vault/) | Шифрование хранилища, проверка защищённых заметок и тесты совместимости с форматом v1 |
 | [internal/workspacestore](internal/workspacestore/) | Локальный каталог, файлы папочных пространств, история правок и тесты совместимости |
