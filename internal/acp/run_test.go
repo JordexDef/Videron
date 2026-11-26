@@ -1,8 +1,10 @@
-package main
+package acp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,17 +88,23 @@ func TestACPFixture(t *testing.T) {
 	send(map[string]any{"jsonrpc": "2.0", "id": "fs", "method": "fs/read_text_file", "params": map[string]string{"sessionId": "s", "path": "unavailable"}})
 	denied := next()
 	require(denied.Error != nil && denied.Error.Code == -32601)
-	if mode == "cancel" || mode == "revoke" {
-		send(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": "s", "update": map[string]any{"sessionUpdate": "tool_call", "title": "Waiting for cancellation"}}})
+	if mode == "permission" || mode == "decline" || mode == "cancel_permission" {
+		send(map[string]any{"jsonrpc": "2.0", "id": "p", "method": "session/request_permission", "params": map[string]any{"sessionId": "s", "toolCall": map[string]string{"title": "Run the fixture test"}, "options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "forever", "kind": "allow_always", "name": "Always allow"}}}})
+		expected := `{"outcome":{"outcome":"cancelled"}}`
+		if mode == "permission" {
+			expected = `{"outcome":{"optionId":"once","outcome":"selected"}}`
+		}
+		permission := next()
+		require(string(permission.ID) == `"p"` && string(permission.Result) == expected)
+	}
+	if mode == "cancel" || mode == "revoke" || mode == "cancel_permission" {
+		if mode != "cancel_permission" {
+			send(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": "s", "update": map[string]any{"sessionUpdate": "tool_call", "title": "Waiting for cancellation"}}})
+		}
 		cancel := next()
 		require(cancel.Method == "session/cancel")
-		os.WriteFile(filepath.Join(setup.CWD, "did-cancel"), []byte("yes"), 0600)
+		require(os.WriteFile(filepath.Join(setup.CWD, "did-cancel"), []byte("yes"), 0600) == nil)
 		os.Exit(0)
-	}
-	if mode == "permission" {
-		send(map[string]any{"jsonrpc": "2.0", "id": "p", "method": "session/request_permission", "params": map[string]any{"sessionId": "s", "toolCall": map[string]string{"title": "Run the fixture test"}, "options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "forever", "kind": "allow_always", "name": "Always allow"}}}})
-		permission := next()
-		require(string(permission.Result) == `{"outcome":{"optionId":"once","outcome":"selected"}}`)
 	}
 	if mode == "failure" {
 		send(map[string]any{"jsonrpc": "2.0", "id": prompt.ID, "error": map[string]any{"code": -32001, "message": "Sign in first"}})
@@ -107,25 +115,20 @@ func TestACPFixture(t *testing.T) {
 	os.Exit(0)
 }
 
-func startACPFixture(t *testing.T, mode string) (*App, string, string) {
+func startACPFixture(t *testing.T, mode string) (*Runs, string, string, context.CancelFunc) {
 	t.Helper()
 	t.Setenv("VIDERON_TEST_ACP", mode)
-	a := &App{loaded: true}
-	access, err := a.OpenAgentAccess(true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(a.ResetAgentConnections)
-	var grant struct{ ID string }
-	if err = json.Unmarshal([]byte(access), &grant); err != nil {
-		t.Fatal(err)
-	}
+	manager := new(Runs)
+	t.Cleanup(manager.Reset)
+	ctx, revoke := context.WithCancel(context.Background())
+	t.Cleanup(revoke)
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	config := acpConfig{Command: exe, Args: []string{"-test.run=^TestACPFixture$"}, CWD: dir, Prompt: "fixture idea", GrantID: grant.ID}
+	const grantID = "fixture-grant"
+	config := acpConfig{Command: exe, Args: []string{"-test.run=^TestACPFixture$"}, CWD: dir, Prompt: "fixture idea", GrantID: grantID}
 	if mode == "resume" {
 		config.Resume = "s"
 	}
@@ -133,24 +136,39 @@ func startACPFixture(t *testing.T, mode string) (*App, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := a.StartAgentRun(string(data))
+	id, err := manager.Start(string(data), func(id string) (Grant, error) {
+		if id != grantID {
+			return Grant{}, errors.New("invalid fixture grant")
+		}
+		const token = "example-only-fixture-acp-token"
+		return Grant{
+			Context: ctx,
+			Token:   token,
+			MCPServer: map[string]any{
+				"name":    "videron",
+				"command": exe,
+				"env": []map[string]string{
+					{"name": "VIDERON_AGENT_ENDPOINT", "value": "http://127.0.0.1:1"},
+					{"name": "VIDERON_AGENT_TOKEN", "value": token},
+				},
+			},
+		}, nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { a.CloseAgentRun(id) })
-	return a, id, dir
+	t.Cleanup(func() { manager.Close(id) })
+	return manager, id, dir, revoke
 }
-func waitACP(t *testing.T, a *App, id string, predicate func(acpState) bool) acpState {
+
+func waitACP(t *testing.T, manager *Runs, id string, predicate func(State) bool) State {
 	t.Helper()
 	timeout := time.Now().Add(12 * time.Second)
-	var state acpState
+	var state State
 	for time.Now().Before(timeout) {
-		data, err := a.GetAgentRun(id)
+		var err error
+		state, err = manager.Get(id)
 		if err != nil {
-			t.Fatal(err)
-		}
-		state = acpState{}
-		if err = json.Unmarshal([]byte(data), &state); err != nil {
 			t.Fatal(err)
 		}
 		if predicate(state) {
@@ -164,78 +182,102 @@ func waitACP(t *testing.T, a *App, id string, predicate func(acpState) bool) acp
 	t.Fatalf("timed out: %+v", state)
 	return state
 }
+
 func TestACPScopedRunWithPermissionAndResume(t *testing.T) {
-	for _, mode := range []string{"permission", "resume", "failure", "cancel", "revoke", "redact"} {
+	for _, mode := range []string{"permission", "decline", "resume", "failure", "cancel", "cancel_permission", "revoke", "redact"} {
 		t.Run(mode, func(t *testing.T) {
-			a, id, dir := startACPFixture(t, mode)
+			manager, id, dir, revoke := startACPFixture(t, mode)
 			switch mode {
-			case "permission":
-				s := waitACP(t, a, id, func(s acpState) bool { return s.Status == "permission" })
+			case "permission", "decline":
+				s := waitACP(t, manager, id, func(s State) bool { return s.Status == "permission" })
 				if len(s.Permission.Options) != 1 || s.Permission.Options[0].ID != "once" {
 					t.Fatalf("permission: %+v", s.Permission)
 				}
-				if err := a.AnswerAgentPermission(id, s.Permission.ID, "forever"); err == nil {
+				if err := manager.AnswerPermission(id, s.Permission.ID, "forever"); err == nil {
 					t.Fatal("unexpected grant")
 				}
-				if err := a.AnswerAgentPermission(id, s.Permission.ID, "once"); err != nil {
+				option := "once"
+				if mode == "decline" {
+					option = ""
+				}
+				if err := manager.AnswerPermission(id, s.Permission.ID, option); err != nil {
 					t.Fatal(err)
 				}
-				if err := a.AnswerAgentPermission(id, s.Permission.ID, "once"); err == nil {
+				if err := manager.AnswerPermission(id, s.Permission.ID, option); err == nil {
 					t.Fatal("reused permission")
 				}
-			case "cancel", "revoke":
-				waitACP(t, a, id, func(s acpState) bool { return s.Activity == "Waiting for cancellation" })
+			case "cancel", "cancel_permission", "revoke":
+				var permissionID string
+				if mode == "cancel_permission" {
+					state := waitACP(t, manager, id, func(s State) bool { return s.Status == "permission" })
+					permissionID = state.Permission.ID
+				} else {
+					waitACP(t, manager, id, func(s State) bool { return s.Activity == "Waiting for cancellation" })
+				}
 				if mode == "revoke" {
-					a.CloseAgentAccess(a.noteAccess.current.id)
-				} else if err := a.StopAgentRun(id); err != nil {
+					revoke()
+				} else if err := manager.Stop(id); err != nil {
 					t.Fatal(err)
 				}
-				waitACP(t, a, id, func(s acpState) bool { return s.Status == "cancelled" })
+				state := waitACP(t, manager, id, func(s State) bool { return s.Status == "cancelled" })
+				if state.Permission != nil {
+					t.Fatal("permission still visible after cancellation")
+				}
+				if permissionID != "" && manager.AnswerPermission(id, permissionID, "once") == nil {
+					t.Fatal("answered a cancelled permission")
+				}
 				if _, err := os.Stat(filepath.Join(dir, "did-cancel")); err != nil {
 					t.Fatal("missing session/cancel", err)
 				}
 				return
 			case "redact":
-				state := waitACP(t, a, id, func(s acpState) bool { return s.Status == "permission" })
+				state := waitACP(t, manager, id, func(s State) bool { return s.Status == "permission" })
 				if state.Text != "Processing. Credential=[redacted]." || state.Activity != "Config [redacted]" || state.Permission.Title != "Inspect [redacted]" || state.Permission.Options[0].Name != "[redacted]" {
 					t.Fatal("credential was visible in run snapshot")
 				}
-				if err := a.AnswerAgentPermission(id, state.Permission.ID, "no"); err != nil {
+				if err := manager.AnswerPermission(id, state.Permission.ID, "no"); err != nil {
 					t.Fatal(err)
 				}
-				state = waitACP(t, a, id, func(s acpState) bool { return s.Status == "failed" })
+				state = waitACP(t, manager, id, func(s State) bool { return s.Status == "failed" })
 				if !strings.Contains(state.Error, "invalid config: [redacted]") {
 					t.Fatal("credential was visible in error")
 				}
 				return
 			case "failure":
-				s := waitACP(t, a, id, func(s acpState) bool { return s.Status == "failed" })
+				s := waitACP(t, manager, id, func(s State) bool { return s.Status == "failed" })
 				if !strings.Contains(s.Error, "Sign in first") {
 					t.Fatal(s.Error)
 				}
 				return
 			}
-			s := waitACP(t, a, id, func(s acpState) bool { return s.Status == "completed" })
+			s := waitACP(t, manager, id, func(s State) bool { return s.Status == "completed" })
 			if s.Text != "Processing. Complete." || s.SessionID != "s" || !s.Resumable {
 				t.Fatalf("%+v", s)
 			}
-			a.CloseAgentRun(id)
-			if _, err := a.GetAgentRun(id); err == nil {
+			manager.Close(id)
+			if _, err := manager.Get(id); err == nil {
 				t.Fatal("closed run still accessible")
 			}
 		})
 	}
 }
 func TestACPRequiresLiveGrantAndValidCommand(t *testing.T) {
-	a := &App{}
-	exe, _ := os.Executable()
+	manager := new(Runs)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingGrant := errors.New("missing fixture grant")
 	payload, _ := json.Marshal(acpConfig{Command: exe, GrantID: "unknown", Prompt: "fixture idea"})
-	if _, err := a.StartAgentRun(string(payload)); err == nil {
-		t.Fatal("missing grant")
+	if _, err := manager.Start(string(payload), func(string) (Grant, error) { return Grant{}, missingGrant }); !errors.Is(err, missingGrant) {
+		t.Fatalf("missing grant: %v", err)
 	}
 	for _, cmd := range []string{"", "./someScript", "cmd\nname"} {
 		payload, _ = json.Marshal(acpConfig{Command: cmd, GrantID: "none", Prompt: "fixture idea"})
-		if _, err := a.StartAgentRun(string(payload)); err == nil {
+		if _, err := manager.Start(string(payload), func(string) (Grant, error) {
+			t.Fatal("invalid command reached the grant binder")
+			return Grant{}, nil
+		}); err == nil {
 			t.Fatalf("invalid command %q", cmd)
 		}
 	}

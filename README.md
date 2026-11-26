@@ -79,6 +79,7 @@ Keep one local desktop build at the path shown above. Close the running app befo
 | --- | --- |
 | Repository root | Desktop entry point and Wails bindings |
 | [frontend](frontend/) | Note editors, map and other desktop UI |
+| [internal/acp](internal/acp/) | ACP client protocol, agent process lifecycle and one-time permissions |
 | [internal/vault](internal/vault/) | Storage encryption, protected note validation and compatibility tests for the v1 file format |
 | [internal/workspacestore](internal/workspacestore/) | Local workspace catalog, folder workspace files, revision history and compatibility tests |
 | [internal/workspacemerge](internal/workspacemerge/) | Three-way workspace merge, conflict choices and their unit tests |

@@ -174,7 +174,7 @@ func (a *App) CloseAgentAccess(id string) {
 		a.noteAccess.revoke(id)
 	}
 }
-func (a *App) ResetAgentConnections() { a.noteAccess.revoke(""); a.agentRuns.reset() }
+func (a *App) ResetAgentConnections() { a.noteAccess.revoke(""); a.agentRuns.Reset() }
 
 func (a *App) ResolveAgentCall(grant, request, result string, failed bool) {
 	s := &a.noteAccess

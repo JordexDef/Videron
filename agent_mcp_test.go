@@ -149,6 +149,17 @@ func TestAgentMCPGrantGuardsAndRevocation(t *testing.T) {
 	if _, err = a.acpGrant(g.id); err == nil {
 		t.Fatal("grant remained available")
 	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := json.Marshal(map[string]string{"command": exe, "grantId": g.id, "prompt": "Fixture only"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.StartAgentRun(string(config)); err == nil || err.Error() != "VD_AGENT_REVOKED" {
+		t.Fatal("ACP launch accepted a revoked grant", err)
+	}
 	newGrant, err := startNoteGrant(false, nil)
 	if err != nil {
 		t.Fatal(err)
