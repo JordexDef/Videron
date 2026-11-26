@@ -1,4 +1,4 @@
-package main
+package agentmcp
 
 import (
 	"crypto/ecdsa"
@@ -156,7 +156,8 @@ func (c agentClient) currentRoute() (agentRoute, error) {
 	return r, nil
 }
 
-func servePairedAgentStdio(input io.Reader, output io.Writer, c agentClient) error {
+func ServePairedStdio(input io.Reader, output io.Writer, id, key string) error {
+	c := agentClient{agentClientInfo: agentClientInfo{ID: id}, Key: key}
 	if c.ID == "" || c.Key == "" {
 		return errors.New("missing Videron client credentials")
 	}

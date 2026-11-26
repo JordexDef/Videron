@@ -8,15 +8,11 @@ import (
 
 func (a *App) StartAgentRun(configJSON string) (string, error) {
 	return a.agentRuns.Start(configJSON, func(id string) (acp.Grant, error) {
-		grant, err := a.acpGrant(id)
+		grant, err := a.noteAccess.ACPGrant(id)
 		if err != nil {
 			return acp.Grant{}, err
 		}
-		server, err := grant.mcpConfig()
-		if err != nil {
-			return acp.Grant{}, err
-		}
-		return acp.Grant{Context: grant.ctx, Token: grant.token, MCPServer: server}, nil
+		return acp.Grant{Context: grant.Context, Token: grant.Token, MCPServer: grant.MCPServer}, nil
 	})
 }
 

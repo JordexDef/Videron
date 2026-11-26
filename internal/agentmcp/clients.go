@@ -1,4 +1,4 @@
-package main
+package agentmcp
 
 import (
 	"crypto/rand"
@@ -13,15 +13,16 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"videron/internal/localprotect"
 	"videron/internal/workspacestore"
 )
 
 var (
-	errAgentClientName      = errors.New("VD_AGENT_CLIENT_NAME")
-	errAgentClientDuplicate = errors.New("VD_AGENT_CLIENT_DUPLICATE")
-	errAgentClientLimit     = errors.New("VD_AGENT_CLIENT_LIMIT")
-	errAgentClientUnknown   = errors.New("VD_AGENT_CLIENT_UNKNOWN")
-	errAgentClientStore     = errors.New("VD_AGENT_CLIENT_STORE")
+	ErrClientName       = errors.New("VD_AGENT_CLIENT_NAME")
+	ErrClientDuplicate  = errors.New("VD_AGENT_CLIENT_DUPLICATE")
+	errAgentClientLimit = errors.New("VD_AGENT_CLIENT_LIMIT")
+	ErrClientUnknown    = errors.New("VD_AGENT_CLIENT_UNKNOWN")
+	errAgentClientStore = errors.New("VD_AGENT_CLIENT_STORE")
 )
 
 type agentClientInfo struct {
@@ -72,7 +73,7 @@ func loadAgentClients() ([]agentClient, error) {
 		return nil, errAgentClientStore
 	}
 	defer clear(data)
-	raw, err := unprotectPairing(data)
+	raw, err := localprotect.Unprotect(data)
 	if err != nil {
 		return nil, errAgentClientStore
 	}
@@ -100,7 +101,7 @@ func saveAgentClients(clients []agentClient) error {
 	}
 	defer clear(raw)
 	// DPAPI on Windows; private directory and atomic 0600 file on Unix.
-	data, err := protectPairing(raw)
+	data, err := localprotect.Protect(raw)
 	if err != nil {
 		return errAgentClientStore
 	}
@@ -125,7 +126,7 @@ func findAgentClient(id string) (agentClient, error) {
 			return c, nil
 		}
 	}
-	return agentClient{}, errAgentClientUnknown
+	return agentClient{}, ErrClientUnknown
 }
 
 func (c agentClient) installation() (string, error) {
@@ -140,16 +141,9 @@ func (c agentClient) installation() (string, error) {
 	return string(out), err
 }
 
-func (a *App) agentWorkspaceReady() bool {
-	return a.loaded && !a.sessionLockPending.Load() && !a.revokingFolderKeys.Load()
-}
-
-func (a *App) ListAgentClients() (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.agentWorkspaceReady() {
-		return "", errLocked
-	}
+func (s *Access) ListClients() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	clients, err := loadAgentClients()
 	if err != nil {
 		return "", err
@@ -162,15 +156,12 @@ func (a *App) ListAgentClients() (string, error) {
 	return string(out), err
 }
 
-func (a *App) RegisterAgentClient(name string) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.agentWorkspaceReady() {
-		return "", errLocked
-	}
+func (s *Access) RegisterClient(name string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	name = strings.TrimSpace(name)
 	if !validAgentName(name) {
-		return "", errAgentClientName
+		return "", ErrClientName
 	}
 	clients, err := loadAgentClients()
 	if err != nil {
@@ -178,7 +169,7 @@ func (a *App) RegisterAgentClient(name string) (string, error) {
 	}
 	for _, c := range clients {
 		if strings.EqualFold(c.Name, name) {
-			return "", errAgentClientDuplicate
+			return "", ErrClientDuplicate
 		}
 	}
 	if len(clients) >= 64 {
@@ -195,12 +186,9 @@ func (a *App) RegisterAgentClient(name string) (string, error) {
 	return config, nil
 }
 
-func (a *App) AgentClientConfig(id string) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.agentWorkspaceReady() {
-		return "", errLocked
-	}
+func (s *Access) ClientConfig(id string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	c, err := findAgentClient(id)
 	if err != nil {
 		return "", err
@@ -208,23 +196,17 @@ func (a *App) AgentClientConfig(id string) (string, error) {
 	return c.installation()
 }
 
-func (a *App) ForgetAgentClient(id string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.agentWorkspaceReady() {
-		return errLocked
-	}
+func (s *Access) ForgetClient(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	clients, err := loadAgentClients()
 	if err != nil {
 		return err
 	}
 	index := slices.IndexFunc(clients, func(c agentClient) bool { return c.ID == id })
 	if index < 0 {
-		return errAgentClientUnknown
+		return ErrClientUnknown
 	}
-	s := &a.noteAccess
-	s.Lock()
-	defer s.Unlock()
 	if err = saveAgentClients(slices.Delete(clients, index, index+1)); err != nil {
 		return err
 	}

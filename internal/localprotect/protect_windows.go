@@ -1,4 +1,4 @@
-package main
+package localprotect
 
 import (
 	"unsafe"
@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func convertPairing(data []byte, protect bool) ([]byte, error) {
+func convert(data []byte, protect bool) ([]byte, error) {
 	if len(data) == 0 {
 		return nil, syncclient.ErrCode
 	}
@@ -28,5 +28,5 @@ func convertPairing(data []byte, protect bool) ([]byte, error) {
 	defer clear(buf)
 	return append([]byte(nil), buf...), nil
 }
-func protectPairing(data []byte) ([]byte, error)   { return convertPairing(data, true) }
-func unprotectPairing(data []byte) ([]byte, error) { return convertPairing(data, false) }
+func Protect(data []byte) ([]byte, error)   { return convert(data, true) }
+func Unprotect(data []byte) ([]byte, error) { return convert(data, false) }

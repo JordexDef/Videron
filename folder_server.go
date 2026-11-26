@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"videron/internal/localprotect"
 	"videron/internal/syncclient"
 	"videron/internal/workspacestore"
 )
@@ -39,7 +40,7 @@ func storeProfile(folder string, p syncclient.Profile) error {
 		return err
 	}
 	defer clear(raw)
-	data, err := protectPairing(raw)
+	data, err := localprotect.Protect(raw)
 	if err != nil {
 		return err
 	}
@@ -60,7 +61,7 @@ func loadProfile(folder string) (*syncclient.Profile, error) {
 		return nil, err
 	}
 	defer clear(raw)
-	data, err := unprotectPairing(raw)
+	data, err := localprotect.Unprotect(raw)
 	if err != nil {
 		return nil, err
 	}

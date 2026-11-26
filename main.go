@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 
+	"videron/internal/agentmcp"
+
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -19,10 +21,9 @@ func main() {
 	if len(os.Args) == 2 && (os.Args[1] == "--agent-mcp" || os.Args[1] == "--agent-mcp-paired") {
 		var err error
 		if os.Args[1] == "--agent-mcp-paired" {
-			client := agentClient{agentClientInfo: agentClientInfo{ID: os.Getenv("VIDERON_AGENT_CLIENT")}, Key: os.Getenv("VIDERON_AGENT_KEY")}
-			err = servePairedAgentStdio(os.Stdin, os.Stdout, client)
+			err = agentmcp.ServePairedStdio(os.Stdin, os.Stdout, os.Getenv("VIDERON_AGENT_CLIENT"), os.Getenv("VIDERON_AGENT_KEY"))
 		} else {
-			err = serveAgentStdio(os.Stdin, os.Stdout, os.Getenv("VIDERON_AGENT_ENDPOINT"), os.Getenv("VIDERON_AGENT_TOKEN"))
+			err = agentmcp.ServeStdio(os.Stdin, os.Stdout, os.Getenv("VIDERON_AGENT_ENDPOINT"), os.Getenv("VIDERON_AGENT_TOKEN"))
 		}
 		if err != nil {
 			log.Print(err)

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"videron/internal/acp"
+	"videron/internal/agentmcp"
 	"videron/internal/vault"
 	"videron/internal/workspacestore"
 
@@ -14,7 +15,7 @@ import (
 )
 
 type App struct {
-	noteAccess           agentAccess
+	noteAccess           agentmcp.Access
 	agentRuns            acp.Runs
 	mu                   sync.Mutex
 	serverMu             sync.Mutex

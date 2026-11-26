@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"videron/internal/localprotect"
 	"videron/internal/syncclient"
 )
 
@@ -114,7 +115,7 @@ func TestClientSelectsAndReopensScopedProject(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer clear(b)
-		data, err := unprotectPairing(b)
+		data, err := localprotect.Unprotect(b)
 		if err != nil {
 			t.Fatal(err)
 		}
