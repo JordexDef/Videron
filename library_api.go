@@ -17,7 +17,6 @@ var (
 	errLocked   = vault.ErrLocked
 	errPassword = vault.ErrPassword
 	errWeak     = vault.ErrWeak
-	errVersion  = vault.ErrVersion
 )
 
 // Read IDs from the same shipped icon packs as the picker. Only a catalog ID,
@@ -48,73 +47,37 @@ var workspaceStore = workspacestore.New[storedNote]()
 func (a *App) Load() (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	payload, err := a.catalog.Load(workspaceStore, a.projectKey, a.loaded, a.dropKeys)
-	a.loaded = err == nil
-	if err != nil {
-		// A failed refresh cannot leave the previous library's grants usable.
-		a.dropKeys()
-		return "", err
-	}
-	if !a.catalog.Protected() {
-		a.projectKey.Forget()
-		a.projectKey = nil
-	}
-	return payload, nil
+	return a.library.Load(workspaceStore, a.revokeWorkspaceGrants)
 }
 
 func (a *App) IsProjectProtected() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.catalog.Protected()
+	return a.library.IsProjectProtected()
 }
 
 func (a *App) UnlockProject(password string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	payload, key, err := a.catalog.Unlock(workspaceStore, password)
-	if err != nil {
-		return "", err
-	}
-	a.dropKeys()
-	a.projectKey = key
-	a.loaded = true
-	return payload, nil
-}
-
-func (a *App) writeSnapshot(payload string, key *vault.Key) error {
-	if !a.loaded {
-		return errLocked
-	}
-	return a.catalog.SaveSnapshot(workspaceStore, payload, key)
+	return a.library.UnlockProject(workspaceStore, password, a.revokeWorkspaceGrants)
 }
 
 func (a *App) CatalogRevision() (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
-		return "", errLocked
-	}
-	return a.catalog.Revision(), nil
+	return a.library.CatalogRevision()
 }
 
 func (a *App) SaveCatalogPatch(expectedRev, delta string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
-		return "", errLocked
-	}
-	return a.catalog.SavePatch(workspaceStore, a.projectKey, expectedRev, delta)
+	return a.library.SaveCatalogPatch(workspaceStore, expectedRev, delta)
 }
 
 func (a *App) LockProject() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.catalog.Protected() {
-		return errInvalid
-	}
-	a.dropKeys()
-	a.loaded = false
-	return nil
+	return a.library.LockProject(a.revokeWorkspaceGrants)
 }
 
 // Called after the editor and storage queue have committed. Keep the resume
@@ -122,79 +85,36 @@ func (a *App) LockProject() error {
 func (a *App) LockSession(noteID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.dropKeys()
-	a.loaded = false
-	a.resumeNote = noteID
+	a.revokeWorkspaceGrants()
+	a.library.LockSession(noteID)
 }
 
 func (a *App) TakeResumeNote() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
-		return ""
-	}
-	id := a.resumeNote
-	a.resumeNote = ""
-	return id
+	return a.library.TakeResumeNote()
 }
 
 func (a *App) Save(payload string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.writeSnapshot(payload, a.projectKey)
-}
-
-func (a *App) projectPassword(payload, password string) error {
-	key, err := vault.NewKey(password)
-	if err != nil {
-		return err
-	}
-	if err := a.writeSnapshot(payload, key); err != nil {
-		key.Forget()
-		return err
-	}
-	a.projectKey.Forget()
-	a.projectKey = key
-	return nil
+	return a.library.Save(workspaceStore, payload)
 }
 
 func (a *App) ProtectProject(payload, password string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
-		return errLocked
-	}
-	if a.catalog.Protected() {
-		return errInvalid
-	}
-	return a.projectPassword(payload, password)
+	return a.library.ProtectProject(workspaceStore, payload, password)
 }
 
 func (a *App) ChangeProjectPassword(payload, currentPassword, newPassword string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded || a.projectKey == nil {
-		return errLocked
-	}
-	if !a.projectKey.Verify(currentPassword) {
-		return errPassword
-	}
-	return a.projectPassword(payload, newPassword)
+	return a.library.ChangeProjectPassword(workspaceStore, payload, currentPassword, newPassword)
 }
 
 func (a *App) RemoveProjectPassword(payload, password string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded || a.projectKey == nil {
-		return errLocked
-	}
-	if !a.projectKey.Verify(password) {
-		return errPassword
-	}
-	if err := a.writeSnapshot(payload, nil); err != nil {
-		return err
-	}
-	a.projectKey.Forget()
-	a.projectKey = nil
-	return nil
+	return a.library.RemoveProjectPassword(workspaceStore, payload, password)
 }

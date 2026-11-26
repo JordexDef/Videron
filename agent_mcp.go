@@ -46,7 +46,7 @@ func (a *App) ResolveAgentCall(grant, request, result string, failed bool) {
 }
 
 func (a *App) agentWorkspaceReady() bool {
-	return a.loaded && !a.sessionLockPending.Load() && !a.folderSessions.Revoking()
+	return a.library.Loaded() && !a.sessionLockPending.Load() && !a.folderSessions.Revoking()
 }
 
 func (a *App) ListAgentClients() (string, error) {

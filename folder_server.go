@@ -111,7 +111,7 @@ func (a *App) DisconnectSpaceServer(folder string) error {
 	defer a.serverMu.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return errLocked
 	}
 	dir, err := foldersession.CanonicalFolder(folder)
@@ -154,7 +154,7 @@ func (a *App) MatchingServerFolders(code string, folders []string) ([]string, er
 func (a *App) openFolderLineages() (map[string]string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return nil, errLocked
 	}
 	return a.folderSessions.Lineages(), nil

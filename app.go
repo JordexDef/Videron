@@ -9,9 +9,9 @@ import (
 	"videron/internal/agentmcp"
 	"videron/internal/desktop"
 	"videron/internal/foldersession"
+	"videron/internal/library"
 	"videron/internal/notesession"
 	"videron/internal/syncworkspace"
-	"videron/internal/vault"
 	"videron/internal/workspacestore"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -26,13 +26,10 @@ type App struct {
 	serverTickets        syncworkspace.Tickets
 	ctx                  context.Context
 	closeGuard           bool
-	loaded               bool
-	projectKey           *vault.Key
+	library              library.Library
 	noteSession          notesession.NoteKeys
 	editorHistory        notesession.History
 	folderSessions       foldersession.Manager
-	resumeNote           string
-	catalog              workspacestore.Catalog
 	sessionLockPending   atomic.Bool
 	sessionLockListening atomic.Bool
 	stopSessionMonitor   func()
@@ -73,25 +70,22 @@ func (a *App) shutdown(context.Context) {
 	a.mu.Lock()
 	stop := a.stopSessionMonitor
 	a.stopSessionMonitor = nil
-	a.dropKeys()
+	a.revokeWorkspaceGrants()
+	a.library.Close()
 	a.editorHistory.Forget("", nil)
-	a.loaded = false
 	a.mu.Unlock()
 	if stop != nil {
 		stop()
 	}
 }
 
-func (a *App) dropKeys() {
+func (a *App) revokeWorkspaceGrants() {
 	// Every grant belongs to the current library session, including during
 	// a reload that fails or discovers an externally replaced catalog.
 	a.ResetAgentConnections()
-	a.catalog.ClearIndex()
 	// A pending connection carries a verified server credential. Expire it
 	// together with the vault session, including verifications still in flight.
 	a.serverTickets.Reset()
-	a.projectKey.Forget()
-	a.projectKey = nil
 	a.noteSession.Clear()
 	a.folderSessions.Clear()
 }
@@ -159,9 +153,9 @@ func (a *App) beforeClose(ctx context.Context) bool {
 func (a *App) FinishClose() {
 	a.mu.Lock()
 	a.closeGuard = false
-	a.dropKeys()
+	a.revokeWorkspaceGrants()
+	a.library.Close()
 	a.editorHistory.Forget("", nil)
-	a.loaded = false
 	ctx := a.ctx
 	a.mu.Unlock()
 	if ctx != nil {

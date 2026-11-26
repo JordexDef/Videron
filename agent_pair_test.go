@@ -64,7 +64,11 @@ func registeredClient(t *testing.T, a *App, name string) (pairedTestClient, stri
 
 func TestPairedAgentRegistration(t *testing.T) {
 	dir := pairedTestDirectory(t)
-	a := &App{loaded: true}
+	t.Setenv("AppData", t.TempDir())
+	a := new(App)
+	if _, err := a.Load(); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(a.ResetAgentConnections)
 	routePath := filepath.Join(dir, "active.json")
 	client, config := registeredClient(t, a, "  Тестовый агент  ")
@@ -79,7 +83,10 @@ func TestPairedAgentRegistration(t *testing.T) {
 			t.Fatal("accepted invalid name", err)
 		}
 	}
-	reopened := &App{loaded: true}
+	reopened := new(App)
+	if _, err := reopened.Load(); err != nil {
+		t.Fatal(err)
+	}
 	list, err := reopened.ListAgentClients()
 	var names []map[string]string
 	if err != nil || json.Unmarshal([]byte(list), &names) != nil || len(names) != 1 || len(names[0]) != 2 || names[0]["id"] != client.ID || names[0]["name"] != client.Name {

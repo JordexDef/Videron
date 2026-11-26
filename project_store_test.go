@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -45,123 +46,21 @@ func stored(t *testing.T, path string) []byte {
 	return data
 }
 
-func TestProjectVaultTransitions(t *testing.T) {
-	a, path := testStore(t)
-	snapshot := libraryPrefix + originalNote + librarySuffix
-	if err := a.Save(snapshot); err != nil {
-		t.Fatal(err)
-	}
-	dir := filepath.Dir(path)
-	orphan := filepath.Join(dir, ".workspace-123456.tmp")
-	unrelated := filepath.Join(dir, ".workspace-manual.tmp")
-	for _, name := range []string{orphan, unrelated} {
-		if err := os.WriteFile(name, []byte("test"), 0600); err != nil {
+func sameTestJSON(t *testing.T, a, b []byte) {
+	t.Helper()
+	var actual, want any
+	for _, item := range []struct {
+		data  []byte
+		value *any
+	}{{a, &actual}, {b, &want}} {
+		d := json.NewDecoder(bytes.NewReader(item.data))
+		d.UseNumber()
+		if err := d.Decode(item.value); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := a.ProtectProject(snapshot, "short"); !errors.Is(err, errWeak) {
-		t.Fatal(err)
-	}
-	if saved := string(stored(t, path)); saved != snapshot {
-		t.Fatal("invalid password changed stored bytes")
-	}
-	if err := a.ProtectProject(snapshot, testPass); err != nil {
-		t.Fatal(err)
-	}
-	if !a.IsProjectProtected() {
-		t.Fatal("missing project protection")
-	}
-	one := stored(t, path)
-	if bytes.Contains(one, []byte("PRIVATE")) || bytes.Contains(one, []byte("personal")) || bytes.Contains(one, []byte(testPass)) {
-		t.Fatal("plaintext in project file")
-	}
-	if _, err := os.Stat(orphan); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("old plaintext temp survived", err)
-	}
-	if _, err := os.Stat(unrelated); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.Save(snapshot); err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Equal(one, stored(t, path)) {
-		t.Fatal("nonce was reused")
-	}
-	if plain, err := a.Load(); err != nil || plain != snapshot {
-		t.Fatal("reloading unlocked project", err)
-	}
-
-	// Start with a fresh process. A save attempted before successful unlock
-	// must not overwrite the envelope, including after a canceled password prompt.
-	other := new(App)
-	// A crash while removing the password can strand a plaintext snapshot next
-	// to the encrypted catalog. A reader must skip a live writer's file.
-	if err := os.WriteFile(orphan, []byte(snapshot), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := workspacestore.WithWriteLock(path, func() error {
-		if _, err := other.Load(); !errors.Is(err, errLocked) {
-			t.Fatalf("locked read during a write: %v", err)
-		}
-		_, err := os.Stat(orphan)
-		return err
-	}); err != nil {
-		t.Fatal("reader disturbed an active writer", err)
-	}
-	if _, err := other.Load(); !errors.Is(err, errLocked) || !other.IsProjectProtected() {
-		t.Fatal("expected locked project", err)
-	}
-	if _, err := os.Stat(orphan); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("interrupted password removal left plaintext at the lock screen", err)
-	}
-	if _, err := os.Stat(unrelated); err != nil {
-		t.Fatal("cleanup touched an unrelated file", err)
-	}
-	before := stored(t, path)
-	if err := other.Save(snapshot); !errors.Is(err, errLocked) {
-		t.Fatal(err)
-	}
-	if _, err := other.UnlockProject("incorrect"); !errors.Is(err, errPassword) {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(before, stored(t, path)) {
-		t.Fatal("locked project changed")
-	}
-	if plain, err := other.UnlockProject(testPass); err != nil || plain != snapshot {
-		t.Fatal("unlock", err)
-	}
-	if err := other.ChangeProjectPassword(snapshot, "invalid", nextPass); !errors.Is(err, errPassword) {
-		t.Fatal(err)
-	}
-	if err := other.ChangeProjectPassword(snapshot, testPass, "short"); !errors.Is(err, errWeak) {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(before, stored(t, path)) {
-		t.Fatal("failed password change altered the file")
-	}
-	if err := other.ChangeProjectPassword(snapshot, testPass, nextPass); err != nil {
-		t.Fatal(err)
-	}
-	if err := other.LockProject(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := other.UnlockProject(testPass); !errors.Is(err, errPassword) {
-		t.Fatal(err)
-	}
-	if plain, err := other.UnlockProject(nextPass); err != nil || plain != snapshot {
-		t.Fatal("password change", err)
-	}
-	if err := other.RemoveProjectPassword(snapshot, "bad"); !errors.Is(err, errPassword) {
-		t.Fatal(err)
-	}
-	if err := other.RemoveProjectPassword(snapshot, nextPass); err != nil {
-		t.Fatal(err)
-	}
-	if other.IsProjectProtected() || string(stored(t, path)) != snapshot {
-		t.Fatal("removing password failed")
-	}
-	if err := a.Save(snapshot); !errors.Is(err, errChanged) {
-		t.Fatal("stale writer", err)
+	if !reflect.DeepEqual(actual, want) {
+		t.Fatal("unexpected JSON document", string(a))
 	}
 }
 
@@ -288,46 +187,6 @@ func TestSessionLockForgetsKeysAndResumesOnce(t *testing.T) {
 	}
 }
 
-func TestVaultRejectsDamageAndWrongProfile(t *testing.T) {
-	a, path := testStore(t)
-	const library = libraryPrefix + originalNote + librarySuffix
-	if err := a.Save(strings.Replace(library, `"version":1`, `"version":4`, 1)); !errors.Is(err, errInvalid) {
-		t.Fatal("unknown plaintext schema", err)
-	}
-	if err := a.ProtectProject(library, testPass); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.LockProject(); err != nil {
-		t.Fatal(err)
-	}
-	env, err := vault.ParseEnvelope(stored(t, path), vault.ProjectScope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	env.Data[len(env.Data)-1] ^= 1
-	data, _ := json.Marshal(env)
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := a.UnlockProject(testPass); !errors.Is(err, errPassword) {
-		t.Fatal("tampering undetected", err)
-	}
-	if err := a.Save(library); !errors.Is(err, errLocked) {
-		t.Fatal(err)
-	}
-	env.MemoryKiB = 1_000_000_000
-	data, _ = json.Marshal(env)
-	if _, err := vault.ParseEnvelope(data, vault.ProjectScope); !errors.Is(err, errVersion) {
-		t.Fatal("untrusted KDF parameters", err)
-	}
-	if err := os.WriteFile(path, []byte(`{"version":1,"data":"broken"}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := a.Load(); !errors.Is(err, errCorrupt) {
-		t.Fatal("corrupt envelope treated as plaintext", err)
-	}
-}
-
 func TestFailedReloadForgetsOpenSessions(t *testing.T) {
 	a, path := testStore(t)
 	const snapshot = libraryPrefix + originalNote + librarySuffix
@@ -344,7 +203,7 @@ func TestFailedReloadForgetsOpenSessions(t *testing.T) {
 	if _, err := a.Load(); !errors.Is(err, errChanged) {
 		t.Fatal("missing existing library returned as a new one", err)
 	}
-	if a.loaded || a.noteSession.EditorKey("note-a") != nil {
+	if a.library.Loaded() || a.noteSession.EditorKey("note-a") != nil {
 		t.Fatal("failed refresh retained access to old note")
 	}
 	if _, err := noteKey.Seal(vault.NoteScope, "note-a", []byte(originalNote)); !errors.Is(err, errLocked) {
@@ -548,43 +407,6 @@ func TestSealedMapLabelStorage(t *testing.T) {
 		if err := a.Save(libraryPrefix + row + librarySuffix); !errors.Is(err, errInvalid) || folderAccepts(row) {
 			t.Fatalf("accepted invalid map label %#v", invalid)
 		}
-	}
-}
-
-func TestLargeStoredEnvelopeAndLegacyLayouts(t *testing.T) {
-	key, err := vault.NewKey(testPass)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer key.Forget()
-	body := []byte(`{"id":"large","body":"` + strings.Repeat("Z", 500<<10) + `"}`)
-	blob, err := key.Seal(vault.NoteScope, "large", body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, pretty := range []bool{false, true} {
-		envelopeText := blob
-		if pretty {
-			var formatted bytes.Buffer
-			if err := json.Indent(&formatted, blob, "", "  "); err != nil {
-				t.Fatal(err)
-			}
-			envelopeText = formatted.Bytes()
-		}
-		stub, _ := json.Marshal(map[string]string{"id": "large", "sealed": string(envelopeText)})
-		if !workspaceStore.ValidCatalog([]byte(libraryPrefix + string(stub) + librarySuffix)) {
-			t.Fatal("rejected compatible note layout", pretty)
-		}
-	}
-	// All normal storage paths still authenticate/decrypt the original, full ciphertext.
-	snapshot, _ := json.Marshal(map[string]any{"sealed": string(blob), "id": "large", "title": "PRIVATE-TITLE"})
-	if workspaceStore.ValidCatalog([]byte(libraryPrefix + string(snapshot) + librarySuffix)) {
-		t.Fatal("large ciphertext masked a cleartext field")
-	}
-	broken := bytes.Replace(blob, []byte(`"data":"`), []byte(`"data":"#`), 1)
-	stub, _ := json.Marshal(map[string]string{"id": "large", "sealed": string(broken)})
-	if workspaceStore.ValidCatalog([]byte(libraryPrefix + string(stub) + librarySuffix)) {
-		t.Fatal("invalid base64 accepted")
 	}
 }
 

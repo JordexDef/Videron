@@ -7,12 +7,15 @@ import (
 )
 
 func TestAgentMCPRejectLockedWorkspace(t *testing.T) {
-	a := &App{}
+	a, _ := testStore(t)
+	a.LockSession("")
 	defer a.ResetAgentConnections()
 	if _, err := a.OpenAgentAccess(true); err == nil {
 		t.Fatal("locked workspace issued an access grant")
 	}
-	a.loaded = true
+	if _, err := a.Load(); err != nil {
+		t.Fatal(err)
+	}
 	a.sessionLockPending.Store(true)
 	if _, err := a.OpenAgentAccess(true); err == nil {
 		t.Fatal("pending session lock issued an access grant")
@@ -20,7 +23,7 @@ func TestAgentMCPRejectLockedWorkspace(t *testing.T) {
 }
 
 func TestACPBridgeRejectsRevokedGrant(t *testing.T) {
-	a := &App{loaded: true}
+	a, _ := testStore(t)
 	t.Cleanup(a.ResetAgentConnections)
 	access, err := a.OpenAgentAccess(true)
 	if err != nil {

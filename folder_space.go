@@ -19,7 +19,7 @@ type SpaceFolderInfo = workspacestore.SpaceFolderInfo
 func (a *App) InspectSpaceFolder(folder string) (SpaceFolderInfo, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return SpaceFolderInfo{}, errLocked
 	}
 	return a.folderSessions.Inspect(workspaceStore, folder)
@@ -28,7 +28,7 @@ func (a *App) InspectSpaceFolder(folder string) (SpaceFolderInfo, error) {
 func (a *App) OpenFolderSpace(folder, password string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return "", errLocked
 	}
 	return a.folderSessions.Open(workspaceStore, folder, password)
@@ -37,7 +37,7 @@ func (a *App) OpenFolderSpace(folder, password string) (string, error) {
 func (a *App) ResumeFolderSpace(folder string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return "", errLocked
 	}
 	return a.folderSessions.Resume(workspaceStore, folder)
@@ -46,14 +46,14 @@ func (a *App) ResumeFolderSpace(folder string) (string, error) {
 func (a *App) CreateFolderSpace(folder, payload, password string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return errLocked
 	}
 	return a.folderSessions.Create(workspaceStore, folder, payload, password)
 }
 
 func (a *App) currentSpaceSession(folder string) (*foldersession.Session, error) {
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return nil, errLocked
 	}
 	return a.folderSessions.Current(folder)

@@ -107,7 +107,7 @@ func (a *App) syncSession() *syncSession {
 }
 
 func (s *syncSession) check() error {
-	if !s.app.loaded {
+	if !s.app.library.Loaded() {
 		return errLocked
 	}
 	if s.app.serverTickets.Generation() != s.generation {
@@ -119,7 +119,7 @@ func (s *syncSession) check() error {
 func (a *App) ticketContext() (context.Context, uint64, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return nil, 0, errLocked
 	}
 	ctx := a.ctx
@@ -146,7 +146,7 @@ func (a *App) DiscardSyncServerTicket(ticket string) {
 func (a *App) resolveServerTicket(input string) (syncclient.Profile, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return syncclient.Profile{}, errLocked
 	}
 	return a.serverTickets.Resolve(input)

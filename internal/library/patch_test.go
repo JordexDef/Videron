@@ -1,4 +1,4 @@
-package main
+package library
 
 import (
 	"bytes"
@@ -9,6 +9,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"videron/internal/syncclient"
+	"videron/internal/vault"
 )
 
 func sameTestJSON(t *testing.T, a, b []byte) {
@@ -30,17 +33,17 @@ func sameTestJSON(t *testing.T, a, b []byte) {
 }
 
 func TestCatalogPatchPreservesOrderMetadataAndExactNumbers(t *testing.T) {
-	a, path := testStore(t)
+	a, path := testLibrary(t)
 	first := `{"version":1,"active":"personal","spaces":{"personal":{"notes":[{"id":"n1","n":9007199254740993},{"id":"n2"},{"id":"n3"}],"areas":[{"id":"a"}],"keep":{"x":true}}},"plugins":[],"obsolete":0}`
 	if revision, err := a.CatalogRevision(); err != nil || revision != "" {
 		t.Fatal(revision, err)
 	}
-	if err := a.Save(first); err != nil {
+	if err := a.Save(testStorage, first); err != nil {
 		t.Fatal(err)
 	}
 	rev, _ := a.CatalogRevision()
 	edit := `{"set":{"version":3,"autoLockMinutes":7},"unset":["obsolete"],"spaces":{"personal":{"notes":{"put":[{"id":"n2","title":"edited"},{"id":"n4"}],"remove":["n3"],"order":["n4","n1","n2"]},"areas":{"remove":["a"]},"set":{"name":"Local"}},"folder":{"replace":{"name":"Archive","folder":"example","encrypted":true}}}}`
-	updated, err := a.SaveCatalogPatch(rev, edit)
+	updated, err := a.SaveCatalogPatch(testStorage, rev, edit)
 	if err != nil || updated == rev {
 		t.Fatal(updated, err)
 	}
@@ -55,7 +58,7 @@ func TestCatalogPatchPreservesOrderMetadataAndExactNumbers(t *testing.T) {
 		`{"spaces":{"personal":{"remove":true}}}`, `{"set":{"active":"missing"}}`,
 		`{"mysteryOperation":true}`,
 	} {
-		if _, err = a.SaveCatalogPatch(updated, bad); !errors.Is(err, errInvalid) {
+		if _, err = a.SaveCatalogPatch(testStorage, updated, bad); !errors.Is(err, vault.ErrInvalid) {
 			t.Fatalf("%s returned %v", bad, err)
 		}
 		if current, _ := a.CatalogRevision(); current != updated {
@@ -63,10 +66,10 @@ func TestCatalogPatchPreservesOrderMetadataAndExactNumbers(t *testing.T) {
 		}
 		sameTestJSON(t, stored(t, path), []byte(want))
 	}
-	if _, err := a.SaveCatalogPatch(rev, `{"set":{"view":{}}}`); !errors.Is(err, errChanged) {
+	if _, err := a.SaveCatalogPatch(testStorage, rev, `{"set":{"view":{}}}`); !errors.Is(err, syncclient.ErrChanged) {
 		t.Fatal(err)
 	}
-	if _, err := a.SaveCatalogPatch(updated, `{"spaces":{"personal":{"notes":{"put":[{"id":"n5"}]}},"folder":{"remove":true}}}`); err != nil {
+	if _, err := a.SaveCatalogPatch(testStorage, updated, `{"spaces":{"personal":{"notes":{"put":[{"id":"n5"}]}},"folder":{"remove":true}}}`); err != nil {
 		t.Fatal(err)
 	}
 	want = strings.Replace(want, `"title":"edited"}],"areas"`, `"title":"edited"},{"id":"n5"}],"areas"`, 1)
@@ -75,14 +78,14 @@ func TestCatalogPatchPreservesOrderMetadataAndExactNumbers(t *testing.T) {
 }
 
 func TestEncryptedCatalogPatchesRespectLockExternalChangesAndFullSaves(t *testing.T) {
-	a, path := testStore(t)
+	a, path := testLibrary(t)
 	first := libraryPrefix + originalNote + librarySuffix
-	if err := a.ProtectProject(first, testPass); err != nil {
+	if err := a.ProtectProject(testStorage, first, testPass); err != nil {
 		t.Fatal(err)
 	}
 	rev, _ := a.CatalogRevision()
 	edit := `{"spaces":{"personal":{"notes":{"put":[{"id":"note-a","plain":"SECRET-EDIT"}]}}}}`
-	updated, err := a.SaveCatalogPatch(rev, edit)
+	updated, err := a.SaveCatalogPatch(testStorage, rev, edit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,31 +93,31 @@ func TestEncryptedCatalogPatchesRespectLockExternalChangesAndFullSaves(t *testin
 	if bytes.Contains(encoded, []byte("SECRET-EDIT")) {
 		t.Fatal("plaintext on disk")
 	}
-	updated, err = a.SaveCatalogPatch(updated, strings.Replace(edit, "SECRET-EDIT", "SECRET-LATEST", 1))
+	updated, err = a.SaveCatalogPatch(testStorage, updated, strings.Replace(edit, "SECRET-EDIT", "SECRET-LATEST", 1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = a.LockProject(); err != nil {
+	if err = a.LockProject(nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.CatalogRevision(); !errors.Is(err, errLocked) {
+	if _, err = a.CatalogRevision(); !errors.Is(err, vault.ErrLocked) {
 		t.Fatal(err)
 	}
-	if _, err = a.SaveCatalogPatch(updated, edit); !errors.Is(err, errLocked) {
+	if _, err = a.SaveCatalogPatch(testStorage, updated, edit); !errors.Is(err, vault.ErrLocked) {
 		t.Fatal(err)
 	}
-	plain, err := a.UnlockProject(testPass)
+	plain, err := a.UnlockProject(testStorage, testPass, nil)
 	if err != nil || !strings.Contains(plain, "SECRET-LATEST") {
 		t.Fatal(err)
 	}
-	if err = a.RemoveProjectPassword(first, testPass); err != nil {
+	if err = a.RemoveProjectPassword(testStorage, first, testPass); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.SaveCatalogPatch(updated, edit); !errors.Is(err, errChanged) {
+	if _, err = a.SaveCatalogPatch(testStorage, updated, edit); !errors.Is(err, syncclient.ErrChanged) {
 		t.Fatal("stale patch survived policy change", err)
 	}
 	rev, _ = a.CatalogRevision()
-	updated, err = a.SaveCatalogPatch(rev, edit)
+	updated, err = a.SaveCatalogPatch(testStorage, rev, edit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +133,7 @@ func TestEncryptedCatalogPatchesRespectLockExternalChangesAndFullSaves(t *testin
 	if err = os.Chtimes(path, oldTime, oldTime); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.SaveCatalogPatch(updated, `{"set":{"plugins":[]}}`); !errors.Is(err, errChanged) {
+	if _, err = a.SaveCatalogPatch(testStorage, updated, `{"set":{"plugins":[]}}`); !errors.Is(err, syncclient.ErrChanged) {
 		t.Fatal("external file replacement not detected", err)
 	}
 	if !bytes.Equal(tampered, stored(t, path)) {
@@ -139,18 +142,18 @@ func TestEncryptedCatalogPatchesRespectLockExternalChangesAndFullSaves(t *testin
 }
 
 func TestCatalogPatchRetryAndCompetingWriters(t *testing.T) {
-	a, path := testStore(t)
+	a, path := testLibrary(t)
 	first := libraryPrefix + originalNote + librarySuffix
-	if err := a.Save(first); err != nil {
+	if err := a.Save(testStorage, first); err != nil {
 		t.Fatal(err)
 	}
 	rev, _ := a.CatalogRevision()
-	second := new(App)
-	if _, err := second.Load(); err != nil {
+	second := new(Library)
+	if _, err := second.Load(testStorage, nil); err != nil {
 		t.Fatal(err)
 	}
 	patches := []string{`{"set":{"autoLockMinutes":3}}`, `{"set":{"autoLockMinutes":5}}`}
-	clients := []*App{a, second}
+	clients := []*Library{a, second}
 	type response struct {
 		index int
 		token string
@@ -161,7 +164,7 @@ func TestCatalogPatchRetryAndCompetingWriters(t *testing.T) {
 	for i, app := range clients {
 		go func() {
 			<-start
-			newRev, err := app.SaveCatalogPatch(rev, patches[i])
+			newRev, err := app.SaveCatalogPatch(testStorage, rev, patches[i])
 			results <- response{i, newRev, err}
 		}()
 	}
@@ -170,15 +173,15 @@ func TestCatalogPatchRetryAndCompetingWriters(t *testing.T) {
 	if one.err != nil {
 		one, two = two, one
 	}
-	if one.err != nil || !errors.Is(two.err, errChanged) {
+	if one.err != nil || !errors.Is(two.err, syncclient.ErrChanged) {
 		t.Fatalf("concurrent writes: %v, %v", one.err, two.err)
 	}
 	written := stored(t, path)
-	token, err := clients[one.index].SaveCatalogPatch(rev, patches[one.index])
+	token, err := clients[one.index].SaveCatalogPatch(testStorage, rev, patches[one.index])
 	if err != nil || token != one.token || !bytes.Equal(written, stored(t, path)) {
 		t.Fatal("lost acknowledgement was not recoverable", err)
 	}
-	if _, err = clients[one.index].SaveCatalogPatch(rev, patches[two.index]); !errors.Is(err, errChanged) {
+	if _, err = clients[one.index].SaveCatalogPatch(testStorage, rev, patches[two.index]); !errors.Is(err, syncclient.ErrChanged) {
 		t.Fatal("different retry accepted", err)
 	}
 }
@@ -205,21 +208,14 @@ func BenchmarkCatalogAutosave5000(b *testing.B) {
 		delta    bool
 	}{{"full", [2]string{initial, changed}, false}, {"patch", [2]string{patch("a"), patch("b")}, true}} {
 		b.Run(tc.name, func(b *testing.B) {
-			dir := b.TempDir()
-			for _, env := range []string{"AppData", "XDG_CONFIG_HOME", "HOME"} {
-				b.Setenv(env, dir)
-			}
-			app := new(App)
-			if _, err := app.Load(); err != nil {
-				b.Fatal(err)
-			}
-			if err := app.Save(initial); err != nil {
+			app, _ := testLibrary(b)
+			if err := app.Save(testStorage, initial); err != nil {
 				b.Fatal(err)
 			}
 			rev, _ := app.CatalogRevision()
 			if tc.delta {
 				var err error
-				rev, err = app.SaveCatalogPatch(rev, tc.payloads[1])
+				rev, err = app.SaveCatalogPatch(testStorage, rev, tc.payloads[1])
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -228,9 +224,9 @@ func BenchmarkCatalogAutosave5000(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				var err error
 				if tc.delta {
-					rev, err = app.SaveCatalogPatch(rev, tc.payloads[i%2])
+					rev, err = app.SaveCatalogPatch(testStorage, rev, tc.payloads[i%2])
 				} else {
-					err = app.Save(tc.payloads[i%2])
+					err = app.Save(testStorage, tc.payloads[i%2])
 				}
 				if err != nil {
 					b.Fatal(err)

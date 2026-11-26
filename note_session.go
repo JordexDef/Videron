@@ -10,7 +10,7 @@ type UnlockedNote = notesession.UnlockedNote
 // Workspace readiness can change while the key is being derived. Keep the
 // callback live so note access rechecks the Windows lock before granting it.
 func (a *App) canUnlockNote() bool {
-	return a.loaded && !a.sessionLockPending.Load() && !a.folderSessions.Revoking()
+	return a.library.Loaded() && !a.sessionLockPending.Load() && !a.folderSessions.Revoking()
 }
 
 func (a *App) UnlockNoteFor(spaceID, id, sealed, password string, minutes int) (UnlockedNote, error) {
@@ -40,7 +40,7 @@ func (a *App) PreviewSealedNote(id, sealed, password string) (string, error) {
 func (a *App) ProtectNote(id, payload, password string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return "", errLocked
 	}
 	return a.noteSession.Protect(id, payload, password)
@@ -49,7 +49,7 @@ func (a *App) ProtectNote(id, payload, password string) (string, error) {
 func (a *App) SealNote(id, payload string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return "", errLocked
 	}
 	return a.noteSession.Seal(id, payload)
@@ -76,7 +76,7 @@ func (a *App) ForgetRememberedNotes() {
 type EditorHistoryRef = notesession.EditorHistoryRef
 
 func (a *App) editorHistoryKey(r EditorHistoryRef) (*vault.Key, error) {
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return nil, errLocked
 	}
 	if r.Space == "" || r.Note == "" || (r.Kind != "text" && r.Kind != "canvas" && r.Kind != "data") {
@@ -91,9 +91,9 @@ func (a *App) editorHistoryKey(r EditorHistoryRef) (*vault.Key, error) {
 			key = s.Key()
 		}
 	case "project":
-		key = a.projectKey
+		key = a.library.Key()
 	case "plain":
-		if a.catalog.Protected() {
+		if a.library.IsProjectProtected() {
 			return nil, errLocked
 		}
 		return nil, nil

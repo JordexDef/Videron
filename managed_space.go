@@ -19,7 +19,7 @@ func (a *App) ManagedServerFolder(ticket string) (string, error) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.loaded {
+	if !a.library.Loaded() {
 		return "", errLocked
 	}
 	return syncworkspace.ManagedFolder(profile)
@@ -75,7 +75,9 @@ func (a *App) MoveFolderSpace(source, destination, catalog string) (result Space
 	if err != nil {
 		return result, err
 	}
-	next, keptSource, err := s.Move(dir, oldProfile, newProfile, func() error { return a.writeSnapshot(catalog, a.projectKey) })
+	next, keptSource, err := s.Move(dir, oldProfile, newProfile, func() error {
+		return a.library.Save(workspaceStore, catalog)
+	})
 	if err != nil {
 		return result, err
 	}

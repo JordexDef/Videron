@@ -9,7 +9,7 @@ import (
 // A Windows lock prevents reopening notes immediately, while an existing
 // editor can still finish sealing its last edit before the session locks.
 func TestNoteSessionBoundariesRevokeRememberedAccess(t *testing.T) {
-	a := &App{loaded: true}
+	a, _ := testStore(t)
 	const id, space = "note-a", "personal"
 	sealed, err := a.ProtectNote(id, originalNote, testPass)
 	if err != nil {
@@ -46,7 +46,9 @@ func TestNoteSessionBoundariesRevokeRememberedAccess(t *testing.T) {
 
 	unlock()
 	a.FinishClose()
-	a.loaded = true
+	if _, err := a.Load(); err != nil {
+		t.Fatal(err)
+	}
 	assertLocked()
 	if _, err := a.SealNote(id, originalNote); !errors.Is(err, errLocked) {
 		t.Fatal("closed session retained the editor key", err)

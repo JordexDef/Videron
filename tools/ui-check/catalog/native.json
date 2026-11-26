@@ -181,7 +181,7 @@
       ],
       "expected": "The project file remains encrypted while protection is active; valid transitions preserve data and a wrong password does not overwrite it.",
       "test": "TestProjectVaultTransitions",
-      "source": "project_store_test.go"
+      "source": "internal/library/library_test.go"
     },
     {
       "id": "native.lock-edit",
