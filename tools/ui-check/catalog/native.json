@@ -316,7 +316,7 @@
       ],
       "expected": "A revision is announced only after its objects are present, and the later save can reach the server.",
       "test": "TestSyncSaveDuringObjectUpload",
-      "source": "folder_server_test.go"
+      "source": "internal/syncworkspace/enrollment_test.go"
     },
     {
       "id": "native.server-watch",

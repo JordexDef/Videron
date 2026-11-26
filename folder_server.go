@@ -1,61 +1,57 @@
 package main
 
 import (
-	"errors"
-	"path/filepath"
-
 	"videron/internal/syncclient"
 	"videron/internal/syncworkspace"
 	"videron/internal/workspacestore"
 )
 
-type ServerConnectionInfo struct {
-	Address     string `json:"address"`
-	Transport   string `json:"transport,omitempty"`
-	LastSync    int64  `json:"lastSync,omitempty"`
-	ProjectID   string `json:"projectId,omitempty"`
-	ProjectName string `json:"projectName,omitempty"`
-	AutoConnect bool   `json:"autoConnect"`
+type ServerConnectionInfo = syncworkspace.ServerConnectionInfo
+
+func (a *App) withOpenFolder(folder string, action func(*workspacestore.Session, *syncworkspace.FolderConnection) error) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.useOpenFolder(folder, action)
 }
 
-func (session *syncSession) TransferRecord(dir, lineage, kind, id string) ([]byte, error) {
+// useOpenFolder borrows the current session and its connection under App.mu.
+func (a *App) useOpenFolder(folder string, action func(*workspacestore.Session, *syncworkspace.FolderConnection) error) error {
+	s, err := a.currentSpaceSession(folder)
+	if err != nil {
+		return err
+	}
+	return action(s.Session, &s.connection)
+}
+
+// An upload or enrollment commit must still belong to the vault session that
+// started the operation, even if another session has reopened the same folder.
+func (session *syncSession) withOpenFolder(folder string, action func(*workspacestore.Session, *syncworkspace.FolderConnection) error) error {
 	a := session.app
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := session.check(); err != nil {
-		return nil, err
+		return err
 	}
-	s, err := a.currentSpaceSession(dir)
-	if err != nil {
-		return nil, err
-	}
-	return s.TransferRecord(lineage, kind, id)
+	return a.useOpenFolder(folder, action)
+}
+
+func (session *syncSession) TransferRecord(dir, lineage, kind, id string) ([]byte, error) {
+	var record []byte
+	err := session.withOpenFolder(dir, func(s *workspacestore.Session, _ *syncworkspace.FolderConnection) error {
+		var err error
+		record, err = s.TransferRecord(lineage, kind, id)
+		return err
+	})
+	return record, err
 }
 
 func (a *App) openLineage(dir string) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	s, err := a.currentSpaceSession(dir)
-	if err != nil {
-		return "", err
-	}
-	return s.Lineage(), nil
-}
-
-func (a *App) sessionServerIndex(dir, lineage string) (*syncclient.IndexCache, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	s, err := a.currentSpaceSession(dir)
-	if err != nil {
-		return nil, err
-	}
-	if s.Lineage() != lineage {
-		return nil, syncclient.ErrSpace
-	}
-	if s.serverIndex == nil {
-		s.serverIndex = new(syncclient.IndexCache)
-	}
-	return s.serverIndex, nil
+	var lineage string
+	err := a.withOpenFolder(dir, func(s *workspacestore.Session, _ *syncworkspace.FolderConnection) error {
+		lineage = s.Lineage()
+		return nil
+	})
+	return lineage, err
 }
 
 func (a *App) ServerConnection(folder string) (ServerConnectionInfo, error) {
@@ -63,43 +59,13 @@ func (a *App) ServerConnection(folder string) (ServerConnectionInfo, error) {
 	if err != nil {
 		return ServerConnectionInfo{}, err
 	}
-	p, err := syncworkspace.LoadProfile(dir)
-	if err != nil || p == nil {
-		return ServerConnectionInfo{}, err
-	}
-	lineage, err := a.openLineage(dir)
-	if err != nil {
-		return ServerConnectionInfo{}, err
-	}
-	if lineage != p.Lineage {
-		return ServerConnectionInfo{}, nil
-	}
-	return ServerConnectionInfo{Address: p.Address, Transport: p.Transport, LastSync: p.LastSync, ProjectID: p.ProjectID, ProjectName: p.ProjectName, AutoConnect: !p.ManualConnect}, nil
+	return syncworkspace.ConnectionInfo(dir, a.withOpenFolder)
 }
 
 func (a *App) SetServerAutoConnect(folder string, enabled bool) error {
 	a.serverMu.Lock()
 	defer a.serverMu.Unlock()
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	s, err := a.currentSpaceSession(folder)
-	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(s.Path())
-	p, err := syncworkspace.LoadProfile(dir)
-	if err != nil {
-		return err
-	}
-	if p == nil || p.Lineage != s.Lineage() {
-		return errChanged
-	}
-	manual := !enabled
-	if manual == p.ManualConnect {
-		return nil
-	}
-	p.ManualConnect = manual
-	return syncworkspace.StoreProfile(dir, *p)
+	return syncworkspace.SetAutoConnect(folder, enabled, a.withOpenFolder)
 }
 
 func (a *App) ConnectSpaceServer(folder, code string) error {
@@ -117,42 +83,7 @@ func (a *App) ConnectSpaceServer(folder, code string) error {
 	if err != nil {
 		return err
 	}
-	if err = syncworkspace.BindWorkingCopy(&p, dir); err != nil {
-		return err
-	}
-	lineage, err := a.FolderSpaceLineage(dir)
-	if err != nil {
-		return err
-	}
-	if p.Lineage != "" && p.Lineage != lineage {
-		return syncclient.ErrSpace
-	}
-	index, err := a.sessionServerIndex(dir, lineage)
-	if err != nil {
-		return err
-	}
-	c := p.Client()
-	defer c.CloseIdleConnections()
-	m, err := p.Enroll(c, dir, lineage, session.TransferRecord, workspacestore.PublishNewFile)
-	if err != nil {
-		return err
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if err = session.check(); err != nil {
-		return err
-	}
-	s, err := a.currentSpaceSession(dir)
-	if err != nil {
-		return err
-	}
-	if s.serverIndex != index {
-		return errChanged
-	}
-	// First background sync starts from the enrollment index. Any uploads
-	// during the exchange are later than this cursor and will appear in its delta.
-	index.Remember(&p, m)
-	return syncworkspace.SaveSuccessfulSync(dir, &p)
+	return syncworkspace.Connect(dir, p, a.withOpenFolder, session.withOpenFolder, session.TransferRecord)
 }
 
 func (a *App) SyncSpaceServer(folder string) (string, error) {
@@ -163,60 +94,15 @@ func (a *App) SyncSpaceServer(folder string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p, err := syncworkspace.LoadProfile(dir)
-	if err != nil || p == nil {
-		return "", err
-	}
-	index, err := a.sessionServerIndex(dir, p.Lineage)
-	if err != nil {
-		return "", err
-	}
-	c := p.Client()
-	defer c.CloseIdleConnections()
-	m, err := p.SyncManifest(c, index)
-	if err != nil {
-		return "", syncworkspace.DetachDeletedProject(dir, p, err)
-	}
-	// This cursor covers exactly the manifest we have downloaded. A concurrent
-	// server write after that snapshot must wake the next subscription.
-	if err := p.Exchange(c, dir, m, session.TransferRecord, workspacestore.PublishNewFile); err != nil {
-		return m.Cursor, syncworkspace.DetachDeletedProject(dir, p, err)
-	}
-	// A status write may fail after the exchange has completed. The existing
-	// profile still works and the next successful check refreshes its details.
-	_ = syncworkspace.SaveSuccessfulSync(dir, p)
-	return m.Cursor, nil
+	return syncworkspace.Sync(dir, a.withOpenFolder, session.TransferRecord)
 }
 
-// A separate request waits for the server broadcast without blocking saves or uploads.
 func (a *App) WaitSpaceServerChange(folder, cursor string) (string, error) {
 	dir, err := spaceDir(folder)
 	if err != nil {
 		return "", err
 	}
-	lineage, err := a.openLineage(dir)
-	if err != nil {
-		return "", err
-	}
-	p, err := syncworkspace.LoadProfile(dir)
-	if err != nil || p == nil {
-		return "", err
-	}
-	if lineage != p.Lineage {
-		return "", syncclient.ErrSpace
-	}
-	c := p.Client()
-	defer c.CloseIdleConnections()
-	nextCursor, err := p.WaitChange(c, cursor)
-	if err != nil {
-		if errors.Is(err, syncclient.ErrProjectDeleted) {
-			a.serverMu.Lock()
-			defer a.serverMu.Unlock()
-			return "", syncworkspace.DetachDeletedProject(dir, p, err)
-		}
-		return "", err
-	}
-	return nextCursor, nil
+	return syncworkspace.WaitForChange(dir, cursor, a.withOpenFolder, &a.serverMu)
 }
 
 func (a *App) DisconnectSpaceServer(folder string) error {
@@ -231,10 +117,11 @@ func (a *App) DisconnectSpaceServer(folder string) error {
 	if err != nil {
 		return err
 	}
+	var conn *syncworkspace.FolderConnection
 	if s := a.folderSpaces[workspacestore.SessionID(dir)]; s != nil {
-		s.serverIndex = nil
+		conn = &s.connection
 	}
-	return syncworkspace.RemoveProfile(dir)
+	return syncworkspace.Disconnect(dir, conn)
 }
 
 func (a *App) JoinSpaceServer(code, folder string) error {

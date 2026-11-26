@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 
 	"videron/internal/desktop"
-	"videron/internal/syncclient"
 	"videron/internal/syncworkspace"
 	"videron/internal/vault"
 	"videron/internal/workspacestore"
@@ -22,7 +21,7 @@ type SpaceFolderInfo = workspacestore.SpaceFolderInfo
 type folderSpaceSession struct {
 	*workspacestore.Session
 	discardKeyOnSuspend bool
-	serverIndex         *syncclient.IndexCache
+	connection          syncworkspace.FolderConnection
 }
 
 func spaceDir(folder string) (string, error) {

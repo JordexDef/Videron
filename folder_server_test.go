@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"io/fs"
 	"maps"
 	"net/http"
@@ -23,7 +22,6 @@ import (
 	"videron/internal/syncclient"
 	"videron/internal/syncclient/synctest"
 	"videron/internal/syncworkspace"
-	"videron/internal/vault"
 	"videron/internal/workspacestore"
 )
 
@@ -31,10 +29,6 @@ func hexID(data []byte) string {
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:])
 }
-
-type uploadRecorder func(*http.Request) (*http.Response, error)
-
-func (r uploadRecorder) RoundTrip(req *http.Request) (*http.Response, error) { return r(req) }
 
 func TestSyncEnrollmentRequiresTheSameUnlockedSession(t *testing.T) {
 	a, _ := testStore(t)
@@ -285,59 +279,6 @@ func TestEncryptedAttachmentThroughServer(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		}
-	}
-}
-
-func TestSyncSaveDuringObjectUpload(t *testing.T) {
-	a, _ := testStore(t)
-	folder := t.TempDir()
-	if err := a.CreateFolderSpace(folder, syncDoc("original", "unchanged"), ""); err != nil {
-		t.Fatal(err)
-	}
-	lineage, err := a.FolderSpaceLineage(folder)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := syncclient.Profile{Address: "https://test.invalid", Lineage: lineage}
-	files := map[string]string{}
-	prefix := ".videron-sync/" + lineage + "/"
-	var revisions int
-	client := &http.Client{Transport: uploadRecorder(func(req *http.Request) (*http.Response, error) {
-		defer req.Body.Close()
-		path := req.URL.Query().Get("path")
-		if len(files) == 0 {
-			// The first object request is in flight when the editor publishes a new revision.
-			if err := a.SaveFolderBranch(folder, syncDoc("edited during upload", "unchanged")); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if strings.HasPrefix(path, prefix+"revisions/") {
-			revisions++
-			var r struct {
-				Lists map[string][]string `json:"lists"`
-			}
-			if err := json.NewDecoder(req.Body).Decode(&r); err != nil {
-				t.Fatal(err)
-			}
-			for _, ids := range r.Lists {
-				for _, id := range ids {
-					if _, ok := files[prefix+"objects/"+id+".json"]; !ok {
-						t.Fatal("published revision before its objects", id)
-					}
-				}
-			}
-		}
-		files[path] = "uploaded"
-		return &http.Response{StatusCode: http.StatusCreated, Body: http.NoBody}, nil
-	})}
-	for pass := 1; pass <= 2; pass++ {
-		m := syncclient.Manifest{Lineage: lineage, Files: maps.Clone(files)}
-		if err := p.Exchange(client, folder, m, a.syncSession().TransferRecord, workspacestore.PublishNewFile); err != nil {
-			t.Fatal(err)
-		}
-		if revisions != pass {
-			t.Fatalf("pass %d: server has %d revisions", pass, revisions)
 		}
 	}
 }
@@ -827,88 +768,5 @@ func TestRejoinChecksCurrentServerAndDocument(t *testing.T) {
 	last, err := syncworkspace.LoadProfile(profileDir)
 	if err != nil || last == nil || *last != *profile || !bytes.Equal(local, stored(t, main)) {
 		t.Fatal("failed reopen replaced main or profile", err)
-	}
-}
-
-func TestEncryptedSyncUploadBodies(t *testing.T) {
-	a, _ := testStore(t)
-	folder := t.TempDir()
-	server := startPasswordTestService(t, "Temporary sync service passphrase")
-	// A large unmodified value shares this space with the edited note.
-	large := strings.Repeat("unmodified-data-", 1<<16)
-	doc := func(title string) string {
-		return strings.Replace(syncDoc(title, "Data"), `"title":"Data"`, `"title":"Data","dataText":"`+large+`"`, 1)
-	}
-	if err := a.CreateFolderSpace(folder, doc("Note"), testPass); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.ConnectSpaceServer(folder, server.Code); err != nil {
-		t.Fatal(err)
-	}
-	profileDir := canonicalTestFolder(t, folder)
-	p, err := syncworkspace.LoadProfile(profileDir)
-	if err != nil || p == nil {
-		t.Fatal("missing test profile", err)
-	}
-	cache, err := a.sessionServerIndex(folder, p.Lineage)
-	if err != nil || cache.Cursor() == "" {
-		t.Fatal("first sync would redownload the enrollment index", err)
-	}
-	client := p.Client()
-	next := client.Transport.(*http.Transport)
-	defer next.CloseIdleConnections()
-	var files, mainUploads, uploadBytes int
-	client.Transport = uploadRecorder(func(r *http.Request) (*http.Response, error) {
-		if r.Method == http.MethodPut {
-			body, err := io.ReadAll(r.Body)
-			r.Body.Close()
-			if err != nil {
-				return nil, err
-			}
-			// The transfer layer receives only client-sealed envelopes.
-			if _, err = vault.ParseEnvelope(body, workspacestore.SyncScope); err != nil {
-				t.Fatalf("unencrypted upload: %v", err)
-			}
-			r.Body = io.NopCloser(bytes.NewReader(body))
-			uploadBytes += len(body)
-			if r.URL.Path == "/v1/main" {
-				mainUploads++
-			} else {
-				files++
-			}
-		}
-		return next.RoundTrip(r)
-	})
-	syncFiles := func() {
-		t.Helper()
-		m, err := p.SyncManifest(client, cache)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err = p.Exchange(client, profileDir, m, a.syncSession().TransferRecord, workspacestore.PublishNewFile); err != nil {
-			t.Fatal(err)
-		}
-	}
-	syncFiles()
-	if err := a.SaveFolderBranch(folder, doc("Notes")); err != nil {
-		t.Fatal(err)
-	}
-	syncFiles()
-	if files != 2 || mainUploads != 0 || uploadBytes > 8<<10 {
-		t.Fatalf("one title edit: records=%d main=%d bytes=%d", files, mainUploads, uploadBytes)
-	}
-	t.Logf("one-letter title edit with %d B of unmodified text: %d encrypted records, %d B of PUT bodies", len(large), files, uploadBytes)
-	files, uploadBytes = 0, 0
-	syncFiles()
-	if files != 0 || mainUploads != 0 || uploadBytes != 0 {
-		t.Fatal("an already-current project uploaded records on its next check")
-	}
-	a.CloseFolderSpace(folder)
-	if _, err := a.OpenFolderSpace(folder, testPass); err != nil {
-		t.Fatal(err)
-	}
-	fresh, err := a.sessionServerIndex(folder, p.Lineage)
-	if err != nil || fresh == cache || fresh.Cursor() != "" {
-		t.Fatal("closed folder retained its old session's index", err)
 	}
 }

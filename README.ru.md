@@ -88,7 +88,7 @@ go run -tags webkit2_41 github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -ta
 | [internal/workspacemerge](internal/workspacemerge/) | Слияние двух версий пространства с учётом их общего предка, разрешение конфликтов и модульные тесты |
 | [internal/notesession](internal/notesession/) | Сроки разблокировки заметок и история отмены в памяти приложения |
 | [internal/syncclient](internal/syncclient/) | Аутентификация клиента, выбор проекта, уведомления об изменениях и передача недостающих записей |
-| [internal/syncworkspace](internal/syncworkspace/) | Выбор серверных проектов, проверенные подключения и повторное подключение рабочих копий |
+| [internal/syncworkspace](internal/syncworkspace/) | Серверные проекты, проверенные подключения и фоновая синхронизация рабочих копий |
 | [cmd/videron-sync](cmd/videron-sync/) | Точка входа сервера синхронизации |
 | [internal/syncserver](internal/syncserver/) | Реализация сервера и его тесты |
 

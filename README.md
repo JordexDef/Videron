@@ -88,7 +88,7 @@ Keep one local desktop build at the path shown above. Close the running app befo
 | [internal/workspacemerge](internal/workspacemerge/) | Three-way workspace merge, conflict choices and their unit tests |
 | [internal/notesession](internal/notesession/) | Note unlock lifetimes and in-memory editor undo history |
 | [internal/syncclient](internal/syncclient/) | Client authentication, project selection, change notifications and transfer of missing records |
-| [internal/syncworkspace](internal/syncworkspace/) | Server project selection, verified connection tickets and working copy reconnection |
+| [internal/syncworkspace](internal/syncworkspace/) | Server projects, connection tickets, working copy enrollment and background synchronization |
 | [cmd/videron-sync](cmd/videron-sync/) | Sync server entry point |
 | [internal/syncserver](internal/syncserver/) | Sync server implementation and tests |
 
