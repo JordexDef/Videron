@@ -6,19 +6,19 @@
 
 ![Демонстрационная карта Videron и вкладки заметок в одном окне. Слева тёмная тема, справа светлая](docs/media/videron-map.ru.png)
 
-## Скачать Videron 0.51.0
+## Скачать Videron 0.51.1
 
 Для работы с заметками скачайте приложение. Videron Sync понадобится, если вы хотите разместить собственный сервер.
 
 | Система | Приложение | Сервер Videron Sync |
 | --- | --- | --- |
-| Windows | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-0.51.0.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-0.51.0-windows-arm64.exe) | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-Sync-0.51.0-windows-amd64.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-Sync-0.51.0-windows-arm64.exe) |
-| macOS | [DMG для Apple silicon и Intel](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-0.51.0-macOS.dmg) | [Архив для Apple silicon и Intel](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-Sync-0.51.0-macOS-universal.tar.gz) |
-| Linux | [x64](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-0.51.0-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-0.51.0-linux-arm64.tar.gz) | [x64](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-Sync-0.51.0-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-Sync-0.51.0-linux-arm64.tar.gz) |
+| Windows | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-0.51.1.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-0.51.1-windows-arm64.exe) | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-Sync-0.51.1-windows-amd64.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-Sync-0.51.1-windows-arm64.exe) |
+| macOS | [DMG для Apple silicon и Intel](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-0.51.1-macOS.dmg) | [Архив для Apple silicon и Intel](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-Sync-0.51.1-macOS-universal.tar.gz) |
+| Linux | [x64](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-0.51.1-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-0.51.1-linux-arm64.tar.gz) | [x64](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-Sync-0.51.1-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-Sync-0.51.1-linux-arm64.tar.gz) |
 
 В Windows запустите EXE приложения. На Mac откройте DMG и перетащите Videron в «Программы». На Linux распакуйте архив приложения и запустите `./Videron` из распакованной папки. Сборки для Linux рассчитаны на Ubuntu 24.04 с GTK 3 и WebKitGTK 4.1. Если WebKitGTK отсутствует, установите его командой `sudo apt install libwebkit2gtk-4.1-0`.
 
-[Установка сервера](docs/server-setup.ru.md) · [Примечания к выпуску и контрольные суммы](https://github.com/JordexDef/Videron/releases/tag/v0.51.0)
+[Установка сервера](docs/server-setup.ru.md) · [Примечания к выпуску и контрольные суммы](https://github.com/JordexDef/Videron/releases/tag/v0.51.1)
 
 ## Что можно делать
 

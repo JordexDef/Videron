@@ -17,10 +17,6 @@ import (
 
 func pairedTestDirectory(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("LocalAppData", dir)
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("HOME", dir)
 	base, err := os.UserConfigDir()
 	if runtime.GOOS == "windows" {
 		base, err = os.UserCacheDir()
@@ -63,12 +59,8 @@ func registeredClient(t *testing.T, a *App, name string) (pairedTestClient, stri
 }
 
 func TestPairedAgentRegistration(t *testing.T) {
+	a, _ := testStore(t)
 	dir := pairedTestDirectory(t)
-	t.Setenv("AppData", t.TempDir())
-	a := new(App)
-	if _, err := a.Load(); err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(a.ResetAgentConnections)
 	routePath := filepath.Join(dir, "active.json")
 	client, config := registeredClient(t, a, "  Тестовый агент  ")

@@ -24,6 +24,7 @@ func testStore(t *testing.T) (*App, string) {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("AppData", dir)
+	t.Setenv("LocalAppData", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
 	a := new(App)

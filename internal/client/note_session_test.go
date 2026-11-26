@@ -62,7 +62,13 @@ func TestEditorHistoryUnderFolderAndLibraryLocks(t *testing.T) {
 			ref := EditorHistoryRef{Space: "workspace", Note: "note-a", Kind: "canvas", Protection: scope}
 			const previous = "deleted drawing text"
 			if scope == "folder" {
-				ref.Folder = t.TempDir()
+				// Like the WebView, use the inspected identity for history. On macOS
+				// the temporary directory may be under the /var symlink.
+				info, err := a.InspectSpaceFolder(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				ref.Folder = info.Folder
 				if err := a.CreateFolderSpace(ref.Folder, spaceFixture, testPass); err != nil {
 					t.Fatal(err)
 				}
