@@ -77,10 +77,10 @@ Keep one local desktop build at the path shown above. Close the running app befo
 
 | Location | What lives there |
 | --- | --- |
-| Repository root | Desktop entry point, Wails bindings and local workspace catalog |
+| Repository root | Desktop entry point and Wails bindings |
 | [frontend](frontend/) | Note editors, map and other desktop UI |
 | [internal/vault](internal/vault/) | Storage encryption, protected note validation and compatibility tests for the v1 file format |
-| [internal/workspacestore](internal/workspacestore/) | Folder workspace files, revision history and compatibility tests |
+| [internal/workspacestore](internal/workspacestore/) | Local workspace catalog, folder workspace files, revision history and compatibility tests |
 | [internal/workspacemerge](internal/workspacemerge/) | Three-way workspace merge, conflict choices and their unit tests |
 | [internal/syncclient](internal/syncclient/) | Client authentication, project selection, change notifications and transfer of missing records |
 | [cmd/videron-sync](cmd/videron-sync/) | Sync server entry point |

@@ -172,7 +172,7 @@ func TestSuspendedFolderRejectsReplacedOrDamagedEnvelope(t *testing.T) {
 		}
 		return data
 	}
-	plain, err := folderStore.EncodeSpace(spaceFixture, nil)
+	plain, err := workspaceStore.EncodeSpace(spaceFixture, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

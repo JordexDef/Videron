@@ -33,8 +33,10 @@ var (
 
 // Store applies one note policy to full documents and to individual revisions.
 type Store struct {
-	validPayload func([]byte) bool
-	validateNote func([]byte) error
+	validPayload         func([]byte) bool
+	validateNote         func([]byte) error
+	inspectCatalog       func([]byte) (catalogInspection, error)
+	validateCatalogSpace func([]byte) error
 }
 
 // New uses the same JSON note type as the local catalog. Decoding its slice
@@ -44,7 +46,11 @@ func New[Note any, Decoder interface {
 	json.Unmarshaler
 }]() *Store {
 	return &Store{
-		validPayload: validPayload[Note],
+		validPayload:   validPayload[Note],
+		inspectCatalog: inspectCatalog[Note],
+		validateCatalogSpace: func(raw []byte) error {
+			return (&decodedCatalogSpace[Note]{}).UnmarshalJSON(raw)
+		},
 		validateNote: func(raw []byte) error { return Decoder(new(Note)).UnmarshalJSON(raw) },
 	}
 }

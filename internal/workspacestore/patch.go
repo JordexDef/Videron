@@ -22,7 +22,7 @@ func (s *Session) PatchRevision() string {
 
 // SavePatch applies an editor delta to the expected baseline and publishes the resulting revision.
 // A retry of an acknowledged delta returns the same head without applying it twice.
-func (s *Session) SavePatch(expectedHead, patch string, apply func([]byte, string) ([]byte, error)) (string, error) {
+func (s *Session) SavePatch(expectedHead, patch string) (string, error) {
 	initial, bootstrap := strings.CutPrefix(expectedHead, "snapshot:")
 	if !validSyncID(initial) {
 		return "", errChanged
@@ -31,7 +31,7 @@ func (s *Session) SavePatch(expectedHead, patch string, apply func([]byte, strin
 	head := s.sync.meta.Head
 	data := s.sync.payload
 	if head == expectedHead || (bootstrap && initial == hexID([]byte(data))) {
-		next, err := apply([]byte(data), patch)
+		next, err := s.store.applyWorkspacePatch([]byte(data), patch)
 		if err != nil {
 			return "", err
 		}

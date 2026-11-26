@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"os"
 	"sync"
 	"sync/atomic"
 
@@ -23,7 +21,6 @@ type App struct {
 	ctx                  context.Context
 	closeGuard           bool
 	loaded               bool
-	protected            bool
 	projectKey           *vault.Key
 	noteKeys             map[string]*vault.Key
 	editorHistories      map[editorHistoryID]editorHistoryEntry
@@ -31,10 +28,7 @@ type App struct {
 	folderSpaces         map[string]*folderSpaceSession
 	suspendedFolderKeys  map[string]*vault.Key
 	resumeNote           string
-	disk                 os.FileInfo
-	diskDigest           [sha256.Size]byte
-	catalogIndex         *indexedCatalog
-	lastCatalogPatch     savePatchReceipt
+	catalog              workspacestore.Catalog
 	sessionLockPending   atomic.Bool
 	sessionLockListening atomic.Bool
 	revokingFolderKeys   atomic.Bool
@@ -89,7 +83,7 @@ func (a *App) dropKeys() {
 	// Every grant belongs to the current library session, including during
 	// a reload that fails or discovers an externally replaced catalog.
 	a.ResetAgentConnections()
-	a.clearCatalogIndex()
+	a.catalog.ClearIndex()
 	// A pending connection carries a verified server credential. Expire it
 	// together with the vault session, including verifications still in flight.
 	a.serverTickets.reset()

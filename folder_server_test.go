@@ -93,7 +93,7 @@ func TestJoinCommitsOnlyInOriginalSession(t *testing.T) {
 			if err := a.ProtectProject(libraryPrefix+originalNote+librarySuffix, testPass); err != nil {
 				t.Fatal(err)
 			}
-			raw, err := folderStore.EncodeSpace(syncDoc("project", "remote"), nil)
+			raw, err := workspaceStore.EncodeSpace(syncDoc("project", "remote"), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -651,7 +651,7 @@ func TestRejoinWorkingFolder(t *testing.T) {
 				t.Fatal(err)
 			}
 			main := filepath.Join(copyDir, folderSpaceFilename)
-			plain, env, err := folderStore.ParseFile(stored(t, main))
+			plain, env, err := workspaceStore.ParseFile(stored(t, main))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -664,7 +664,7 @@ func TestRejoinWorkingFolder(t *testing.T) {
 			if !bytes.Contains(plain, []byte("local branch")) {
 				t.Fatal("expected local edit in the published main")
 			}
-			edit, err := folderStore.EncodeSpace(strings.Replace(string(plain), "local branch", "uncaptured edit", 1), s.Key())
+			edit, err := workspaceStore.EncodeSpace(strings.Replace(string(plain), "local branch", "uncaptured edit", 1), s.Key())
 			if err != nil {
 				t.Fatal(err)
 			}

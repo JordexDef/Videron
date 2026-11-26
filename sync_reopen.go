@@ -100,7 +100,7 @@ func (session *syncSession) rejoinServerFolder(p *syncclient.Profile, c *http.Cl
 	if s != nil {
 		current = s.Session
 	}
-	opened, err := folderStore.PrepareRejoin(dir, m.Lineage, current)
+	opened, err := workspaceStore.PrepareRejoin(dir, m.Lineage, current)
 	temporary := s == nil
 	if err == nil && temporary {
 		s = &folderSpaceSession{Session: opened}
@@ -132,7 +132,7 @@ func (session *syncSession) rejoinServerFolder(p *syncclient.Profile, c *http.Cl
 	if active := a.folderSpaces[id]; active != nil {
 		current = active.Session
 	}
-	if _, err = folderStore.MatchFolder(dir, m.Lineage, current); err != nil {
+	if _, err = workspaceStore.MatchFolder(dir, m.Lineage, current); err != nil {
 		return err
 	}
 	return saveSuccessfulSync(dir, p)

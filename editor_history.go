@@ -50,7 +50,7 @@ func (a *App) editorHistoryKey(r EditorHistoryRef) (*vault.Key, error) {
 	case "project":
 		key = a.projectKey
 	case "plain":
-		if a.protected {
+		if a.catalog.Protected() {
 			return nil, errLocked
 		}
 		return nil, nil

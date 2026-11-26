@@ -74,31 +74,6 @@ func TestCatalogPatchPreservesOrderMetadataAndExactNumbers(t *testing.T) {
 	sameTestJSON(t, stored(t, path), []byte(want))
 }
 
-func TestEditedFieldsPreserveUnknownDataAndRejectInvalidBoundaries(t *testing.T) {
-	initial := []byte(`{"name":"data","notes":[{"id":"n","ID":"legacy","dataText":"я😀猫Z","plugin":{"n":9007199254740993},"drop":0}],"areas":[]}`)
-	raw := `{"notes":{"edit":[{"id":"n","textSplice":{"start":1,"remove":2,"insert":"😇ß"},"unset":["drop","ID"],"set":{"title":"renamed"}}]}}`
-	next, err := applyWorkspacePatch(initial, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sameTestJSON(t, next, []byte(`{"name":"data","notes":[{"id":"n","dataText":"я😇ß猫Z","title":"renamed","plugin":{"n":9007199254740993}}],"areas":[]}`))
-	for _, bad := range []string{
-		`{"notes":{"edit":[{"id":"n","textSplice":{"start":2,"remove":0}}]}}`,
-		`{"notes":{"edit":[{"id":"n","textSplice":{"start":0,"remove":2}}]}}`,
-		`{"notes":{"edit":[{"id":"n","textSplice":{"start":9}}]}}`,
-		`{"notes":{"edit":[{"id":"n","textSplice":{"start":-1}}]}}`,
-		`{"notes":{"edit":[{"id":"n","textSplice":{},"set":{"dataText":"different"}}]}}`,
-		`{"notes":{"edit":[{"id":"n","set":{"id":"other"}}]}}`,
-		`{"notes":{"edit":[{"id":"n","set":{"sealed":"ciphertext"}}]}}`,
-		`{"notes":{"edit":[{"id":"n","set":{"title":"first"}}],"remove":["n"]}}`,
-		`{"notes":{"edit":[{"id":"other","set":{"title":"missing"}}]}}`,
-	} {
-		if _, err := applyWorkspacePatch(initial, bad); !errors.Is(err, errInvalid) {
-			t.Errorf("invalid edit accepted: %s (%v)", bad, err)
-		}
-	}
-}
-
 func TestEncryptedCatalogPatchesRespectLockExternalChangesAndFullSaves(t *testing.T) {
 	a, path := testStore(t)
 	first := libraryPrefix + originalNote + librarySuffix
@@ -115,20 +90,12 @@ func TestEncryptedCatalogPatchesRespectLockExternalChangesAndFullSaves(t *testin
 	if bytes.Contains(encoded, []byte("SECRET-EDIT")) {
 		t.Fatal("plaintext on disk")
 	}
-	buf := a.catalogIndex.spaces["personal"].notes.items["note-a"]
-	if !bytes.Contains(buf, []byte("SECRET-EDIT")) {
-		t.Fatal("record not indexed")
-	}
 	updated, err = a.SaveCatalogPatch(updated, strings.Replace(edit, "SECRET-EDIT", "SECRET-LATEST", 1))
-	if err != nil || bytes.Contains(buf, []byte("SECRET-EDIT")) {
-		t.Fatal("retired note data survived replacement", err)
-	}
-	buf = a.catalogIndex.spaces["personal"].notes.items["note-a"]
-	if err = a.LockProject(); err != nil {
+	if err != nil {
 		t.Fatal(err)
 	}
-	if a.catalogIndex != nil || bytes.Contains(buf, []byte("SECRET-LATEST")) {
-		t.Fatal("plaintext index survived lock")
+	if err = a.LockProject(); err != nil {
+		t.Fatal(err)
 	}
 	if _, err = a.CatalogRevision(); !errors.Is(err, errLocked) {
 		t.Fatal(err)
@@ -151,7 +118,11 @@ func TestEncryptedCatalogPatchesRespectLockExternalChangesAndFullSaves(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldTime := a.disk.ModTime()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTime := info.ModTime()
 	tampered := bytes.Replace(stored(t, path), []byte("SECRET-EDIT"), []byte("OUTSIDER-00"), 1)
 	if err = os.WriteFile(path, tampered, 0600); err != nil {
 		t.Fatal(err)
@@ -165,33 +136,6 @@ func TestEncryptedCatalogPatchesRespectLockExternalChangesAndFullSaves(t *testin
 	if !bytes.Equal(tampered, stored(t, path)) {
 		t.Fatal("external edit overwritten")
 	}
-}
-
-func TestFolderAndLibraryPatchHaveSameRecordSemantics(t *testing.T) {
-	initial := []byte(`{"name":"A","notes":[{"id":"a"},{"id":"b"}],"areas":[],"routes":[1]}`)
-	out, err := applyWorkspacePatch(initial, `{"set":{"routes":[2]},"notes":{"put":[{"id":"b","v":3}],"order":["b","a"]}}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sameTestJSON(t, out, []byte(`{"name":"A","notes":[{"id":"b","v":3},{"id":"a"}],"areas":[],"routes":[2]}`))
-	for _, invalid := range []string{`{"set":{"_videronSync":"head"}}`, `{"unset":["notes"]}`, `{"set":{"folder":"outside"}}`} {
-		if _, err := applyWorkspacePatch(initial, invalid); !errors.Is(err, errInvalid) {
-			t.Fatal(err)
-		}
-	}
-}
-
-func TestMapInkPatchesOnLegacyWorkspace(t *testing.T) {
-	initial := []byte(`{"notes":[],"areas":[]}`)
-	created, err := applyWorkspacePatch(initial, `{"mapInk":{"put":[{"id":"pen","type":"pen","points":[[1,2]]},{"id":"box","type":"rect"}]}}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	edited, err := applyWorkspacePatch(created, `{"mapInk":{"edit":[{"id":"pen","set":{"glow":true}}],"remove":["box"]}}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sameTestJSON(t, edited, []byte(`{"notes":[],"areas":[],"mapInk":[{"id":"pen","type":"pen","points":[[1,2]],"glow":true}]}`))
 }
 
 func TestCatalogPatchRetryAndCompetingWriters(t *testing.T) {

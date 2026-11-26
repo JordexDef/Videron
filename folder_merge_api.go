@@ -50,5 +50,5 @@ func (a *App) SaveFolderPatch(folder, expectedHead, patch string) (string, error
 	if err != nil {
 		return "", err
 	}
-	return s.SavePatch(expectedHead, patch, applyWorkspacePatch)
+	return s.SavePatch(expectedHead, patch)
 }

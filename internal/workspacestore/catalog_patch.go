@@ -1,9 +1,8 @@
-package main
+package workspacestore
 
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"maps"
 	"slices"
@@ -12,7 +11,6 @@ import (
 	"unicode/utf8"
 
 	"videron/internal/vault"
-	"videron/internal/workspacestore"
 )
 
 // Patches describe changes to JSON objects and to the ordered record lists in
@@ -70,7 +68,7 @@ func (s textSplice) apply(raw json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(source[:start] + s.Insert + source[end:])
 }
 
-func (e rowEdit) apply(raw json.RawMessage, note bool) (json.RawMessage, error) {
+func (e rowEdit) apply(raw json.RawMessage, validateNote func([]byte) error) (json.RawMessage, error) {
 	var fields jsonFields
 	if json.Unmarshal(raw, &fields) != nil {
 		return nil, errInvalid
@@ -85,7 +83,7 @@ func (e rowEdit) apply(raw json.RawMessage, note bool) (json.RawMessage, error) 
 		return nil, err
 	}
 	if e.TextSplice != nil {
-		if !note || e.Set["dataText"] != nil || slices.Contains(e.Unset, "dataText") {
+		if validateNote == nil || e.Set["dataText"] != nil || slices.Contains(e.Unset, "dataText") {
 			return nil, errInvalid
 		}
 		updated["dataText"], err = e.TextSplice.apply(fields["dataText"])
@@ -97,7 +95,7 @@ func (e rowEdit) apply(raw json.RawMessage, note bool) (json.RawMessage, error) 
 	beginObject(&dst, updated)
 	dst.WriteByte('}')
 	result := dst.Bytes()
-	if note && storedNotes.Validate(result) != nil {
+	if validateNote != nil && validateNote(result) != nil {
 		return nil, errInvalid
 	}
 	return result, nil
@@ -117,13 +115,6 @@ type catalogSpaceEdits struct {
 type catalogEdits struct {
 	objectEdits
 	Spaces map[string]catalogSpaceEdits `json:"spaces"`
-}
-
-// Receipts allow an exact retry after a lost IPC response without keeping
-// the patch (which can include private note content) in memory.
-type savePatchReceipt struct {
-	from, to string
-	digest   [sha256.Size]byte
 }
 
 type jsonFields map[string]json.RawMessage
@@ -184,7 +175,8 @@ func (e objectEdits) apply(fields jsonFields, reserved ...string) (jsonFields, e
 	return result, nil
 }
 
-func rowID(raw json.RawMessage) (string, error) {
+// RecordID reads the exact JSON key used by lists in the catalog and spaces.
+func RecordID(raw json.RawMessage) (string, error) {
 	var fields jsonFields
 	var id *string
 	if json.Unmarshal(raw, &fields) != nil || json.Unmarshal(fields["id"], &id) != nil || id == nil {
@@ -200,7 +192,7 @@ func indexRecords(raw json.RawMessage) (*recordList, error) {
 	}
 	list := &recordList{items: make(map[string]json.RawMessage, len(rows)), order: make([]string, 0, len(rows))}
 	for _, row := range rows {
-		id, e := rowID(row)
+		id, e := RecordID(row)
 		if e != nil || list.items[id] != nil {
 			return nil, errInvalid
 		}
@@ -210,7 +202,7 @@ func indexRecords(raw json.RawMessage) (*recordList, error) {
 	return list, nil
 }
 
-func (e *recordEdits) apply(list *recordList, notes bool) (*recordList, error) {
+func (e *recordEdits) apply(list *recordList, validateNote func([]byte) error) (*recordList, error) {
 	if e == nil {
 		return list, nil
 	}
@@ -232,7 +224,7 @@ func (e *recordEdits) apply(list *recordList, notes bool) (*recordList, error) {
 		if current == nil || touched[change.ID] {
 			return nil, errInvalid
 		}
-		next, err := change.apply(current, notes)
+		next, err := change.apply(current, validateNote)
 		if err != nil {
 			return nil, err
 		}
@@ -240,11 +232,11 @@ func (e *recordEdits) apply(list *recordList, notes bool) (*recordList, error) {
 		touched[change.ID] = true
 	}
 	for _, raw := range e.Put {
-		id, err := rowID(raw)
+		id, err := RecordID(raw)
 		if err != nil || touched[id] {
 			return nil, errInvalid
 		}
-		if notes && storedNotes.Validate(raw) != nil {
+		if validateNote != nil && validateNote(raw) != nil {
 			return nil, errInvalid
 		}
 		if result.items[id] == nil {
@@ -309,21 +301,21 @@ func indexSpace(raw json.RawMessage) (*indexedSpace, error) {
 	return space, nil
 }
 
-func (e spaceEdits) apply(space *indexedSpace) (*indexedSpace, error) {
+func (e spaceEdits) apply(space *indexedSpace, store *Store) (*indexedSpace, error) {
 	if space == nil || space.folder {
 		return nil, errInvalid
 	}
 	next := *space
 	var err error
-	next.fields, err = e.objectEdits.apply(space.fields, "notes", "areas", "mapInk", "folder", workspacestore.SyncProperty)
+	next.fields, err = e.objectEdits.apply(space.fields, "notes", "areas", "mapInk", "folder", SyncProperty)
 	if err != nil {
 		return nil, err
 	}
-	next.notes, err = e.Notes.apply(space.notes, true)
+	next.notes, err = e.Notes.apply(space.notes, store.validateNote)
 	if err != nil {
 		return nil, err
 	}
-	next.areas, err = e.Areas.apply(space.areas, false)
+	next.areas, err = e.Areas.apply(space.areas, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +323,7 @@ func (e spaceEdits) apply(space *indexedSpace) (*indexedSpace, error) {
 		if next.mapInk == nil {
 			next.mapInk = &recordList{items: make(map[string]json.RawMessage)}
 		}
-		next.mapInk, err = e.MapInk.apply(next.mapInk, false)
+		next.mapInk, err = e.MapInk.apply(next.mapInk, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -360,7 +352,7 @@ func indexCatalog(raw []byte) (*indexedCatalog, error) {
 	return out, nil
 }
 
-func (e catalogEdits) apply(old *indexedCatalog) (*indexedCatalog, error) {
+func (e catalogEdits) apply(old *indexedCatalog, store *Store) (*indexedCatalog, error) {
 	fields, err := e.objectEdits.apply(old.fields, "spaces", "vault")
 	if err != nil {
 		return nil, err
@@ -382,12 +374,12 @@ func (e catalogEdits) apply(old *indexedCatalog) (*indexedCatalog, error) {
 				continue
 			}
 			// Applies the same folder-link and encrypted note rules as a full Save.
-			if (&catalogSpace{}).UnmarshalJSON(op.Replace) != nil {
+			if store.validateCatalogSpace(op.Replace) != nil {
 				return nil, errInvalid
 			}
 			next.spaces[key], err = indexSpace(op.Replace)
 		} else {
-			next.spaces[key], err = op.spaceEdits.apply(next.spaces[key])
+			next.spaces[key], err = op.spaceEdits.apply(next.spaces[key], store)
 		}
 		if err != nil {
 			return nil, err
@@ -395,7 +387,7 @@ func (e catalogEdits) apply(old *indexedCatalog) (*indexedCatalog, error) {
 	}
 	// Only metadata and records in the patch can have changed. Validate the
 	// resulting catalog header without walking unchanged note bodies again.
-	var h libraryHeader
+	var h libraryHeader[catalogSpace]
 	for key := range fields {
 		for _, reserved := range []string{"active", "version", "spaces", "vault"} {
 			if key != reserved && strings.EqualFold(key, reserved) {
@@ -477,8 +469,8 @@ func (c *indexedCatalog) write(dst *bytes.Buffer) {
 	dst.WriteString("}}")
 }
 
-// Folder sessions use the same ID and ordering semantics as library spaces.
-func applyWorkspacePatch(current []byte, delta string) ([]byte, error) {
+// applyWorkspacePatch uses the same record IDs and ordering as catalog patches.
+func (store *Store) applyWorkspacePatch(current []byte, delta string) ([]byte, error) {
 	var e spaceEdits
 	if err := decodeEdits(delta, &e); err != nil {
 		return nil, err
@@ -487,7 +479,7 @@ func applyWorkspacePatch(current []byte, delta string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	next, err := e.apply(base)
+	next, err := e.apply(base, store)
 	if err != nil {
 		return nil, err
 	}
@@ -497,42 +489,25 @@ func applyWorkspacePatch(current []byte, delta string) ([]byte, error) {
 	return dst.Bytes(), nil
 }
 
-func (a *App) catalogRevision() string {
-	if a.disk == nil {
-		return ""
-	}
-	return hex.EncodeToString(a.diskDigest[:])
-}
-
-func (a *App) CatalogRevision() (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.loaded {
-		return "", errLocked
-	}
-	return a.catalogRevision(), nil
-}
-
-func (a *App) SaveCatalogPatch(expectedRev, delta string) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.loaded {
+// SavePatch applies an editor delta to the catalog version last loaded or saved.
+func (c *Catalog) SavePatch(store *Store, key *vault.Key, expectedRev, delta string) (string, error) {
+	if c.protected != (key != nil) {
 		return "", errLocked
 	}
 	if expectedRev == "" {
 		return "", errChanged
 	}
-	current := a.catalogRevision()
+	current := c.Revision()
 	digest := sha256.Sum256([]byte(delta))
 	if expectedRev != current {
-		if a.lastCatalogPatch != (savePatchReceipt{from: expectedRev, to: current, digest: digest}) {
+		if c.lastPatch != (savePatchReceipt{from: expectedRev, to: current, digest: digest}) {
 			return "", errChanged
 		}
-		path, err := workspacestore.CatalogPath()
+		path, err := CatalogPath()
 		if err != nil {
 			return "", err
 		}
-		if err = a.verifyCatalog(path); err != nil {
+		if err = c.verify(path); err != nil {
 			return "", err
 		}
 		return current, nil
@@ -541,22 +516,22 @@ func (a *App) SaveCatalogPatch(expectedRev, delta string) (string, error) {
 	if err := decodeEdits(delta, &edits); err != nil {
 		return "", err
 	}
-	base := a.catalogIndex
+	base := c.index
 	if base == nil {
-		raw, info, err := readWorkspace()
+		raw, info, err := readCatalog()
 		if err != nil {
 			return "", err
 		}
 		defer clear(raw)
-		if !workspacestore.SameFileState(a.disk, info) || sha256.Sum256(raw) != a.diskDigest {
+		if !SameFileState(c.disk, info) || sha256.Sum256(raw) != c.diskDigest {
 			return "", errChanged
 		}
-		if a.projectKey != nil {
+		if key != nil {
 			env, err := vault.ParseEnvelope(raw, vault.ProjectScope)
 			if err != nil {
 				return "", err
 			}
-			raw, err = a.projectKey.Open(env, "")
+			raw, err = key.Open(env, "")
 			if err != nil {
 				return "", err
 			}
@@ -567,23 +542,23 @@ func (a *App) SaveCatalogPatch(expectedRev, delta string) (string, error) {
 			return "", err
 		}
 	}
-	next, err := edits.apply(base)
+	next, err := edits.apply(base, store)
 	if err != nil {
 		return "", err
 	}
 	var dst bytes.Buffer
-	if a.disk.Size() > 0 && a.disk.Size() <= int64(^uint(0)>>1) {
-		dst.Grow(int(a.disk.Size()))
+	if c.disk.Size() > 0 && c.disk.Size() <= int64(^uint(0)>>1) {
+		dst.Grow(int(c.disk.Size()))
 	}
 	next.write(&dst)
 	defer clear(dst.Bytes())
-	if err := a.writeCatalogBytes(dst.Bytes(), a.projectKey); err != nil {
+	if err := c.write(dst.Bytes(), key); err != nil {
 		return "", err
 	}
 	base.discardSuperseded(next)
-	a.catalogIndex = next
-	current = a.catalogRevision()
-	a.lastCatalogPatch = savePatchReceipt{from: expectedRev, to: current, digest: digest}
+	c.index = next
+	current = c.Revision()
+	c.lastPatch = savePatchReceipt{from: expectedRev, to: current, digest: digest}
 	return current, nil
 }
 
@@ -628,8 +603,9 @@ func (old *indexedCatalog) discardSuperseded(keep *indexedCatalog) {
 	}
 }
 
-func (a *App) clearCatalogIndex() {
-	a.lastCatalogPatch = savePatchReceipt{}
-	a.catalogIndex.discardSuperseded(nil)
-	a.catalogIndex = nil
+// ClearIndex releases the cached plaintext and the last patch receipt.
+func (c *Catalog) ClearIndex() {
+	c.lastPatch = savePatchReceipt{}
+	c.index.discardSuperseded(nil)
+	c.index = nil
 }

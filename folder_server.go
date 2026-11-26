@@ -388,7 +388,7 @@ func (a *App) JoinSpaceServer(code, folder string) error {
 	if err != nil {
 		return err
 	}
-	_, _, err = folderStore.ParseFile(raw)
+	_, _, err = workspaceStore.ParseFile(raw)
 	clear(raw)
 	if err != nil {
 		return err

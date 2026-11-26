@@ -374,7 +374,11 @@ func TestExternallyEditedCatalogKeepsContents(t *testing.T) {
 		t.Fatal(err)
 	}
 	updated := strings.Replace(original, "PRIVATE-TITLE", "UPDATED-TITLE", 1)
-	oldTime := a.disk.ModTime()
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTime := before.ModTime()
 	if err := os.WriteFile(path, []byte(updated), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +386,7 @@ func TestExternallyEditedCatalogKeepsContents(t *testing.T) {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
-	if err != nil || !workspacestore.SameFileState(a.disk, info) {
+	if err != nil || !workspacestore.SameFileState(before, info) {
 		t.Fatal("expected equal size, timestamp and identity", err)
 	}
 	if err := a.Save(original); !errors.Is(err, errChanged) {
@@ -438,7 +442,7 @@ func TestMixedProtectedRecordsCannotReachStorage(t *testing.T) {
 			if err := a.Save(libraryPrefix + string(record) + librarySuffix); !errors.Is(err, errInvalid) {
 				t.Fatal("catalog accepted mixed sealed/cleartext record", err)
 			}
-			if folderStore.ValidPayload([]byte(`{"name":"Notes","notes":[` + string(record) + `],"areas":[]}`)) {
+			if workspaceStore.ValidPayload([]byte(`{"name":"Notes","notes":[` + string(record) + `],"areas":[]}`)) {
 				t.Fatal("folder storage accepted mixed record")
 			}
 			if got := string(stored(t, path)); got != snapshot {
@@ -474,11 +478,16 @@ func TestCredentialBlocksRequireIndividualNoteEncryption(t *testing.T) {
 			t.Fatal("accepted an individually unsealed credential block", err)
 		}
 	}
-	if folderStore.ValidPayload([]byte(`{"name":"Shared","notes":[` + row + `],"areas":[]}`)) {
+	if workspaceStore.ValidPayload([]byte(`{"name":"Shared","notes":[` + row + `],"areas":[]}`)) {
 		t.Fatal("folder accepted an individually unsealed credential block")
 	}
-	edit := rowEdit{ID: "note-a", objectEdits: objectEdits{Set: map[string]json.RawMessage{"body": json.RawMessage("[" + block + "]")}}}
-	if _, err := edit.apply(json.RawMessage(originalNote), true); !errors.Is(err, errInvalid) {
+	head, err := a.CatalogRevision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch := `{"spaces":{"personal":{"notes":{"edit":[{"id":"note-a","set":{"body":[` + block + `]}}]}}}}`
+	before := stored(t, path)
+	if _, err := a.SaveCatalogPatch(head, patch); !errors.Is(err, errInvalid) || !bytes.Equal(before, stored(t, path)) {
 		t.Fatal("accepted a credential block in a note patch", err)
 	}
 	sealed, err := a.ProtectNote("note-a", row, nextPass)
@@ -515,7 +524,7 @@ func TestSealedMapLabelStorage(t *testing.T) {
 		return string(b)
 	}
 	folderAccepts := func(row string) bool {
-		return folderStore.ValidPayload([]byte(`{"name":"Notes","notes":[` + row + `],"areas":[]}`))
+		return workspaceStore.ValidPayload([]byte(`{"name":"Notes","notes":[` + row + `],"areas":[]}`))
 	}
 	for _, label := range []string{strings.Repeat("🌳", 120), "Проект №2", ""} {
 		if label == "" {
@@ -563,18 +572,18 @@ func TestLargeStoredEnvelopeAndLegacyLayouts(t *testing.T) {
 			envelopeText = formatted.Bytes()
 		}
 		stub, _ := json.Marshal(map[string]string{"id": "large", "sealed": string(envelopeText)})
-		if !validWorkspace([]byte(libraryPrefix + string(stub) + librarySuffix)) {
+		if !workspaceStore.ValidCatalog([]byte(libraryPrefix + string(stub) + librarySuffix)) {
 			t.Fatal("rejected compatible note layout", pretty)
 		}
 	}
 	// All normal storage paths still authenticate/decrypt the original, full ciphertext.
 	snapshot, _ := json.Marshal(map[string]any{"sealed": string(blob), "id": "large", "title": "PRIVATE-TITLE"})
-	if validWorkspace([]byte(libraryPrefix + string(snapshot) + librarySuffix)) {
+	if workspaceStore.ValidCatalog([]byte(libraryPrefix + string(snapshot) + librarySuffix)) {
 		t.Fatal("large ciphertext masked a cleartext field")
 	}
 	broken := bytes.Replace(blob, []byte(`"data":"`), []byte(`"data":"#`), 1)
 	stub, _ := json.Marshal(map[string]string{"id": "large", "sealed": string(broken)})
-	if validWorkspace([]byte(libraryPrefix + string(stub) + librarySuffix)) {
+	if workspaceStore.ValidCatalog([]byte(libraryPrefix + string(stub) + librarySuffix)) {
 		t.Fatal("invalid base64 accepted")
 	}
 }

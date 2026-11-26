@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"videron/internal/vault"
+	"videron/internal/workspacestore"
 )
 
 // The editor's key and the grant for future opens have independent lifetimes.
@@ -32,7 +33,7 @@ func validNote(id string, payload []byte) bool {
 		return false
 	}
 	// Use the same case-sensitive property as the editor and catalog index.
-	storedID, err := rowID(payload)
+	storedID, err := workspacestore.RecordID(payload)
 	return err == nil && storedID == id
 }
 

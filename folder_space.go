@@ -14,7 +14,6 @@ const folderSpaceFormat = workspacestore.Format
 
 var errSpaceMissing = workspacestore.ErrMissing
 var errSpaceExists = workspacestore.ErrExists
-var folderStore = workspacestore.New[storedNote]()
 
 type SpaceFolderInfo = workspacestore.SpaceFolderInfo
 
@@ -51,7 +50,7 @@ func (a *App) InspectSpaceFolder(folder string) (SpaceFolderInfo, error) {
 	}
 
 	id := workspacestore.SessionID(dir)
-	result, err = folderStore.Inspect(dir, a.suspendedFolderKeys[id])
+	result, err = workspaceStore.Inspect(dir, a.suspendedFolderKeys[id])
 	if !result.CanResume || err != nil {
 		a.forgetSuspendedFolder(id)
 	}
@@ -101,7 +100,7 @@ func (a *App) openFolderSpace(folder, password string, resume bool) (string, err
 		a.forgetSuspendedFolder(id)
 	}
 
-	opened, payload, err := folderStore.Open(dir, password, key)
+	opened, payload, err := workspaceStore.Open(dir, password, key)
 	if err != nil {
 		return "", err
 	}
@@ -124,7 +123,7 @@ func (a *App) CreateFolderSpace(folder, payload, password string) error {
 		return err
 	}
 
-	opened, err := folderStore.Create(dir, payload, password)
+	opened, err := workspaceStore.Create(dir, payload, password)
 	if err != nil {
 		return err
 	}
