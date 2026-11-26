@@ -7,8 +7,9 @@ import { slotAt, slotGridBounds, gridMarqueeBounds, gridFocusCamera, drawSlotGri
 import { shapeSiblingContours, insideContour, traceContour, emptyContourAnchor } from './map-contours.js';
 import { contourLabelPositions } from './contour-label.js';
 import { drawMapBackgroundDots } from './map-background.js';
-import { lightMap, mapInk, mapPalette } from './map-palette.js';
+import { lightMap, mapInk, mapNoteColor, mapPalette } from './map-palette.js';
 import { paintMapNote } from './map-note-paint.js';
+import { animateTitleSpoiler, titleParticles, titleSpoilerWidth } from './note-title-particles.js';
 import { dragPaintLayer, releaseDragPaint } from './map-drag-paint.js';
 import { MapZoomPreview } from './map-zoom-preview.js';
 import { areaContactFamilies, measureAreaHulls, separateAreaSiblings } from './area-physics.js';
@@ -18,6 +19,7 @@ import { appearanceOf, badgeRadius, contact, containsPoint, contentRadius, edgeR
 const NEUTRAL = '#b3b3b3';
 const TAU = Math.PI * 2;
 const STEP_MS = 1000 / 60;
+const animatedTitleLimit = 8;
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const extendsSelection = event => event.shiftKey || event.ctrlKey || event.metaKey;
 
@@ -373,16 +375,17 @@ export class Graph {
       const naturalRadius = appearance.radius ?? contentRadius(note), r = seated ? seatedRadius(naturalRadius,group.grid) : naturalRadius;
       const layoutKey = JSON.stringify([tags, links, !!note.pinned, note.areaId, seated, r, appearance.shape,note.mapGroupId]);
       const heatTarget = 1 - Math.exp(-Math.max(0, Number(note.opens) || 0) / 10);
-      const title = note.title || tr('Без названия', 'Untitled');
+      const titleConcealed = protectedNote && (this.callbacks.concealsTitle?.(note) ?? true);
+      const title = titleConcealed ? tr('Зашифрованная заметка','Encrypted note') : note.title || tr('Без названия', 'Untitled');
       const task = agentTaskInfo(note);
       const appearanceAndLayout = {
-        index, title, inputX: x, inputY: y, mapGroupId:note.mapGroupId,
+        index, title, titleConcealed, inputX: x, inputY: y, mapGroupId:note.mapGroupId,
         taskRoot:task?.rootId, taskStatus:task?.status,
         r, naturalRadius, pinned: !!note.pinned, areaId:note.areaId ?? null, slot:note.slot, seated, tags, links, layoutKey,
         geometry: geometryFor(appearance.shape), icon: appearance.icon || (protectedNote ? lockSticker : null), customColor: !!appearance.color,
         lockBadge: protectedNote && !!appearance.icon && appearance.icon !== lockSticker, badgeSize: appearance.badgeSize,
         leftIcon: appearance.leftIcon, rightIcon: appearance.rightIcon,
-        tint: appearance.color ? rgb(appearance.color) : group?.tint || rgb(note.color),
+        tint: rgb(mapNoteColor(appearance, group?.color, note.color)),
         heatTarget, heat: node?.heat ?? heatTarget
       };
       if (node) {
@@ -1446,6 +1449,7 @@ export class Graph {
     else {
       this.clearReturnCue();
       this.clearAgentPulses();
+      this.clearTitleSpoilers();
       this.zoomPreview?.reset();
       this.cancelDrag();
       if (this.frame) cancelAnimationFrame(this.frame);
@@ -1478,6 +1482,31 @@ export class Graph {
     ring.style.left = x+'px';
     ring.style.top = y+'px';
     ring.style.width = ring.style.height = size+'px';
+  }
+
+  placeTitleSpoiler(id,x,y,tint) {
+    this.titleSpoilers ??= new Map();
+    let spoiler = this.titleSpoilers.get(id);
+    if (!spoiler) {
+      spoiler = this.canvas.ownerDocument.createElement('span');
+      spoiler.className = 'note-title-spoiler map-title-spoiler';
+      spoiler.setAttribute('aria-hidden','true');
+      animateTitleSpoiler(spoiler);
+      this.canvas.after(spoiler);
+      this.titleSpoilers.set(id,spoiler);
+    }
+    spoiler.style.left = x+'px';
+    spoiler.style.top = y+'px';
+    spoiler.style.color = tint;
+  }
+
+  clearTitleSpoilers(visible) {
+    if (!this.titleSpoilers) return;
+    for (const [id, spoiler] of this.titleSpoilers) {
+      if (visible?.has(id)) continue;
+      spoiler.remove();
+      this.titleSpoilers.delete(id);
+    }
   }
 
   tick(time) {
@@ -1542,6 +1571,7 @@ export class Graph {
       !this.canvas.parentElement?.dataset?.routeMode && !this.canvas.parentElement?.classList?.contains('drawing-on-map');
     if (plainOverview && zoomFrame && preview.show(this.camera,this.width,this.height)) {
       this.clearAgentPulses();
+      this.clearTitleSpoilers();
       this.callbacks.onMapFrame?.(this);
     } else {
       preview?.reset();
@@ -1745,6 +1775,7 @@ export class Graph {
   drawLabels(labels, obstacles, view, palette=mapPalette()) {
     const c = this.ctx, cells = new Map();
     const siblings = new Map();
+    let visibleTitleSpoilers;
     for (const family of this.areaFamilies || []) for (const area of family) siblings.set(area,family);
     c.textBaseline = 'middle'; c.textAlign = 'center';
     labels.sort((a, b) => b.rank - a.rank);
@@ -1753,7 +1784,8 @@ export class Graph {
       if (!item.text && !grip) continue;
       c.font = item.group ? '600 12px "Segoe UI", sans-serif' : '11px "Segoe UI", sans-serif';
       const owner = item.note || item.area || item.grid;
-      const {label,width} = grip ? {width:20} : measureMapLabel(c,item.text,owner);
+      const concealed = item.note?.titleConcealed;
+      const {label,width} = grip ? {width:20} : concealed ? {width:titleSpoilerWidth} : measureMapLabel(c,item.text,owner);
       const positions = item.area ? contourLabelPositions(item.area,siblings.get(item.area),view,width) : [item];
       for (const {x,y} of positions) {
         const l=x-width/2-4, r=x+width/2+4, t=y-8, b=y+8;
@@ -1780,17 +1812,36 @@ export class Graph {
           for (const dx of [-5,0,5]) for (const dy of [-2,2]) c.fillRect(x+dx-1,y+dy-1,2,2);
           break;
         }
+        if (concealed) {
+          // A handful of labels animate independently of the map. Use a
+          // static texture for the rest, and throughout camera gestures.
+          if (this.canvas?.ownerDocument && !this.drag?.moved && !this.pinch && !this.target &&
+              (!visibleTitleSpoilers || visibleTitleSpoilers.size<animatedTitleLimit)) {
+            (visibleTitleSpoilers ??= new Set()).add(item.note.id);
+            this.placeTitleSpoiler(item.note.id,x,y,item.tint);
+          } else {
+            c.save(); c.fillStyle=item.tint;
+            for (const dot of titleParticles) {
+              c.globalAlpha=dot.opacity;
+              c.fillRect(x-titleSpoilerWidth/2+dot.x-dot.radius,y-5+dot.y-dot.radius,2*dot.radius,2*dot.radius);
+            }
+            c.restore();
+          }
+          break;
+        }
         c.lineWidth=3.2; c.lineJoin='round'; c.strokeStyle=palette.canvas;
         c.strokeText(label,x,y);
         c.fillStyle=item.tint; c.fillText(label,x,y);
         break;
       }
     }
+    if (this.titleSpoilers) this.clearTitleSpoilers(visibleTitleSpoilers);
   }
 
   destroy() {
     this.clearReturnCue();
     this.clearAgentPulses();
+    this.clearTitleSpoilers();
     this.zoomPreview?.reset();
     this.cancelDrag();
     this.flushPositions();

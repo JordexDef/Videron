@@ -8,8 +8,8 @@ export function isProtectedNote(record) {
   return !!record && Object.hasOwn(record, 'sealed')
 }
 
-export function protectedNoteTitle(record) {
-  return (isProtectedNote(record) && record.mapLabel) || tr('Зашифрованная заметка', 'Encrypted note')
+export function protectedNoteTitle() {
+  return tr('Зашифрованная заметка', 'Encrypted note')
 }
 
 // Only these map fields belong outside the individual note's envelope.
@@ -105,7 +105,11 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
   } else note = {...record}
 
   let revision = 0, sealedRevision = 0, preparingSeal, pendingSeal, managing = false, closed = false
-  function currentNote() { return noteWithMapFields(note, record) }
+  function currentNote() {
+    const current = noteWithMapFields(note, record)
+    if (record.mapLabel) current.legacyMapLabel = record.mapLabel
+    return current
+  }
 
   function changed(patch) {
     if (closed) return
@@ -122,13 +126,19 @@ export async function openNoteSession({record, bridge, dirty, persist, onPrivacy
     // Wait for the record and its public map references to switch together.
     if (preparingSeal) return preparingSeal.then(flush)
     if (pendingSeal) return pendingSeal
-    if (!isProtectedNote(record) || sealedRevision === revision) return Promise.resolve()
+    if (!isProtectedNote(record) || (sealedRevision === revision && !record.mapLabel)) return Promise.resolve()
     pendingSeal = (async () => {
-      while (isProtectedNote(record) && sealedRevision !== revision) {
+      while (isProtectedNote(record) && (sealedRevision !== revision || record.mapLabel)) {
         const saving = revision
+        const legacyLabel = record.mapLabel
         const sealed = await bridge.SealNote(id, JSON.stringify(currentNote()))
         if (typeof sealed !== 'string' || !sealed) throw new Error('VD_INVALID')
         record.sealed = sealed
+        if (legacyLabel && record.mapLabel === legacyLabel) {
+          // Retain old aliases only as private compatibility data.
+          note.legacyMapLabel = legacyLabel
+          delete record.mapLabel
+        }
         sealedRevision = saving
         dirty() // The ciphertext can finish after an earlier record snapshot was captured.
       }

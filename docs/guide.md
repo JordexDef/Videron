@@ -37,6 +37,7 @@ In an open note, **Ctrl+S** (**⌘S** on Mac) writes your current edits to local
 ### Create, read and link notes
 
 - Choose **New note** in the upper left to start a text note, or **New canvas** to arrange objects freely. The shortcuts are **Ctrl+N** and **Ctrl+Shift+N**. The editor's back button names your destination, whether it is the map, a list, an area or your search results.
+- Open a note to add it to the tab strip above the map and editor. Click a tab to switch, drag to reorder or click **×** to close it. The back button leaves the tab available.
 - Double-click a node to open it, or drag to move it. Right-click to pin the note or create a link. Pinned notes stay in position when linked notes pull toward each other.
 - Turn on **View → Free layout** to hide link lines and stop automatic movement. Drag a note or a whole selection to place it, including pinned notes. Drop the selection on a grid or stage track to snap the notes into the highlighted slots. Turning free layout off resumes automatic movement using the existing links.
 - Right-click a note and choose **Appearance**, or select it and click the palette button. Set its shape, color and icon. Reset the color to inherit the area's color. The 288 SVG icons are searchable by English or Russian name. [Lucide](https://lucide.dev/license) · [Phosphor Duotone](https://github.com/phosphor-icons/core)
@@ -195,7 +196,7 @@ When you enter the password, **Keep this note unlocked** lets you choose how lon
 
 Videron encrypts the title, text, searchable copy, tags, code, drawings, tables and attachments in the file. The map shows an **Encrypted note** node. Its shape, icon and color stay visible when you encrypt it. Right-click the node and choose **Appearance** to change them while it is locked. Notes encrypted in older versions keep their previous style private until you choose a visible style.
 
-To give a locked note a name, right-click it and choose **Rename on map…**. Enter a **Map label** and press **Enter**. This label is visible without the note password on the map, in the list and in the sidebar. Clear it to restore **Encrypted note**. The title you see inside the editor stays encrypted. Update Videron on all computers sharing the space before assigning a map label or style to a locked note.
+Set a note's title in the editor. The map, sidebar and tabs show that title while the note is unlocked. A locked note shows a textured placeholder. The title is encrypted with the note. When you next unlock and save a note that had a separate map label, Videron keeps the old label inside the encrypted note.
 
 The visible appearance and optional label are stored with the map, alongside the node’s position, area membership, pin, manual links, timestamps and open count. Space search and extensions exclude the note's protected contents. Earlier versions saved in an unencrypted folder remain readable in its history, including copies on the sync server, other devices and in backups. To protect the entire history, enable folder encryption when creating the space, before you add notes.
 

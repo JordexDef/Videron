@@ -30,7 +30,7 @@ function labelFor(conflict) {
   if (conflict.kind === 'ink') return tr('Рисунок на карте','Map drawing')
   if (conflict.kind === 'note') {
     const note = [conflict.local, conflict.remote].find(n => n && !sealed(n))
-    return note ? note.title || tr('Без названия', 'Untitled') : protectedNoteTitle(conflict.local || conflict.remote)
+    return note ? note.title || tr('Без названия', 'Untitled') : protectedNoteTitle()
   }
   if (conflict.kind === 'setting') return conflict.id === 'name' ? tr('Название пространства', 'Space name') : conflict.id
   return conflict.local?.name || conflict.remote?.name || conflict.id
@@ -258,11 +258,6 @@ export function openWorkspaceConflicts({conflicts, spaceName, previewSealed}) {
         body.tabIndex=0;body.setAttribute('role','region');body.setAttribute('aria-label',caption)
         if (value==null) body.append(el('p','conflict-empty',tr('Удалено','Deleted')))
         else if (conflict.kind==='note' && sealed(value)) {
-          if (value.mapLabel || (sealed(other) && other.mapLabel)) {
-            const label=el('h3','conflict-note-title')
-            appendText(label,protectedNoteTitle(value),sealed(other)?protectedNoteTitle(other):undefined)
-            body.append(label)
-          }
           body.append(el('p','conflict-empty',tr('Заметка защищена отдельным паролем.','This note has its own password.')))
           if ((value.mapGroupId || other?.mapGroupId) && Number.isFinite(value.x) && Number.isFinite(value.y))
             body.append(el('p','',tr('Положение на карте · {x}, {y}', 'Map position · {x}, {y}', {x:Math.round(value.x),y:Math.round(value.y)})))

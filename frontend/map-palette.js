@@ -20,6 +20,13 @@ export const lightMap = {
 
 export const mapPalette = () => isLightTheme() ? lightMap : darkMap;
 
+export function mapNoteColor(appearance, areaColor, noteColor) {
+  if (appearance.color) return appearance.color;
+  if (areaColor) return areaColor;
+  const color = String(noteColor || '').trim();
+  return /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(color) ? color : '#b3b3b3';
+}
+
 const inkCache = new WeakMap();
 
 // User colours stay in the fill. Cap the luminance of their outline and text

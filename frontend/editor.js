@@ -92,7 +92,7 @@ function button(label, symbol, action, visible = false) {
 const paragraph = () => ({type: 'paragraph', runs: []})
 const option = (value, name) => new Option(name, value)
 function keepTabInEditor(event, root){
-  if(event.key!=='Tab')return
+  if(event.key!=='Tab'||document.documentElement.classList.contains('has-note-tabs'))return
   const selectors='button:not(:disabled),select:not(:disabled),input:not(:disabled),textarea:not(:disabled),[contenteditable=true],[tabindex="0"]'
   const controls=[...root.querySelectorAll(selectors)].filter(control=>control.getClientRects().length)
   if(!controls.length)return
@@ -278,7 +278,7 @@ function noteDetails({root,note,notes,areas,current,update,openNote,openTag}) {
     choices.append(option('',tr('Добавить связь…','Add a link…')))
     for(const other of notes){
       if(other.id===note.id)continue
-      const name=isProtectedNote(other)?protectedNoteTitle(other):other.title||tr('Без названия','Untitled')
+      const name=isProtectedNote(other)?protectedNoteTitle():other.title||tr('Без названия','Untitled')
       if(links.includes(other.id)){
         const row=connectionRow(other,name)
         row.append(button(tr('Убрать связь с «{name}»','Remove link to “{name}”',{name}),'close',()=>{
@@ -369,7 +369,7 @@ async function finishNoteSession(root, beforeClose, beforeRelease) {
 function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,backLabel,onReturn,beforeClose,manageProtection,isProtected,textAreaDefaults,saveIndicator,agentButton,agentTaskActions,historySession}){
   const previousFocus=document.activeElement
   const root=el('section','vd-editor ve-canvas-editor'), head=el('header','ve-head')
-  root.setAttribute('role','dialog');root.setAttribute('aria-modal','true')
+  root.setAttribute('role','region')
   root.setAttribute('aria-label',tr('Заметка-холст','Canvas note'))
   const title=el('input','ve-canvas-title')
   title.type='text';title.value=note.title||'';title.placeholder=tr('Холст без названия','Untitled canvas')
@@ -503,7 +503,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   let activeInline = null
   const previousFocus = document.activeElement
   const root = el('section',embed?'vd-editor ve-embedded-editor':'vd-editor')
-  if(!embed){root.setAttribute('role','dialog');root.setAttribute('aria-modal','true')}
+  if(!embed)root.setAttribute('role','region')
   root.setAttribute('aria-label',embed?tr('Текстовая область','Text area'):tr('Редактор заметки','Note editor'))
   const head = el('header','ve-head'), crumb = el('div','ve-crumb'), scroll = el('div','ve-scroll'), layout = el('div','ve-layout')
   const main = el('main','ve-main')

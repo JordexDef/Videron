@@ -200,7 +200,7 @@ test('restyling a closed encrypted note updates only map fields and survives res
   assert.ok(await session.beforeClose())
 })
 
-test('a public label is opt-in and never replaces or exposes the private note title', async () => {
+test('legacy public labels stay hidden and preserve the original title and custom fields', async () => {
   const f = fixture()
   // An older extension could already have used this property inside a plain note.
   f.record.mapLabel = 'private extension field'
@@ -217,14 +217,15 @@ test('a public label is opt-in and never replaces or exposes the private note ti
   assert.deepEqual({...rename.patch.notes.edit[0].set}, {mapLabel:'Работа 📁'})
   rename.commit()
   assert.equal(f.record.sealed, sealed)
-  assert.equal(protectedNoteTitle(f.record), 'Работа 📁')
+  assert.equal(protectedNoteTitle(f.record), protectedNoteTitle())
   session = await f.open()
   assert.equal(session.note.title, 'private title')
   assert.equal(session.note.mapLabel, 'private extension field')
   session.changed({title:'private new title'})
   await session.beforeClose()
   assert.equal(f.record.title, '')
-  assert.equal(protectedNoteTitle(f.record), 'Работа 📁')
+  assert.equal(Object.hasOwn(f.record,'mapLabel'), false)
+  assert.equal(protectedNoteTitle(f.record), protectedNoteTitle())
   assert.doesNotMatch(JSON.stringify(f.record), /private/)
   delete f.record.mapLabel
   session = await f.open()
@@ -236,6 +237,7 @@ test('a public label is opt-in and never replaces or exposes the private note ti
   await session.manageProtection()
   assert.equal(f.record.title, 'private new title')
   assert.equal(f.record.mapLabel, 'private extension field')
+  assert.equal(f.record.legacyMapLabel, 'Работа 📁')
   await session.beforeClose()
 })
 
@@ -255,7 +257,7 @@ test('group membership survives protection and ungrouping a locked note override
   await session.beforeClose()
 })
 
-test('failed removal of protection restores the public label with the envelope', async () => {
+test('failed removal of protection leaves the legacy label sealed', async () => {
   const f = fixture()
   let session = await f.open()
   await session.manageProtection()
@@ -265,9 +267,30 @@ test('failed removal of protection restores the public label with the envelope',
   const unlock = f.bridge.UnlockNote
   f.bridge.UnlockNote = async (...args) => { const plain = await unlock(...args); f.failWrite = true; return plain }
   await assert.rejects(session.manageProtection(), /VD_WRITE/)
-  assert.equal(protectedNoteTitle(f.record), 'My map label')
-  assert.doesNotMatch(JSON.stringify(f.record), /private/)
+  assert.ok(isProtectedNote(f.record))
+  assert.equal(Object.hasOwn(f.record,'mapLabel'), false)
+  assert.doesNotMatch(protectedNoteTitle(f.record), /My map label/)
+  assert.doesNotMatch(JSON.stringify(f.record), /private|My map label/)
+  assert.equal(JSON.parse(f.payloads.get(f.record.sealed)).legacyMapLabel,'My map label')
   f.failWrite = false
+  assert.ok(await session.beforeClose())
+})
+
+test('saving a legacy protected note moves its public alias inside the envelope', async () => {
+  const f = fixture()
+  let session = await f.open()
+  await session.manageProtection()
+  await session.beforeClose()
+  f.record.mapLabel = 'Legacy map alias'
+  const original = f.record.sealed
+  session = await f.open()
+  assert.notEqual(session.note.title, f.record.mapLabel)
+  assert.ok(await session.beforeClose())
+  assert.notEqual(f.record.sealed, original)
+  assert.doesNotMatch(JSON.stringify(f.record), /Legacy map alias/)
+  session = await f.open()
+  assert.equal(session.note.legacyMapLabel, 'Legacy map alias')
+  assert.notEqual(session.note.title, session.note.legacyMapLabel)
   assert.ok(await session.beforeClose())
 })
 

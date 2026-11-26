@@ -1,0 +1,111 @@
+:root.has-note-tabs { --note-tabs-height: 37px; }
+
+.note-tabs {
+  position: relative;
+  z-index: 56;
+  display: flex;
+  align-items: center;
+  height: var(--note-tabs-height, 37px);
+  gap: 4px;
+  padding: 0 10px;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--control-line, #474747) transparent;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--side);
+  -webkit-app-region: no-drag;
+}
+
+.note-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 84px;
+  max-width: min(232px, 73vw);
+  height: 27px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.note-tab:hover { background: var(--control-hover, #272727); }
+.note-tab.is-active {
+  color: var(--text);
+  --tab-bg: var(--control-bg, #262626);
+  --tab-border: var(--control-line, #404040);
+  background: color-mix(in srgb, var(--note-tab-tint, var(--tab-bg)) 12%, var(--tab-bg));
+  border-color: color-mix(in srgb, var(--note-tab-tint, var(--tab-border)) 36%, var(--tab-border));
+}
+
+.note-tab-open, .note-tab-close {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.note-tab-open {
+  flex: 1;
+  gap: 7px;
+  min-width: 0;
+  padding: 0 4px 0 8px;
+  text-align: left;
+  touch-action: none;
+}
+
+.note-tab-icon {
+  display: inline-flex;
+  flex: none;
+  --tab-ink: var(--fg-soft, #bababa);
+  color: color-mix(in srgb, var(--note-tab-tint, var(--tab-ink)) 68%, var(--tab-ink));
+}
+:root[data-theme="light"] .note-tab-icon {
+  color: color-mix(in srgb, var(--note-tab-tint, var(--tab-ink)) 47%, var(--tab-ink));
+}
+.note-tab-icon svg { width: 14px; height: 14px; }
+.note-tab-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.note-tab-title .note-title-spoiler { display: block; }
+
+.note-tab-close { flex: none; justify-content: center; width: 21px; height: 21px; margin-right: 2px; padding: 0; color: var(--muted); }
+.note-tab-close svg { width: 13px; height: 13px; }
+.note-tab-close:hover { color: var(--text); background: var(--control-selected, #3a3a3a); }
+.note-tab :is(button):focus-visible { outline-offset: -1px; }
+.note-tab.is-dragging { opacity: .5; }
+.note-tabs.is-dragging, .note-tabs.is-dragging button { cursor: grabbing; }
+
+.note-tab[data-drop]::before {
+  content: '';
+  position: absolute;
+  inset-block: 1px;
+  width: 2px;
+  border-radius: 1px;
+  pointer-events: none;
+  background: var(--accent);
+}
+.note-tab[data-drop="before"]::before { inset-inline-start: -3px; }
+.note-tab[data-drop="after"]::before { inset-inline-end: -3px; }
+
+.has-note-tabs #shell { height: calc(100vh - var(--note-tabs-height)); height: calc(100dvh - var(--note-tabs-height)); }
+body > .vd-editor, body > .note-transition-sheet { inset-block-start: var(--note-tabs-height, 0px); }
+.vd-editor .ve-layout > .ve-side { max-height: calc(100dvh - 122px - var(--note-tabs-height, 0px)); }
+
+@media (max-width: 760px) {
+  .vd-editor :is(.ve-layout, .ve-board-layout) > .ve-side:not([hidden]) {
+    top: calc(58px + var(--note-tabs-height, 0px));
+    height: calc(100dvh - 58px - var(--note-tabs-height, 0px));
+    max-height: none;
+  }
+}
+
+@media (max-width: 680px) {
+  #shell.mobile-open .sidebar { top: var(--note-tabs-height, 0px); }
+  #shell.mobile-open #sidebar-toggle { top: calc(11px + var(--note-tabs-height, 0px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-tabs button { transition: none; }
+}

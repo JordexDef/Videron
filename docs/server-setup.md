@@ -8,7 +8,7 @@ To keep note contents private from the server, enable folder encryption when cre
 
 ## Install on Linux
 
-Use a Linux VPS or a home virtual machine running systemd, such as Debian or Ubuntu Server. Run `uname -m` to check its architecture. Download the matching archive and extract it on the server, then change to the directory containing `install.sh` and `videron-sync`. [Linux x86_64](https://github.com/JordexDef/Videron/releases/download/v0.50.0/Videron-Sync-0.50.0-linux-amd64.tar.gz) · [Linux aarch64](https://github.com/JordexDef/Videron/releases/download/v0.50.0/Videron-Sync-0.50.0-linux-arm64.tar.gz)
+Use a Linux VPS or a home virtual machine running systemd, such as Debian or Ubuntu Server. Run `uname -m` to check its architecture. Download the matching archive and extract it on the server, then change to the directory containing `install.sh` and `videron-sync`. [Linux x86_64](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-Sync-0.51.0-linux-amd64.tar.gz) · [Linux aarch64](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-Sync-0.51.0-linux-arm64.tar.gz)
 
 Pass the address your computers will use to reach the server. Replace the example domain with your own domain or public IP address.
 
@@ -22,14 +22,14 @@ On the first installation, enter and confirm a server password in the terminal. 
 
 ## Run on Windows or macOS
 
-**Windows.** Download the server EXE for your processor. Rename it to `videron-sync.exe` and open PowerShell in that folder. [Windows x64](https://github.com/JordexDef/Videron/releases/download/v0.50.0/Videron-Sync-0.50.0-windows-amd64.exe) · [Windows ARM64](https://github.com/JordexDef/Videron/releases/download/v0.50.0/Videron-Sync-0.50.0-windows-arm64.exe)
+**Windows.** Download the server EXE for your processor. Rename it to `videron-sync.exe` and open PowerShell in that folder. [Windows x64](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-Sync-0.51.0-windows-amd64.exe) · [Windows ARM64](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-Sync-0.51.0-windows-arm64.exe)
 
 ```powershell
 .\videron-sync.exe -set-password
 .\videron-sync.exe -public sync.example.net
 ```
 
-**macOS.** Extract the server archive and open Terminal in the folder containing `videron-sync`. The same download works on Apple silicon and Intel. [Download for macOS](https://github.com/JordexDef/Videron/releases/download/v0.50.0/Videron-Sync-0.50.0-macOS-universal.tar.gz)
+**macOS.** Extract the server archive and open Terminal in the folder containing `videron-sync`. The same download works on Apple silicon and Intel. [Download for macOS](https://github.com/JordexDef/Videron/releases/download/v0.51.0/Videron-Sync-0.51.0-macOS-universal.tar.gz)
 
 ```sh
 ./videron-sync -set-password

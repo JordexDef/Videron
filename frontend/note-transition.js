@@ -24,8 +24,8 @@ export function returnToNoteMap(graph, id, visit, space) {
   }
 }
 
-// The editor and the closing sheet both fill the viewport. Moving only their
-// clip keeps text at reading size and leaves document layout and focus alone.
+// The editor and closing sheet fill the space beneath the tabs. Moving only
+// their clip keeps text at reading size and leaves layout and focus alone.
 export function playNoteTransition(direction, rect, editorElement) {
   cancelNoteTransition();
   if (!rect || document.hidden) return;
@@ -36,14 +36,25 @@ export function playNoteTransition(direction, rect, editorElement) {
 
   const {left, top, width, height} = rect;
   if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return;
-  const right = window.innerWidth - left - width, bottom = window.innerHeight - top - height;
-  if (left >= window.innerWidth || top >= window.innerHeight || left + width <= 0 || top + height <= 0) return;
-  const circle = {clipPath: `inset(${top}px ${right}px ${bottom}px ${left}px round ${Math.min(width, height) / 2}px)`};
   const full = {clipPath: 'inset(0px 0px 0px 0px round 0px)'};
 
   // Close after unmount. The temporary surface never holds note contents.
   const surface = closing ? document.createElement('div') : editorElement;
   if (!surface.animate || !window.CSS?.supports('clip-path', full.clipPath)) return;
+  if (closing) {
+    surface.className = 'note-transition-sheet';
+    surface.setAttribute('aria-hidden', 'true');
+    document.body.append(surface);
+  }
+  const bounds = surface.getBoundingClientRect();
+  const clipLeft = Math.max(bounds.left, left), clipTop = Math.max(bounds.top, top);
+  const clipRight = Math.min(bounds.right, left + width), clipBottom = Math.min(bounds.bottom, top + height);
+  if (clipRight <= clipLeft || clipBottom <= clipTop) {
+    if (closing) surface.remove();
+    return;
+  }
+  const radius = Math.min(clipRight - clipLeft, clipBottom - clipTop) / 2;
+  const circle = {clipPath: `inset(${clipTop - bounds.top}px ${bounds.right - clipRight}px ${bounds.bottom - clipBottom}px ${clipLeft - bounds.left}px round ${radius}px)`};
   let animation;
   try {
     animation = surface.animate(closing ? [full, circle] : [circle, full], {
@@ -52,12 +63,8 @@ export function playNoteTransition(direction, rect, editorElement) {
       fill: 'both'
     });
   } catch {
+    if (closing) surface.remove();
     return;
-  }
-  if (closing) {
-    surface.className = 'note-transition-sheet';
-    surface.setAttribute('aria-hidden', 'true');
-    document.body.append(surface);
   }
   const events = new AbortController();
   function finish() {

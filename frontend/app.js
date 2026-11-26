@@ -35,6 +35,10 @@ import { bindStaticTranslations, getLanguage, getLanguages, setLanguage, setLang
 import { isMacPlatform, primaryCommand, shortcutLabel, shortcutAria } from './shortcuts.js';
 import { deleteNotes } from './note-deletion.js';
 import { isProtectedNote, protectedNoteTitle, openNoteSession } from './note-vault.js';
+import { appearanceOf } from './icons/node-art.js';
+import { mountNoteTabs } from './note-tabs.js';
+import { configureTitleSpoilers } from './note-title-particles.js';
+import { mapNoteColor } from './map-palette.js';
 import { openVaultSettings, openVaultPassword, showVaultUnlock, interruptVaultDialogs } from './vault-ui.js';
 import { createIdleLock, normalizeIdleMinutes } from './idle-lock.js';
 import { showLockScreen } from './lock-screen.js';
@@ -63,7 +67,7 @@ function iconButton(name,label,action){
 function button(text,action,style='secondary'){
   const b=element('button','button '+style,text);b.onclick=action;return b;
 }
-const noteTitle=n=>isProtectedNote(n)?protectedNoteTitle(n):n.title.trim()||tr('Без названия','Untitled');
+const visibleNoteTitle=title=>title?.trim()||tr('Без названия','Untitled');
 let library=newLibrary(), page='map', currentArea=null, selected=null, editor=null, tool='select';
 let graph, areaDrag, native, ready=false, revision=0, saved=0, pending=null, timer, dirtySince=0, toastTimer, popover=null;
 let reading,routes,mapMetrics,routeCamera,stageControls,ink;
@@ -71,6 +75,10 @@ let noteSession=null, openingNote=null, projectProtected=false, policyWrite=null
 let noteHistories;
 // Only IDs and native expiry times are kept here. Native code checks the key on every reopen.
 let rememberedNotes=new Map(), expiringNote=null;
+const rememberedTitles=new Map();
+let rememberedTitleTimer, rememberedTitleDeadline=0;
+const noteTabsBySpace=new Map();
+let noteTabs, changingTab=false;
 let idle=null, lockScreen=null, locking=null, lockDuringStartup=false;
 const storageKey='videron.library.v1';
 const mapCameraMemory=createMapCameraMemory();
@@ -91,6 +99,98 @@ function byId(id){
   if(id==null)return;
   const notes=workspace().notes,index=graph?.nodes.get(id)?.index;
   return notes[index]?.id===id?notes[index]:notes.find(n=>n.id===id);
+}
+function revealedTitleFor(record){
+  if(lockScreen || closingApp)return null;
+  if(noteSession?.note.id===record.id && noteSession.protected &&
+    (!noteSession.expiresAt || noteSession.expiresAt>Date.now()))return noteSession.note.title;
+  const remembered=rememberedTitles.get(record.id);
+  return remembered && remembered.sealed===record.sealed &&
+    (!remembered.deadline || remembered.deadline>Date.now())?remembered.title:null;
+}
+const concealsTitle=record=>isProtectedNote(record) && revealedTitleFor(record)===null;
+function noteTitle(record){
+  const title=isProtectedNote(record)?revealedTitleFor(record):record.title;
+  return title===null?protectedNoteTitle():visibleNoteTitle(title);
+}
+function noteTitleElement(tag,record){
+  const title=element(tag);
+  if(!concealsTitle(record))title.textContent=noteTitle(record);
+  else{
+    const spoiler=element('span','note-title-spoiler');spoiler.setAttribute('role','img');
+    spoiler.setAttribute('aria-label',protectedNoteTitle());title.append(spoiler);
+  }
+  return title;
+}
+function scheduleRememberedTitles(){
+  let next=Infinity;
+  for(const {deadline} of rememberedTitles.values())if(deadline)next=Math.min(next,deadline);
+  if(next===rememberedTitleDeadline)return;
+  rememberedTitleDeadline=next;
+  rememberedTitleTimer??=createIdleLock({onIdle:()=>{
+    const expires=Math.max(Date.now(),rememberedTitleDeadline);
+    for(const [id,{deadline}] of rememberedTitles)if(deadline && deadline<=expires){
+      rememberedTitles.delete(id);rememberedNotes.delete(id);
+      document.querySelector('.ap-dialog[open][data-note-id="'+CSS.escape(id)+'"]')?.close();
+    }
+    rememberedTitleDeadline=0;scheduleRememberedTitles();
+    if(ready && !lockScreen)render();
+    syncIdle();
+  }});
+  if(Number.isFinite(next))rememberedTitleTimer.until(next);
+  else rememberedTitleTimer.configure(0,false);
+}
+function forgetRememberedTitles(){
+  rememberedTitles.clear();scheduleRememberedTitles();
+}
+function tabsForSpace(){
+  const id=library.active;
+  if(!id)return [];
+  if(!noteTabsBySpace.has(id))noteTabsBySpace.set(id,[]);
+  return noteTabsBySpace.get(id);
+}
+function renderNoteTabs(){
+  if(!noteTabs)return;
+  if(!ready || !library.active || lockScreen || closingApp){noteTabs.update([],null);return}
+  const ids=tabsForSpace(),records=[];
+  for(let i=0;i<ids.length;){
+    const record=byId(ids[i]);
+    if(!record){ids.splice(i,1);continue}
+    const style=appearanceOf(record);
+    records.push({id:record.id,title:noteTitle(record),icon:style.icon,
+      color:mapNoteColor(style,areaById(record.areaId)?.color,record.color),
+      locked:concealsTitle(record),type:isProtectedNote(record)?null:record.type});
+    i++;
+  }
+  noteTabs.update(records,editor?noteSession?.note.id:null);
+}
+async function changeNoteTab(id,close=false){
+  const ids=tabsForSpace(),index=ids.indexOf(id),scope=library.active;
+  if(index<0 || changingTab || openingNote || spaceOperation || lockScreen || closingApp || reviewing)return;
+  changingTab=true;
+  try{
+    if(editorMerge)await editorMerge;
+    if(scope!==library.active || lockScreen || closingApp)return;
+    const active=editor && noteSession?.note.id===id;
+    if(!close && (active || !byId(id)))return;
+    if(editor && (active || !close) && !await editor.prepareClose('tab'))return;
+    if(scope!==library.active || lockScreen || closingApp)return;
+    if(close){
+      const position=ids.indexOf(id);
+      if(position>=0)ids.splice(position,1);
+      renderNoteTabs();
+      const next=ids[position]??ids[position-1];
+      if(active && next)await edit(next);
+      else if(next)noteTabs.focus(next);
+      else if(active)(showingMap()?$('graph'):listNoteRow(id)||$('new-note')).focus({preventScroll:true});
+    }else await edit(id);
+  }catch(error){reportWriteError(error)}
+  finally{changingTab=false}
+}
+function moveNoteTab(id,before){
+  const ids=tabsForSpace(),from=ids.indexOf(id);
+  if(from<0 || id===before || lockScreen || changingTab || (before!==null && !ids.includes(before)))return;
+  ids.splice(from,1);ids.splice(before===null?ids.length:ids.indexOf(before),0,id);renderNoteTabs();
 }
 const areaById=id=>workspace().areas.find(a=>a.id===id);
 const gridRecords=id=>({areas:[areaById(id)],notes:workspace().notes.filter(note=>note.areaId===id)});
@@ -401,10 +501,14 @@ function hasRememberedNotes(){
   return rememberedNotes.size>0;
 }
 function forgetNoteAccess(ids){
+  for(const id of ids)rememberedTitles.delete(id);
+  scheduleRememberedTitles();
   const keys=ids.filter(id=>rememberedNotes.delete(id));
   return Promise.all(keys.map(id=>native.LockNote(id)));
 }
 function forgetRemovedNoteAccess(){
+  for(const [id,entry] of rememberedTitles)if(byId(id)?.sealed!==entry.sealed)rememberedTitles.delete(id);
+  scheduleRememberedTitles();
   return Promise.all([
     forgetNoteAccess([...rememberedNotes.keys()].filter(id=>!isProtectedNote(byId(id)))),
     noteHistories.reconcile(library.active,workspace().notes,historyRef)
@@ -428,7 +532,9 @@ function requestLock(expired=null){
   const hadRemembered=rememberedNotes.size>0;
   if(!expired){
     // A full lock also takes precedence if it arrives during a timed note lock.
-    expiringNote=null;rememberedNotes=new Map();endAgentAccess();
+    expiringNote=null;rememberedNotes=new Map();forgetRememberedTitles();endAgentAccess();
+  }else{
+    rememberedTitles.delete(expired.note.id);scheduleRememberedTitles();
   }
   storageIndicator.close();
   clearSpacePassphrases(document);
@@ -446,6 +552,7 @@ function requestLock(expired=null){
   cancelNoteTransition();
   searchLifetime?.abort();
   dismissExtensions();cancelTransfers();closeMenu();routes?.reset();reading?.hide();mapMetrics=null;lockScreen=showLockScreen();sidebarTree?.clear();syncMapVisibility();syncIdle();
+  $('list-stage').replaceChildren();$('selection').replaceChildren();renderNoteTabs();
   let target=null, retryTimer;
   function retry(){
     clearTimeout(retryTimer);
@@ -467,7 +574,7 @@ function requestLock(expired=null){
       }
       if(target===null){
         if(!hasOpenProtectedContent() || (expiringNote && (expiringNote!==noteSession || !expiringNote.protected))){
-          expiringNote=null;lockScreen.close();lockScreen=null;renderAreas(workspace().areas);syncMapVisibility();syncIdle();return true;
+          expiringNote=null;lockScreen.close();lockScreen=null;render();syncIdle();return true;
         }
         target=noteSession?.note.id||'';
       }
@@ -953,7 +1060,7 @@ function changeSpace(work,message){
 async function showSpace(next,session){
   document.querySelector('.ap-dialog[open]')?.close();
   if(library.active!==next.active || folderSession!==session){
-    rememberedNotes=new Map();
+    rememberedNotes=new Map();forgetRememberedTitles();renderNoteTabs();
     await native?.ForgetRememberedNotes?.();
   }
   endAgentAccess();
@@ -1578,7 +1685,10 @@ async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
   try{
     if(lockScreen || closingApp)return;
     session=await openNoteSession({record,bridge:native,prompt:promptForVault,spaceId:library.active,tryResume:unlocks.has(id),
-      onRemember(id,expiresAt){if(expiresAt===null)unlocks.delete(id);else unlocks.set(id,expiresAt)},
+      onRemember(id,expiresAt){
+        if(expiresAt===null){unlocks.delete(id);rememberedTitles.delete(id);scheduleRememberedTitles()}
+        else unlocks.set(id,expiresAt);
+      },
       dirty:()=>dirty({notes:[record]}),persist:flush,hasPlainHistory:!!folderSession && !folderSession.encrypted,onPrivacyChange:()=>{
       // Fragment keys can include a fingerprint of the selected paragraph.
       // Strip them before the first encrypted write, including on save retry.
@@ -1625,7 +1735,10 @@ async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
     }},
     backLabel:returnToResults?tr('К результатам','Back to results'):backLabels[page],
     onReturn:returnToResults,onSearch:()=>search(),
-    onChange:patch=>{session.changed(patch);saveStatus.edited()},beforeClose:session.beforeClose,
+    onChange:patch=>{
+      session.changed(patch);saveStatus.edited();
+      if(Object.hasOwn(patch,'title'))renderNoteTabs();
+    },beforeClose:session.beforeClose,
     manageProtection:native?()=>{
       if(notePrivacyChange)return notePrivacyChange;
       // A concurrent merge may introduce new route stops. Finish applying
@@ -1640,13 +1753,19 @@ async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
     onClose:reason=>{
       deadline?.destroy();
       cancelNoteTransition();
+      const rememberedDeadline=unlocks.get(id);
+      if(!lockScreen && !closingApp && session.protected && unlocks===rememberedNotes &&
+        (rememberedDeadline===0 || rememberedDeadline>Date.now())){
+        rememberedTitles.set(id,{title:session.note.title,sealed:record.sealed,deadline:rememberedDeadline});
+        scheduleRememberedTitles();
+      }
       saveStatus.close();editor=null;noteSession=null;$('shell').inert=!!editorMerge;syncIdle();
       if(lockScreen)return;
       render();
       if(reason==='back' && showingMap() && !returnToResults && !closingApp)
         returnToNoteMap(graph,id,visit,library.active);
       const treeNote=visit?.origin==='sidebar' && visit.space===library.active && visit.noteId;
-      if(document.activeElement===document.body && !(treeNote && sidebarTree?.focusNote(treeNote))){
+      if(reason!=='tab' && document.activeElement===document.body && !(treeNote && sidebarTree?.focusNote(treeNote))){
         const row=listNoteRow(id);
         (showingMap()?$('graph'):row||$('new-note')).focus({preventScroll:true});
       }
@@ -1660,6 +1779,7 @@ async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
   if(storageState==='failed')saveStatus.failed();
   editor.returnToResults=returnToResults;
   editor.visit=visit;
+  const tabs=tabsForSpace();if(!tabs.includes(id))tabs.push(id);renderNoteTabs();
   syncMapVisibility();
   $('shell').inert=true;
   if(searchTarget)editor.revealSearchMatch(searchTarget);
@@ -1738,19 +1858,13 @@ function pin(n){
   }
   n.pinned=!n.pinned;dirty({notes:[n]});render();
 }
-function appearance(n,focusLabel=false){
+function appearance(n){
   const spaceId=library.active;
   const currentNote=()=>spaceId===library.active && !lockScreen && !closingApp && byId(n.id);
-  openAppearance({note:mapNote(n),areaColor:areaById(n.areaId)?.color,focusLabel,onChange:value=>{
+  openAppearance({note:mapNote(n),concealed:concealsTitle(n),areaColor:areaById(n.areaId)?.color,onChange:value=>{
     const current=currentNote();
     if(!current)return;
     current.appearance=value;dirty({notes:[current]});render();
-  },onLabelChange:label=>{
-    const current=currentNote();
-    if(!isProtectedNote(current) || (current.mapLabel||'')===label)return;
-    if(label)current.mapLabel=label;
-    else delete current.mapLabel;
-    dirty({notes:[current]});render();
   }});
 }
 function undoButton(){
@@ -1846,7 +1960,7 @@ function removeNotes(ids){
   const single=ids.length===1;
   const record=single?byId(ids[0]):null;
   if(!ids.length || (single && !record))return;
-  const title=single?noteTitle(record):'';
+  const title=single?(isProtectedNote(record)?protectedNoteTitle():noteTitle(record)):'';
   const d=dialog(single?tr('Удалить заметку?','Delete note?'):tr('Удалить выбранные заметки?','Delete selected notes?'));
   d.box.append(element('p','',single?tr('«{title}» и её связи будут удалены из этого пространства.','“{title}” and its links will be removed from this workspace.',{title}):
     tr('Выбрано заметок · ','Selected notes · ')+ids.length+shortcutLabel(tr('. Удаление можно отменить через Ctrl+Z.','. You can undo this with Ctrl+Z.'))));
@@ -1966,7 +2080,6 @@ function context(id,x,y,gridId=null,openNote=edit){
   }
   if(!grouping.length){selected=id;graph.select(id);renderSelection()}
   menu({x,y},[...grouping,{icon:isProtectedNote(n)?'lock':'edit',name:tr('Открыть заметку','Open note'),run:()=>openNote(id)},
-    ...(isProtectedNote(n)?[{icon:'edit',name:tr('Переименовать на карте…','Rename on map…'),run:()=>appearance(n,true)}]:[]),
     {icon:'appearance',name:tr('Внешний вид','Appearance'),run:()=>appearance(n)},
     ...(isProtectedNote(n)?[]:[metricAction(n,'note',{x,y})]),{icon:inSlot(n)?'slots':'pin',name:pinLabel(n),run:()=>pin(n)},
     {icon:'link',name:tr('Связать с заметкой','Link to another note'),run:()=>chooseTool('link')},...(sizeAction?[sizeAction]:[]),
@@ -1974,7 +2087,7 @@ function context(id,x,y,gridId=null,openNote=edit){
 }
 function renderSelection(){
   const s=$('selection'),n=byId(selected);s.hidden=!n||tool==='link';
-  if(n)s.replaceChildren(element('strong','',noteTitle(n)),iconButton(isProtectedNote(n)?'lock':'edit',tr('Открыть заметку','Open note'),()=>editFromMap(n.id)),
+  if(n)s.replaceChildren(noteTitleElement('strong',n),iconButton(isProtectedNote(n)?'lock':'edit',tr('Открыть заметку','Open note'),()=>editFromMap(n.id)),
     iconButton('appearance',tr('Внешний вид','Appearance'),()=>appearance(n)),iconButton(inSlot(n)?'slots':'pin',pinLabel(n),()=>pin(n)),iconButton('more',tr('Действия','More actions'),e=>{
       const r=e.currentTarget.getBoundingClientRect();context(n.id,r.left,r.top-175,null,editFromMap);
     }));
@@ -2081,7 +2194,7 @@ function renderList(){
     const snippet=locked?tr('Открыть по паролю','Open with password'):
       typeof content==='string' && content?content:canvas?tr('Холст','Canvas'):tr('Пустая заметка','Empty note');
     const preview=snippet.length>320?snippet.slice(0,320).replace(/[\uD800-\uDBFF]$/u,'')+'…':snippet;
-    summary.append(element('strong','',noteTitle(n)),element('small','',preview));row.append(symbol,summary);
+    summary.append(noteTitleElement('strong',n),element('small','',preview));row.append(symbol,summary);
     const area=areaIndex.get(n.areaId);
     if(area){
       const coords=area.grid&&Number.isInteger(n.slot)?(Math.floor(n.slot/area.grid.cols)+1)+', '+(n.slot%area.grid.cols+1):'';
@@ -2117,7 +2230,9 @@ function sidebarRow(item){
   const open=element('button',folder?'nav-item area-tree-link':'nav-item tree-note-link');
   open.type='button';open.setAttribute('role','treeitem');
   const glyph=iconEl(item.icon);if(folder)glyph.style.color=item.color;
-  open.append(glyph,element('span','',item.title));
+  const title=element('span',item.concealed?'note-title-spoiler':'',item.concealed?'':item.title);
+  if(item.concealed){title.setAttribute('aria-hidden','true');open.setAttribute('aria-label',item.title)}
+  open.append(glyph,title);
   if(folder){
     row.dataset.areaId=item.id;
     if(item.branch){
@@ -2165,12 +2280,12 @@ function renderAreas(areas){
     sidebarTree.clear();treeSpaceId=library.active;$('areas').closest('nav').scrollTop=0;
   }
   const rows=sidebarRows(areas,workspace().notes,collapsedAreas,n=>({
-    title:noteTitle(n),icon:isProtectedNote(n)?'lock':n.type==='canvas'?'board':n.type==='data'?'newData':'newTextNote'
+    title:noteTitle(n),concealed:concealsTitle(n),icon:isProtectedNote(n)?'lock':n.type==='canvas'?'board':n.type==='data'?'newData':'newTextNote'
   }));
   if(!rows.length)rows.push({kind:'add',depth:0,parentId:null,icon:'folder',title:tr('Создать область','Create area')});
   sidebarTree.update(rows,tr('Области и заметки','Areas and notes'));
 }
-const mapNote=n=>isProtectedNote(n)?{...n,title:protectedNoteTitle(n)}:n;
+const mapNote=n=>isProtectedNote(n)?{...n,title:noteTitle(n)}:n;
 function updateEmptyMap(){
   const space=workspace();
   $('empty').hidden=!showingMap() || tool==='ink' || !!(space.notes.length || space.areas.length || space.mapInk?.length);
@@ -2180,10 +2295,12 @@ function renderMapPlacement(states){
   if(states.some(state=>Object.hasOwn(state,'areaId')) && notes.some(n=>n.agentTask))mapMetrics=resolveMapMetrics(workspace());
   graph.setData(notes.map(mapNote),areas,new Set(states.map(state=>state.id)));
   $('pin-count').textContent=notes.filter(isPinned).length;
+  renderNoteTabs();
   renderAreas(areas);
   renderSelection();
 }
 function render(){
+  renderNoteTabs();
   agents.reconcile();
   editor?.refreshAgentTasks?.(workspace().notes);
   syncMapVisibility();
@@ -2560,6 +2677,8 @@ async function loadDesktopLibrary(){
 }
 async function init(){
   initTheme();
+  configureTitleSpoilers(document);
+  noteTabs=mountNoteTabs($('note-tabs'),{onOpen:id=>changeNoteTab(id),onClose:id=>changeNoteTab(id,true),onMove:moveNoteTab});
   translateStatic();$('language-select').value=getLanguage();status();
   paintIcons();drawAtlas($('atlas'));
   window.addEventListener('videron:themechange',()=>{
@@ -2640,6 +2759,7 @@ async function init(){
   };
   stageControls=mountStageControls({canvas:$('graph'),onEdit:editMapGrid,onInsert:insertMapStage});
   graph=new Graph($('graph'),{onSelect:id=>{selected=id;renderSelection()},onAreaAction:pickForNotes,onOpen:editFromMap,onLink:linkClick,
+    concealsTitle,
     getInkItems:()=>workspace().mapInk??[],inkItemAt:point=>ink?.itemAt(point),
     inkIdsInRect:rect=>ink?.idsInRect(rect)??[],inkSelectionBounds:ids=>ink?.selectionBounds(ids),
     groupAction,onGroupAction:changeMapGroup,

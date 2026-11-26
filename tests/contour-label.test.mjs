@@ -23,3 +23,38 @@ test('moving a note reuses its measured title and renaming it refreshes the disp
   assert.deepEqual(measured,[short,'🌒'.repeat(27)+'…','Renamed']);
   assert.deepEqual(painted,[short,short,'🌒'.repeat(27)+'…','Renamed']);
 });
+
+test('sealed notes on the map measure and paint their title only while it is revealed',()=>{
+  const measured=[],painted=[],dots=[];
+  const ctx={measureText(text){measured.push(text);return {width:80}},strokeText(){},fillText(text){painted.push(text)},
+    fillRect(...args){dots.push(args)},save(){},restore(){}};
+  const graph=Object.assign(Object.create(Graph.prototype),{
+    ctx,canvas:{},width:600,height:400,areaFamilies:[],nodes:new Map(),groups:[],selectedIds:new Set(),
+    heating:new Set(),callbacks:{},repaint(){}
+  });
+  const note={id:'sealed',title:'Private canonical title',mapLabel:'Public legacy alias',sealed:'vault-envelope'};
+  const draw=()=>{
+    const node=graph.nodes.get(note.id);
+    graph.drawLabels([{text:node.title,note:node,x:100,y:80,rank:1}],new Map(),{});
+  };
+  graph.setData([note],[]);
+  assert.notEqual(graph.nodes.get(note.id).title,note.title);
+  assert.notEqual(graph.nodes.get(note.id).title,note.mapLabel);
+  draw();
+  const texture=dots.slice();
+  assert.ok(texture.length>0);
+  assert.deepEqual(measured,[]);
+  assert.deepEqual(painted,[]);
+
+  graph.callbacks.concealsTitle=()=>false;
+  graph.setData([note],[]);
+  draw();
+  assert.deepEqual(painted,[note.title]);
+
+  graph.callbacks.concealsTitle=()=>true;
+  graph.setData([{...note,title:'A completely different length'}],[]);
+  draw();
+  assert.deepEqual(dots,[...texture,...texture]);
+  assert.deepEqual(measured,[note.title]);
+  assert.deepEqual(painted,[note.title]);
+});

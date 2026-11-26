@@ -132,7 +132,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   beforeClose,manageProtection,isProtected,saveIndicator,agentButton,agentTaskActions,historySession,backLabel=tr('К карте','Back to map')}) {
   const previousFocus = document.activeElement
   const root = element('section','vd-editor ve-data-editor')
-  root.setAttribute('role','dialog'); root.setAttribute('aria-modal','true')
+  root.setAttribute('role','region')
   root.setAttribute('aria-label',tr('Редактор данных','Data editor'))
   const header = element('header','ve-head'), workspace = element('div','ve-board-layout')
   const main = element('main','vd-data-main'), bar = element('div','vd-data-bar')
