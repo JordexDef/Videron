@@ -16,13 +16,17 @@ for (const s of scenarios) {
   assert.match(s.test,/^Test[A-Za-z0-9]+$/);
   assert.ok((await readFile(path.resolve(root,s.source),'utf8')).includes('func '+s.test+'('),s.test);
 }
+const packages=[...new Set(scenarios.map(s=>{
+  const dir=path.posix.dirname(s.source);
+  return dir==='.'?'.':'./'+dir;
+}))];
 const started=new Date().toISOString();
 const tests=new Map(scenarios.map(s=>[s.test,{area:'native',engine:'go-integration',id:s.id,status:'not-run'}]));
 const logs=new Map();
 const opts={cwd:root,maxBuffer:16*1024*1024};
 let stdout,problem;
 try {
-  ({stdout}=await promisify(execFile)('go',['test','-json','-count=1','-run','^('+[...tests.keys()].join('|')+')$','.'],opts));
+  ({stdout}=await promisify(execFile)('go',['test','-json','-count=1','-run','^('+[...tests.keys()].join('|')+')$',...packages],opts));
 } catch (e) { stdout=e.stdout||'';problem=e.message.split('\n')[0];process.exitCode=1; }
 for (const line of stdout.trim().split(/\r?\n/)) {
   if (!line) continue;

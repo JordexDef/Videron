@@ -86,6 +86,7 @@ Keep one local desktop build at the path shown above. Close the running app befo
 | [internal/vault](internal/vault/) | Storage encryption, protected note validation and compatibility tests for the v1 file format |
 | [internal/workspacestore](internal/workspacestore/) | Local workspace catalog, folder workspace files, revision history and compatibility tests |
 | [internal/workspacemerge](internal/workspacemerge/) | Three-way workspace merge, conflict choices and their unit tests |
+| [internal/notesession](internal/notesession/) | Note unlock lifetimes and in-memory editor undo history |
 | [internal/syncclient](internal/syncclient/) | Client authentication, project selection, change notifications and transfer of missing records |
 | [internal/syncworkspace](internal/syncworkspace/) | Server project selection, verified connection tickets and working copy reconnection |
 | [cmd/videron-sync](cmd/videron-sync/) | Sync server entry point |

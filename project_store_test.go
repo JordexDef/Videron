@@ -337,14 +337,14 @@ func TestFailedReloadForgetsOpenSessions(t *testing.T) {
 	if _, err := a.ProtectNote("note-a", originalNote, testPass); err != nil {
 		t.Fatal(err)
 	}
-	noteKey := a.noteKeys["note-a"]
+	noteKey := a.noteSession.EditorKey("note-a")
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.Load(); !errors.Is(err, errChanged) {
 		t.Fatal("missing existing library returned as a new one", err)
 	}
-	if a.loaded || len(a.noteKeys) != 0 {
+	if a.loaded || a.noteSession.EditorKey("note-a") != nil {
 		t.Fatal("failed refresh retained access to old note")
 	}
 	if _, err := noteKey.Seal(vault.NoteScope, "note-a", []byte(originalNote)); !errors.Is(err, errLocked) {
@@ -395,7 +395,7 @@ func TestExternallyEditedCatalogKeepsContents(t *testing.T) {
 	if got := string(stored(t, path)); got != updated {
 		t.Fatal("external content overwritten")
 	}
-	if got, err := a.Load(); err != nil || got != updated || len(a.noteKeys) != 0 {
+	if got, err := a.Load(); err != nil || got != updated || a.noteSession.EditorKey("note-a") != nil {
 		t.Fatal("catalog reload failed to reset old keys", err)
 	}
 }

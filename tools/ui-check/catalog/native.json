@@ -214,7 +214,7 @@
       ],
       "expected": "Reopening does not extend the deadline; the final edit survives and the retained grant expires.",
       "test": "TestNoteUnlockDeadlineIsAbsoluteAndPreservesFinalSave",
-      "source": "note_unlock_test.go"
+      "source": "internal/notesession/keys_test.go"
     },
     {
       "id": "native.credentials-at-rest",

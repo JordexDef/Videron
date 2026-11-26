@@ -8,6 +8,7 @@ import (
 	"videron/internal/acp"
 	"videron/internal/agentmcp"
 	"videron/internal/desktop"
+	"videron/internal/notesession"
 	"videron/internal/syncworkspace"
 	"videron/internal/vault"
 	"videron/internal/workspacestore"
@@ -26,9 +27,8 @@ type App struct {
 	closeGuard           bool
 	loaded               bool
 	projectKey           *vault.Key
-	noteKeys             map[string]*vault.Key
-	editorHistories      map[editorHistoryID]editorHistoryEntry
-	rememberedNotes      map[string]*rememberedNote
+	noteSession          notesession.NoteKeys
+	editorHistory        notesession.History
 	folderSpaces         map[string]*folderSpaceSession
 	suspendedFolderKeys  map[string]*vault.Key
 	resumeNote           string
@@ -75,7 +75,7 @@ func (a *App) shutdown(context.Context) {
 	stop := a.stopSessionMonitor
 	a.stopSessionMonitor = nil
 	a.dropKeys()
-	a.forgetEditorHistories("", nil)
+	a.editorHistory.Forget("", nil)
 	a.loaded = false
 	a.mu.Unlock()
 	if stop != nil {
@@ -93,11 +93,7 @@ func (a *App) dropKeys() {
 	a.serverTickets.Reset()
 	a.projectKey.Forget()
 	a.projectKey = nil
-	a.forgetRememberedNotes()
-	for _, key := range a.noteKeys {
-		key.Forget()
-	}
-	clear(a.noteKeys)
+	a.noteSession.Clear()
 	a.forgetSuspendedFolderKeys()
 	for _, session := range a.folderSpaces {
 		session.Key().Forget()
@@ -169,7 +165,7 @@ func (a *App) FinishClose() {
 	a.mu.Lock()
 	a.closeGuard = false
 	a.dropKeys()
-	a.forgetEditorHistories("", nil)
+	a.editorHistory.Forget("", nil)
 	a.loaded = false
 	ctx := a.ctx
 	a.mu.Unlock()
