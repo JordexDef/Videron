@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"bytes"
@@ -421,7 +421,7 @@ func TestOpenV047EncryptedWorkspaceAndNote(t *testing.T) {
 	const original = `{"id":"compat-note","title":"Release 0.47","plain":"Meeting notes","body":[{"type":"paragraph","runs":[{"text":"Meeting notes"}]}],"tags":[],"links":[]}`
 	app, catalogPath := testStore(t)
 	folder := t.TempDir()
-	fixtures := filepath.Join("internal", "vault", "testdata", "v0.47.0")
+	fixtures := filepath.Join("..", "vault", "testdata", "v0.47.0")
 	if err := os.MkdirAll(filepath.Dir(catalogPath), 0700); err != nil {
 		t.Fatal(err)
 	}

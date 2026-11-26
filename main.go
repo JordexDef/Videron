@@ -1,11 +1,10 @@
 package main
 
 import (
-	"embed"
-	"io/fs"
 	"log"
 	"os"
 
+	"videron/frontend"
 	"videron/internal/agentmcp"
 	"videron/internal/desktop"
 
@@ -14,9 +13,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
-
-//go:embed frontend
-var files embed.FS
 
 func main() {
 	if len(os.Args) == 2 && (os.Args[1] == "--agent-mcp" || os.Args[1] == "--agent-mcp-paired") {
@@ -32,11 +28,7 @@ func main() {
 		}
 		return
 	}
-	assets, err := fs.Sub(files, "frontend")
-	if err != nil {
-		log.Fatal(err)
-	}
-	app := &App{}
+	app := newApp()
 	config := &options.App{
 		Title:            "Videron",
 		Width:            desktop.DefaultWindowWidth,
@@ -44,10 +36,10 @@ func main() {
 		MinWidth:         720,
 		MinHeight:        520,
 		BackgroundColour: options.NewRGB(23, 23, 23),
-		AssetServer:      &assetserver.Options{Assets: assets},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
-		OnBeforeClose:    app.beforeClose,
+		AssetServer:      &assetserver.Options{Assets: frontend.Files},
+		OnStartup:        app.lifecycle.Startup,
+		OnShutdown:       app.lifecycle.Shutdown,
+		OnBeforeClose:    app.lifecycle.BeforeClose,
 		Bind:             []interface{}{app},
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               "afe0835b-a0ad-44f7-bef5-437391d33cb8",
@@ -60,8 +52,7 @@ func main() {
 		},
 	}
 	desktop.RememberWindow(config)
-	err = wails.Run(config)
-	if err != nil {
+	if err := wails.Run(config); err != nil {
 		log.Fatal(err)
 	}
 }

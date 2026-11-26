@@ -164,7 +164,7 @@
       ],
       "expected": "A superseded or suspended review cannot commit. The final local and remote texts are available after returning. Undoing the local change back to the shared base lets the newer remote edit through automatically. Both existing copies and a fresh download converge on the combined or chosen version, and the other project retains its own edit.",
       "test": "TestServerDraftDuringProjectSwitch",
-      "source": "sync_project_switch_test.go"
+      "source": "internal/client/sync_project_switch_test.go"
     },
     {
       "id": "native.vault-lifecycle",
@@ -198,7 +198,7 @@
       ],
       "expected": "A stale save cannot overwrite the protected copy; the project requires a password and the note navigation resumes once.",
       "test": "TestSessionLockForgetsKeysAndResumesOnce",
-      "source": "project_store_test.go"
+      "source": "internal/client/project_store_test.go"
     },
     {
       "id": "native.unlock-deadline",
@@ -230,7 +230,7 @@
       ],
       "expected": "Unsealed credential data is rejected by the tested save paths; the independently sealed note round-trips.",
       "test": "TestCredentialBlocksRequireIndividualNoteEncryption",
-      "source": "project_store_test.go"
+      "source": "internal/client/project_store_test.go"
     },
     {
       "id": "native.pair-revoke",
@@ -246,7 +246,7 @@
       ],
       "expected": "Registration alone does not grant note access. The client survives restart until revoked, and the forgotten client cannot open a grant.",
       "test": "TestPairedAgentRegistration",
-      "source": "agent_pair_test.go"
+      "source": "internal/client/agent_pair_test.go"
     },
     {
       "id": "native.reconcile-offline",
@@ -264,7 +264,7 @@
       ],
       "expected": "Independent changes survive, conflicts require a choice, and a retry preserves the committed resolution.",
       "test": "TestFolderNativeMergeAcrossDevices",
-      "source": "folder_merge_test.go"
+      "source": "internal/client/folder_merge_test.go"
     },
     {
       "id": "native.opposite-conflicts",
@@ -282,7 +282,7 @@
       ],
       "expected": "The conflicting decisions remain recoverable instead of silently dropping a version.",
       "test": "TestConcurrentOppositeResolutionsKeepBothVersions",
-      "source": "folder_replica_test.go"
+      "source": "internal/client/folder_replica_test.go"
     },
     {
       "id": "native.encrypted-attachment",
@@ -300,7 +300,7 @@
       ],
       "expected": "The recipient needs its workspace password and recovers both image and caption.",
       "test": "TestEncryptedAttachmentThroughServer",
-      "source": "folder_server_test.go"
+      "source": "internal/client/folder_server_test.go"
     },
     {
       "id": "native.save-mid-upload",
@@ -335,7 +335,7 @@
       ],
       "expected": "Clients converge on the chosen merge; delivery and the last successful sync survive a connection interruption.",
       "test": "TestLiveSyncTwoDesktops",
-      "source": "folder_server_test.go"
+      "source": "internal/client/folder_server_test.go"
     },
     {
       "id": "native.restart-connection",
@@ -351,7 +351,7 @@
       ],
       "expected": "Automatic reconnection uses the saved setting for that workspace across restarts.",
       "test": "TestServerAutoConnectAcrossRestarts",
-      "source": "folder_server_test.go"
+      "source": "internal/client/folder_server_test.go"
     },
     {
       "id": "native.reuse-folder",
@@ -367,7 +367,7 @@
       ],
       "expected": "The original working copy is accepted and reused for the same space.",
       "test": "TestRejoinWorkingFolder",
-      "source": "folder_server_test.go"
+      "source": "internal/client/folder_server_test.go"
     },
     {
       "id": "native.server-delete-isolation",
@@ -385,7 +385,7 @@
       ],
       "expected": "The peer receives the rename and deletion. Downloaded copies survive, and an old confirmation cannot target a new project with the same name.",
       "test": "TestClientRenamesDeletesAndKeepsOfflineCopies",
-      "source": "sync_projects_test.go"
+      "source": "internal/client/sync_projects_test.go"
     }
   ]
 }

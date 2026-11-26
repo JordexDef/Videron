@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"archive/zip"
@@ -47,7 +47,7 @@ func TestReleasedFolderOfflineEditsReachSecondDesktop(t *testing.T) {
 	}
 	second := loadDesktop()
 	one, two := t.TempDir(), t.TempDir()
-	archive, err := zip.OpenReader(filepath.Join("internal", "workspacestore", "testdata", "v0.50.0-history.zip"))
+	archive, err := zip.OpenReader(filepath.Join("..", "workspacestore", "testdata", "v0.50.0-history.zip"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,9 +1,10 @@
-package main
+package client
 
 import (
 	"regexp"
 	"sync"
 
+	"videron/frontend"
 	"videron/internal/syncclient"
 	"videron/internal/vault"
 	"videron/internal/workspacestore"
@@ -25,7 +26,7 @@ var publicMapIcons = sync.OnceValue(func() map[string]bool {
 	icons := make(map[string]bool)
 	entry := regexp.MustCompile(`\[\s*"((?:lucide|phosphor)/[a-z0-9-]+)"\s*,`)
 	for _, pack := range []string{"vectors", "lucide-extra", "phosphor-extra"} {
-		data, _ := files.ReadFile("frontend/icons/" + pack + ".js")
+		data, _ := frontend.Files.ReadFile("icons/" + pack + ".js")
 		for _, match := range entry.FindAllSubmatch(data, -1) {
 			icons[string(match[1])] = true
 		}

@@ -79,6 +79,7 @@ Keep one local desktop build at the path shown above. Close the running app befo
 | --- | --- |
 | Repository root | Desktop entry point and Wails bindings |
 | [frontend](frontend/) | Note editors, map and other desktop UI |
+| [internal/client](internal/client/) | Desktop application workflows, session lifecycle and integration tests |
 | [internal/acp](internal/acp/) | ACP client protocol, agent process lifecycle and one-time permissions |
 | [internal/agentmcp](internal/agentmcp/) | Local MCP transport, saved agent pairings and per-note access |
 | [internal/desktop](internal/desktop/) | Window placement, session-lock notifications, native folder picker and file manager integration |

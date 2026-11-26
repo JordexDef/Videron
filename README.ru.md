@@ -79,6 +79,7 @@ go run -tags webkit2_41 github.com/wailsapp/wails/v2/cmd/wails@v2.17.1 build -ta
 | --- | --- |
 | Корень репозитория | Точка входа приложения и методы Wails |
 | [frontend](frontend/) | Редакторы заметок, карта и остальной интерфейс |
+| [internal/client](internal/client/) | Логика приложения, управление сеансом и интеграционные тесты |
 | [internal/acp](internal/acp/) | Клиентский протокол ACP, запуск и остановка агентов, разовые разрешения |
 | [internal/agentmcp](internal/agentmcp/) | Локальный транспорт MCP, сохранённые клиенты и доступ к отдельным заметкам |
 | [internal/desktop](internal/desktop/) | Положение окна, уведомления о блокировке сеанса, выбор и открытие папок в системе |
