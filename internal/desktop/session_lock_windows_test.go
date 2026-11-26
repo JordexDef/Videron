@@ -1,7 +1,7 @@
-package main
+package desktop
 
 import (
-	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,32 +12,34 @@ import (
 // listener. This exercises registration and the window procedure without
 // locking the Windows desktop used for the test.
 func TestWindowsSessionLockNotification(t *testing.T) {
-	var app App
+	var calls atomic.Int32
 	notified := make(chan struct{}, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	stopped := make(chan struct{})
-	var runErr error
-	go func() {
-		defer close(stopped)
-		runErr = runSessionWindow(ctx, func() {
-			app.sessionLocked(ctx)
-			notified <- struct{}{}
-		})
-	}()
+	stop := WatchSessionLocks(func() {
+		calls.Add(1)
+		select {
+		case notified <- struct{}{}:
+		default:
+		}
+	})
+	var hwnd uintptr
 	t.Cleanup(func() {
-		cancel()
+		stopped := make(chan struct{})
+		go func() {
+			defer close(stopped)
+			stop()
+		}()
 		select {
 		case <-stopped:
+			if _, found := sessionHandlers.Load(hwnd); found {
+				t.Error("listener still registered")
+			}
 		case <-time.After(5 * time.Second):
 			t.Error("session window did not stop")
 		}
 	})
-	var hwnd uintptr
 	deadline := time.After(5 * time.Second)
 	for hwnd == 0 {
 		select {
-		case <-stopped:
-			t.Fatalf("session registration: %v", runErr)
 		case <-deadline:
 			t.Fatal("session window did not start")
 		case <-time.After(10 * time.Millisecond):
@@ -53,7 +55,7 @@ func TestWindowsSessionLockNotification(t *testing.T) {
 	}
 	send := sessionUser32.NewProc("SendMessageW")
 	send.Call(hwnd, wmSessionChange, windows.WTS_SESSION_UNLOCK, uintptr(sessionID))
-	if app.sessionLockPending.Load() {
+	if calls.Load() != 0 {
 		t.Fatal("unlock was reported as a lock")
 	}
 	if ok, _, err := postWindowMessage.Call(hwnd, wmSessionChange, windows.WTS_SESSION_LOCK, uintptr(sessionID)); ok == 0 {
@@ -61,24 +63,10 @@ func TestWindowsSessionLockNotification(t *testing.T) {
 	}
 	select {
 	case <-notified:
-	case <-stopped:
-		t.Fatalf("session registration: %v", runErr)
 	case <-time.After(5 * time.Second):
 		t.Fatal("no lock notification")
 	}
-	if !app.ConsumeSessionLock() || app.ConsumeSessionLock() {
-		t.Fatal("must replay the pending lock exactly once")
-	}
-	cancel()
-	select {
-	case <-stopped:
-		if runErr != nil {
-			t.Fatal(runErr)
-		}
-		if _, found := sessionHandlers.Load(hwnd); found {
-			t.Fatal("listener still registered")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("listener failed to unregister and exit")
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("got %d lock notifications, want one", got)
 	}
 }

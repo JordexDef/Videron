@@ -1,4 +1,4 @@
-package main
+package desktop
 
 import (
 	"context"
@@ -24,7 +24,7 @@ var (
 )
 
 func desktopWindowHandle() uintptr {
-	class, _ := windows.UTF16PtrFromString(desktopWindowClass)
+	class, _ := windows.UTF16PtrFromString(WindowClassName)
 	var hwnd uintptr
 	for {
 		hwnd, _, _ = findMainWindow.Call(0, hwnd, uintptr(unsafe.Pointer(class)), 0)

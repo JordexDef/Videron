@@ -1,4 +1,4 @@
-package main
+package desktop
 
 import (
 	"context"
@@ -56,7 +56,9 @@ func sessionWindowProc(hwnd, message, wParam, lParam, subclassID, data uintptr) 
 	return result
 }
 
-func watchSessionLocks(notify func()) func() {
+// WatchSessionLocks calls notify for locks of the current Windows session.
+// The returned function stops the monitor and waits for it to unregister.
+func WatchSessionLocks(notify func()) func() {
 	ctx, cancel := context.WithCancel(context.Background())
 	finished := make(chan struct{})
 	go func() {

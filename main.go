@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"videron/internal/agentmcp"
+	"videron/internal/desktop"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -38,8 +39,8 @@ func main() {
 	app := &App{}
 	config := &options.App{
 		Title:            "Videron",
-		Width:            defaultWindowWidth,
-		Height:           defaultWindowHeight,
+		Width:            desktop.DefaultWindowWidth,
+		Height:           desktop.DefaultWindowHeight,
 		MinWidth:         720,
 		MinHeight:        520,
 		BackgroundColour: options.NewRGB(23, 23, 23),
@@ -55,10 +56,10 @@ func main() {
 		Windows: &windows.Options{
 			Theme:            windows.SystemDefault,
 			DisablePinchZoom: true,
-			WindowClassName:  desktopWindowClass,
+			WindowClassName:  desktop.WindowClassName,
 		},
 	}
-	rememberDesktopWindow(config)
+	desktop.RememberWindow(config)
 	err = wails.Run(config)
 	if err != nil {
 		log.Fatal(err)

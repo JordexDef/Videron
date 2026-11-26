@@ -41,11 +41,11 @@ export async function buildDesktop(dir) {
   await overlay(path.join(repo, 'main.go'), 'audit-main.go', [
     ['"afe0835b-a0ad-44f7-bef5-437391d33cb8"', 'os.Getenv("VIDERON_FIXTURE_INSTANCE")'],
     [
-      'WindowClassName:  desktopWindowClass,',
-      'WebviewUserDataPath: os.Getenv("VIDERON_FIXTURE_WEBVIEW"), WindowClassName: desktopWindowClass,'
+      'WindowClassName:  desktop.WindowClassName,',
+      'WebviewUserDataPath: os.Getenv("VIDERON_FIXTURE_WEBVIEW"), WindowClassName: desktop.WindowClassName,'
     ]
   ]);
-  await overlay(path.join(repo, 'window_state.go'), 'audit-window.go', [
+  await overlay(path.join(repo, 'internal', 'desktop', 'window_state.go'), 'audit-window.go', [
     ['"VideronMainWindow"', '"VideronAudit' + randomUUID() + '"'],
     ['"github.com/wailsapp/wails/v2/pkg/runtime"', ''],
     ['runtime.WindowShow(ctx)', '// The test uses a hidden WebView2 window.']

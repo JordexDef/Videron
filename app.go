@@ -7,6 +7,7 @@ import (
 
 	"videron/internal/acp"
 	"videron/internal/agentmcp"
+	"videron/internal/desktop"
 	"videron/internal/vault"
 	"videron/internal/workspacestore"
 
@@ -41,7 +42,7 @@ func (a *App) startup(ctx context.Context) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.ctx = ctx
-	a.stopSessionMonitor = watchSessionLocks(func() { a.sessionLocked(ctx) })
+	a.stopSessionMonitor = desktop.WatchSessionLocks(func() { a.sessionLocked(ctx) })
 }
 
 func (a *App) sessionLocked(ctx context.Context) {

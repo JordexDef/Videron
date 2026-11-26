@@ -1,4 +1,4 @@
-package main
+package desktop
 
 import (
 	"context"
@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	defaultWindowWidth  = 1340
-	defaultWindowHeight = 860
-	desktopWindowClass  = "VideronMainWindow"
+	DefaultWindowWidth  = 1340
+	DefaultWindowHeight = 860
+	WindowClassName     = "VideronMainWindow"
 )
 
 // Window geometry belongs to this installation, independently of the open project.
@@ -33,7 +33,8 @@ func (s desktopWindowState) valid() bool {
 		s.X >= -131072 && s.X <= 131072 && s.Y >= -131072 && s.Y <= 131072
 }
 
-func rememberDesktopWindow(config *options.App) {
+// RememberWindow restores and saves the desktop window geometry for this installation.
+func RememberWindow(config *options.App) {
 	// The native window can otherwise appear before the WebView paints the
 	// user's theme, especially on the first launch on macOS.
 	var previous desktopWindowState

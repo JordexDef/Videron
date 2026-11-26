@@ -256,6 +256,9 @@ func TestSessionLockForgetsSuspendedKeysAndAllowsPendingEncryptedSave(t *testing
 	if !notified {
 		t.Fatal("OS lock notification waited for a pending storage operation")
 	}
+	if a.ConsumeSessionLock() {
+		t.Fatal("OS lock notification was replayed twice")
+	}
 	if _, err := suspended.Seal(folderSpaceFormat, "", []byte(spaceFixture)); !errors.Is(err, errLocked) {
 		t.Fatal("suspended key still usable after OS lock", err)
 	}

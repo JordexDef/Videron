@@ -52,7 +52,7 @@
       "id": "native.system-lock",
       "label": "Lock the desktop during editing",
       "entry": "Windows lock notification while an editor is open",
-      "source": "session_lock_windows.go"
+      "source": "internal/desktop/session_lock_windows.go"
     },
     {
       "id": "native.pair-agent",

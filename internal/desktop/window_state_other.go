@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package desktop
 
 import (
 	"context"
@@ -14,7 +14,7 @@ func captureDesktopWindow(ctx context.Context, previous desktopWindowState) desk
 	}
 	if runtime.WindowIsMaximised(ctx) {
 		if !previous.valid() {
-			previous = desktopWindowState{Width: defaultWindowWidth, Height: defaultWindowHeight}
+			previous = desktopWindowState{Width: DefaultWindowWidth, Height: DefaultWindowHeight}
 		}
 		previous.Maximized = true
 		return previous

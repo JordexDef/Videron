@@ -1,6 +1,7 @@
-package main
+package desktop
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,38 +12,37 @@ import (
 )
 
 var (
-	errFolderInvalid = errors.New("VD_FOLDER_INVALID")
-	errFolderMissing = errors.New("VD_FOLDER_MISSING")
-	errFolderAccess  = errors.New("VD_FOLDER_ACCESS")
-	errFolderOpen    = errors.New("VD_FOLDER_OPEN")
+	ErrFolderInvalid = errors.New("VD_FOLDER_INVALID")
+	ErrFolderMissing = errors.New("VD_FOLDER_MISSING")
+	ErrFolderAccess  = errors.New("VD_FOLDER_ACCESS")
+	ErrFolderOpen    = errors.New("VD_FOLDER_OPEN")
 )
 
-func (a *App) PickFolder(title string) (string, error) {
-	title = dialogTitle(title, "Выберите папку", "Choose a folder")
-	path, err := wails.OpenDirectoryDialog(a.ctx, wails.OpenDialogOptions{Title: title})
+func PickFolder(ctx context.Context, title string) (string, error) {
+	path, err := wails.OpenDirectoryDialog(ctx, wails.OpenDialogOptions{Title: title})
 	if err != nil {
-		return "", errFolderOpen
+		return "", ErrFolderOpen
 	}
 	if path == "" {
 		return "", nil
 	}
-	return existingFolder(path)
+	return ExistingFolder(path)
 }
 
-func (a *App) OpenFolder(path string) error {
-	dir, err := existingFolder(path)
+func OpenFolder(path string) error {
+	dir, err := ExistingFolder(path)
 	if err != nil {
 		return err
 	}
 	if err := showFolder(dir); err != nil {
-		return errFolderOpen
+		return ErrFolderOpen
 	}
 	return nil
 }
 
-func existingFolder(path string) (string, error) {
+func ExistingFolder(path string) (string, error) {
 	if !filepath.IsAbs(path) || strings.IndexByte(path, 0) >= 0 {
-		return "", errFolderInvalid
+		return "", ErrFolderInvalid
 	}
 	if runtime.GOOS == "windows" {
 		// A UNC share is a filesystem location. Win32 devices and the NT
@@ -52,26 +52,26 @@ func existingFolder(path string) (string, error) {
 			server, share, ok := strings.Cut(serverShare, "/")
 			if !ok || server == "" || server == "." || server == ".." ||
 				share == "" || share == "." || share == ".." || strings.ContainsAny(serverShare, "?:") {
-				return "", errFolderInvalid
+				return "", ErrFolderInvalid
 			}
 		} else if len(volume) != 2 || volume[1] != ':' ||
 			!((volume[0] >= 'a' && volume[0] <= 'z') || (volume[0] >= 'A' && volume[0] <= 'Z')) {
-			return "", errFolderInvalid
+			return "", ErrFolderInvalid
 		}
 		if strings.Contains(path[len(volume):], ":") {
-			return "", errFolderInvalid
+			return "", ErrFolderInvalid
 		}
 	}
 	clean := filepath.Clean(path)
 	info, err := os.Stat(clean)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", errFolderMissing
+		return "", ErrFolderMissing
 	}
 	if err != nil {
-		return "", errFolderAccess
+		return "", ErrFolderAccess
 	}
 	if !info.IsDir() {
-		return "", errFolderInvalid
+		return "", ErrFolderInvalid
 	}
 	return clean, nil
 }

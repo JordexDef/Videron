@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"videron/internal/desktop"
 	"videron/internal/syncclient"
 	"videron/internal/vault"
 	"videron/internal/workspacestore"
@@ -25,13 +26,13 @@ type folderSpaceSession struct {
 }
 
 func spaceDir(folder string) (string, error) {
-	dir, err := existingFolder(folder)
+	dir, err := desktop.ExistingFolder(folder)
 	if err != nil {
 		return "", err
 	}
 	dir, err = filepath.EvalSymlinks(dir)
 	if err != nil {
-		return "", errFolderAccess
+		return "", desktop.ErrFolderAccess
 	}
 	return dir, nil
 }
