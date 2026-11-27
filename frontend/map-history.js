@@ -4,6 +4,7 @@ import { deleteAreaStage, insertAreaStage, undoStageStructure } from './stage-st
 import { undoNotesDeletion } from './note-deletion.js';
 import { sameWorkspaceValue } from './workspace-merge.js';
 import { createGroup, dissolveGroup, translateGroup, undoGroupChange } from './map-groups.js';
+import { undoNoteImport } from './note-import.js';
 
 const histories = new WeakMap();
 export function rememberMapAction(space, action) {
@@ -171,6 +172,7 @@ export function undoMapAction(space) {
   const action = histories.get(space)?.pop();
   if (!action) return null;
   switch (action.kind) {
+    case 'note-import': return undoNoteImport(space,action) ? action : null;
     case 'ink-delete': return restoreMapInk(space,action.removed) ? action : null;
     case 'map-group':
     case 'map-ungroup':

@@ -6,25 +6,27 @@ Videron is a local-first desktop app for keeping notes on a map. The size of eac
 
 ![Videron's demo map and note tabs in a single view, with the dark theme on the left and the light theme on the right](docs/media/videron-map.png)
 
-## Download Videron 0.51.1
+## Download Videron 0.52.0
 
 Download the desktop app to work with your notes. Choose Videron Sync if you want to host your own server.
 
 | System | Desktop app | Videron Sync server |
 | --- | --- | --- |
-| Windows | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-0.51.1.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-0.51.1-windows-arm64.exe) | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-Sync-0.51.1-windows-amd64.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-Sync-0.51.1-windows-arm64.exe) |
-| macOS | [DMG for Apple silicon and Intel](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-0.51.1-macOS.dmg) | [Archive for Apple silicon and Intel](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-Sync-0.51.1-macOS-universal.tar.gz) |
-| Linux | [x64](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-0.51.1-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-0.51.1-linux-arm64.tar.gz) | [x64](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-Sync-0.51.1-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.51.1/Videron-Sync-0.51.1-linux-arm64.tar.gz) |
+| Windows | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.52.0/Videron-0.52.0.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.52.0/Videron-0.52.0-windows-arm64.exe) | [x64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.52.0/Videron-Sync-0.52.0-windows-amd64.exe) · [ARM64 EXE](https://github.com/JordexDef/Videron/releases/download/v0.52.0/Videron-Sync-0.52.0-windows-arm64.exe) |
+| macOS | [DMG for Apple silicon and Intel](https://github.com/JordexDef/Videron/releases/download/v0.52.0/Videron-0.52.0-macOS.dmg) | [Archive for Apple silicon and Intel](https://github.com/JordexDef/Videron/releases/download/v0.52.0/Videron-Sync-0.52.0-macOS-universal.tar.gz) |
+| Linux | [x64](https://github.com/JordexDef/Videron/releases/download/v0.52.0/Videron-0.52.0-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.52.0/Videron-0.52.0-linux-arm64.tar.gz) | [x64](https://github.com/JordexDef/Videron/releases/download/v0.52.0/Videron-Sync-0.52.0-linux-amd64.tar.gz) · [ARM64](https://github.com/JordexDef/Videron/releases/download/v0.52.0/Videron-Sync-0.52.0-linux-arm64.tar.gz) |
 
 On Windows, run the desktop EXE. On macOS, open the DMG and drag Videron into Applications. On Linux, extract the desktop archive and run `./Videron` from that folder. The Linux builds target Ubuntu 24.04 with GTK 3 and WebKitGTK 4.1. If WebKitGTK is missing, install the runtime with `sudo apt install libwebkit2gtk-4.1-0`.
 
-[Server setup](docs/server-setup.md) · [Release notes and checksums](https://github.com/JordexDef/Videron/releases/tag/v0.51.1)
+[Server setup](docs/server-setup.md) · [Release notes and checksums](https://github.com/JordexDef/Videron/releases/tag/v0.52.0)
 
 ## Working with notes
 
 - **Arrange your map.** Drag notes into nested areas, pin them to a grid, or move them between stages of a project. The sidebar shows the same areas as a folder tree.
 - **Write and draw.** Embed a sketch, image, code block, or table with formulas in a text note. Use a canvas note when you want to arrange those elements freely.
+- **Capture a quick note.** Add an entry directly on the map. New entries appear at the top, and you can format and reorder them in the editor. [Quick notes](docs/guide.md#quick-notes)
 - **Work with data.** Open JSON, CSV, or TSV in a data note. For CSV and TSV, switch to the table view to sort by a column or remove duplicates using the fields you choose.
+- **Move notes between apps.** Import a vault or a ZIP export. Export a workspace as a Markdown folder or ZIP with its folders, relative links and images. [Import](docs/guide.md#import-notes) · [Export](docs/guide.md#export-to-markdown-or-obsidian)
 - **Work offline.** Create, edit and search your notes locally. You can sync a space when you want to use it on another computer.
 
 In the development build, **AI → Copy for AI** copies a note with its drawings and table formulas. Register a local MCP client once in **Settings → External agents**, then choose which idea it may read or manage tasks for. You can also launch an installed ACP agent from the note and track its tasks on the map. [AI agents and notes](docs/guide.md#ai-agents-and-notes)

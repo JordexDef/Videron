@@ -1,6 +1,7 @@
 import { icon } from './art.js'
 import { tr } from './i18n.js'
 import { historyDirection } from './shortcuts.js'
+import { attachVerticalReorder, moveListItem } from './vertical-reorder.js'
 
 function element(tag, className, text) {
   const node = document.createElement(tag)
@@ -14,13 +15,22 @@ function action(label, symbol, run, withText = false) {
   button.type = 'button'
   button.title = label
   button.setAttribute('aria-label', label)
-  button.innerHTML = icon(symbol)
+  if (symbol) button.innerHTML = icon(symbol)
   if (withText) button.append(document.createTextNode(label))
   button.onclick = run
   return button
 }
 
-export function createCredentialBlock({block, onChange, onRemove}) {
+const grip = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3"/></svg>'
+
+function reorderButton(label, className) {
+  const button = action(label, null, null)
+  button.classList.add('ve-credential-grip', className)
+  button.innerHTML = grip
+  return button
+}
+
+export function createCredentialBlock({block, onChange, onRemove, moveBlock}) {
   let entries = Array.isArray(block.entries) ? block.entries : []
   const row = element('section', 've-credentials')
   row.tabIndex = -1
@@ -51,6 +61,11 @@ export function createCredentialBlock({block, onChange, onRemove}) {
     renderEntries()
     fields.lastElementChild.querySelector('input').focus()
   }, true)
+  if (moveBlock) {
+    const handle = reorderButton(tr('Переместить блок учётных данных', 'Move credentials block'), 've-credential-block-grip')
+    bar.append(handle)
+    moveBlock(handle, row)
+  }
   bar.append(title,searchWrap,add,action(tr('Удалить блок учётных данных', 'Remove credentials block'), 'trash', onRemove))
   tools.append(bar)
   row.append(tools,fields,empty,status)
@@ -69,6 +84,7 @@ export function createCredentialBlock({block, onChange, onRemove}) {
       const visible = !query || [entry.resource,entry.login].some(value =>
         typeof value === 'string' && value.toLowerCase().includes(query))
       fields.children[i].hidden = !visible
+      fields.children[i].querySelector('.ve-credential-entry-grip').disabled = entries.length < 2 || !!query
       if (visible) matches++
     }
     empty.hidden = matches > 0
@@ -89,12 +105,14 @@ export function createCredentialBlock({block, onChange, onRemove}) {
   function placeTools() {
     const bounds = row.getBoundingClientRect()
     const scroll = row.closest('.ve-scroll')?.getBoundingClientRect()
-    const toolbar = row.closest('.ve-main')?.querySelector(':scope > .ve-toolbar')
-    const top = Math.max(0, scroll?.top ?? 0, toolbar?.getBoundingClientRect().bottom ?? 0)
+    const prepend = row === row.parentElement?.firstElementChild &&
+      row.closest('.ve-main')?.querySelector(':scope > .ve-add-text-above:not([hidden])')
+    const top = Math.max(0, scroll?.top ?? 0, prepend ? prepend.getBoundingClientRect().bottom : 0)
+    const previous = row.previousElementSibling?.getBoundingClientRect().bottom ?? top
     const bottom = Math.min(window.innerHeight, scroll?.bottom ?? window.innerHeight)
     const height = bar.offsetHeight
-    row.style.setProperty('--ve-credential-tools-inset', (height + (toolbar?.offsetHeight ?? 0)) + 'px')
-    row.dataset.toolsEdge = bounds.top - top < height && bottom - bounds.bottom >= height ? 'below' : 'above'
+    row.style.setProperty('--ve-credential-tools-inset', (height + top - (scroll?.top ?? 0)) + 'px')
+    row.dataset.toolsEdge = bounds.top - Math.max(top, previous) < height && bottom - bounds.bottom >= height ? 'below' : 'above'
   }
   row.addEventListener('pointerenter', placeTools)
   row.addEventListener('focusin', placeTools)
@@ -146,6 +164,13 @@ export function createCredentialBlock({block, onChange, onRemove}) {
       const group = element('div', 've-credential-entry')
       group.setAttribute('role', 'group')
       group.setAttribute('aria-label', tr('Запись {number}', 'Entry {number}', {number:index + 1}))
+      const handle = reorderButton(tr('Переместить запись учётных данных', 'Move credential entry'), 've-credential-entry-grip')
+      attachVerticalReorder(handle, fields, group, (from,to) => {
+        update(moveListItem(entries,from,to))
+        renderEntries()
+        fields.children[to].querySelector('.ve-credential-entry-grip').focus({preventScroll:true})
+      })
+      group.append(handle)
       const pair = copyAction(tr('Скопировать логин:пароль', 'Copy login:password'), () => {
         const {login,password} = entries[index]
         return login + ':' + password

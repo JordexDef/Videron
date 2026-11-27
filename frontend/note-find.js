@@ -114,6 +114,13 @@ export function mountNoteFind(root,adapter) {
   row.append(findBox,count,prev,next,scope,closeButton);replaceRow.append(replaceBox,one,all);
   panel.append(expand,row,replaceRow);root.append(panel);showReplace(false);
   const events=new AbortController();
+  const toolbar=root.querySelector(':scope > .ve-under-head');
+  if (toolbar) {
+    const position=()=>{panel.style.insetBlockStart=toolbar.offsetTop+toolbar.offsetHeight+6+'px'};
+    const resize=new ResizeObserver(position);
+    resize.observe(toolbar);position();
+    events.signal.addEventListener('abort',()=>resize.disconnect(),{once:true});
+  }
   root.addEventListener('keydown',keydown,{capture:true,signal:events.signal});
   root.addEventListener('beforeinput',e=>{
     inputLocation=null;

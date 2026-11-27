@@ -123,6 +123,7 @@ export function createNote(x,y,areaId=null,type='text'){
   const note={id:crypto.randomUUID(),title:'',bodyVersion:1,body:[],plain:'',tags:[],links:[],x,y,pinned:false,areaId,opens:0,weight:0,created:Date.now(),modified:Date.now()};
   if(type==='canvas')Object.assign(note,{type,board:{version:1,elements:[]}});
   if(type==='data')Object.assign(note,{type,dataText:'',dataLanguage:'text'});
+  if(type==='quick')Object.assign(note,{type,appearance:{icon:'phosphor/lightning'}});
   return note;
 }
 export function demoWorkspace() {

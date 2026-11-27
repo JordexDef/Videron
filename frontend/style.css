@@ -82,7 +82,7 @@ kbd{font:10px var(--mono);border:1px solid var(--control-line,#434343);border-ra
 @media(max-width:650px){.map-options #routes span{display:none}}
 .create-control .button{gap:7px;padding:0 11px}
 .create-control .button .ico{width:17px;height:17px}
-@media(max-width:950px){.create-control #new-canvas span,.create-control #new-data span{display:none}}
+@media(max-width:1040px){.create-control #new-canvas span,.create-control #new-data span,.create-control #new-quick span{display:none}}
 @media(max-width:350px){.create-control .button{width:36px;padding:0}.create-control .button span{display:none}}
 h1,h2,h3,p{margin:0}
 h1{font-size:clamp(23px,2vw,29px);font-weight:540;line-height:1.25;letter-spacing:-1.25px}
@@ -92,6 +92,10 @@ h1{font-size:clamp(23px,2vw,29px);font-weight:540;line-height:1.25;letter-spacin
 .button.primary:hover{background:var(--primary-hover,#ffffff)}
 .button.secondary{background:var(--control-bg,#222222);border:1px solid var(--control-line,#3c3c3c);color:var(--fg-soft,#c9c9c9)}
 .map-stage{position:relative;min-height:0;flex:1;overflow:hidden}
+.map-quick-entry{position:absolute;z-index:3;display:grid;place-items:center;width:30px;height:30px;padding:0;transform:translate(-50%,-50%);border-radius:50%;border:1px solid var(--primary-border,#f4f4f4);background:var(--accent);color:var(--on-primary,#292929);box-shadow:0 2px 9px var(--shadow-subtle,#0004);cursor:pointer}
+.map-quick-entry:hover,.map-quick-entry[aria-expanded=true]{background:var(--primary-hover,#fff)}
+.map-quick-entry .ico{width:18px;height:18px;stroke-width:1.8}
+.map-stage:has(.map-quick-entry[aria-expanded=true]:not([hidden])) .map-area-action{visibility:hidden}
 .map-area-action{position:absolute;z-index:1;display:inline-flex;border:1px solid var(--focus-border,#5a5a5a);border-radius:6px;background:var(--control-bg,#292929);box-shadow:0 3px 12px var(--shadow-subtle,#0004);color:var(--text);font-size:12px;font-weight:550;white-space:nowrap}
 .map-area-action button{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:4px 9px;border-radius:5px;color:inherit;font:inherit}
 .map-area-action button:hover{background:var(--control-hover,#383838)}

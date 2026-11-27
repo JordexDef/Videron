@@ -135,11 +135,12 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   root.setAttribute('role','region')
   root.setAttribute('aria-label',tr('Редактор данных','Data editor'))
   const header = element('header','ve-head'), workspace = element('div','ve-board-layout')
-  const main = element('main','vd-data-main'), bar = element('div','vd-data-bar')
+  const main = element('main','vd-data-main'), bar = element('div','ve-under-head vd-data-bar')
+  bar.setAttribute('role','group'); bar.setAttribute('aria-label',tr('Инструменты работы с данными','Data tools'))
   const host = element('div','vd-data-host'), footer = element('footer','vd-data-footer')
   const tableHost = element('div','vd-data-table-host')
   tableHost.hidden = true
-  const title = element('input','ve-canvas-title')
+  const title = element('input','ve-head-title ve-canvas-title')
   title.value = note.title || ''; title.placeholder = tr('Без названия','Untitled')
   title.setAttribute('aria-label',tr('Название заметки','Note title'))
   const titleReveal = createSearchReveal({root,title})
@@ -157,8 +158,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   const details = noteDetails({root,note,notes,areas,current:() => relations,update(patch,point) {
     relations = {...relations,...patch}; onChange?.({...patch,...point}); details.sync()
   },openNote:onOpenNote && navigateTo,openTag:onOpenNote && tagNav.open})
-  header.append(editorButton(backLabel,'back',goBack,true),element('span','ve-head-divider'),
-    element('span','ve-crumb',tr('Данные','Data')),title,saveIndicator ?? element('span','ve-spacer'))
+  header.append(editorButton(backLabel,'back',goBack,true),element('span','ve-head-divider'),title,saveIndicator ?? element('span','ve-spacer'))
   if (onSearch) header.append(noteSearchButton(() => {flush(); onSearch()}))
   if (agentButton) header.append(agentButton)
   if (manageProtection) header.append(notePrivacyButton(() => {flush(); return manageProtection()},isProtected))
@@ -209,7 +209,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   const undoButton = editorButton(tr('Отменить','Undo'),'undo',() => applyHistory(undo))
   const redoButton = editorButton(tr('Повторить','Redo'),'redo',() => applyHistory(redo))
   const divider = element('span','ve-divider')
-  bar.append(format,mode,divider,menuHost,insertFile,fileInput,element('span','ve-spacer'),find,undoButton,redoButton)
+  bar.append(format,mode,divider,menuHost,insertFile,fileInput,element('span','ve-divider'),find,undoButton,redoButton)
   const lines = element('span','vd-data-lines'), message = element('span','vd-data-message')
   message.setAttribute('role','status')
   function cancelTextOperation() {
@@ -225,7 +225,7 @@ export function openDataEditor({note,notes=[],areas=[],onChange,onClose,onOpenNo
   }
   footer.append(lines,element('span','ve-spacer'),message,cancel,cursor)
   const tasks = mountAgentTaskList(note.id, notes, {openNote:navigateTo,...agentTaskActions})
-  main.append(bar,tasks.element,host,tableHost,footer); workspace.append(main,details.panel); root.append(header,workspace); document.body.append(root)
+  main.append(tasks.element,host,tableHost,footer); workspace.append(main,details.panel); root.append(header,bar,workspace); document.body.append(root)
   tagNav.trackTitle(title)
   const numbers = new Intl.NumberFormat(getLanguage())
   function status(state) {

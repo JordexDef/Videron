@@ -23,6 +23,8 @@
   <link rel="stylesheet" href="areas.css">
   <link rel="stylesheet" href="area-drag.css">
   <link rel="stylesheet" href="editor.css">
+  <link rel="stylesheet" href="quick-note-capture.css">
+  <link rel="stylesheet" href="quick-note-editor.css">
   <link rel="stylesheet" href="note-find.css">
   <link rel="stylesheet" href="credential-block.css">
   <link rel="stylesheet" href="data-editor.css">
@@ -111,6 +113,7 @@
             <button id="new-note" type="button" class="button primary" aria-label="Новая заметка" data-en-aria="New note" aria-keyshortcuts="Control+N" title="Создать текстовую заметку (Ctrl+N)" data-en-title="Create a text note (Ctrl+N)"><i data-i="newTextNote"></i><span data-en="New note">Новая заметка</span></button>
             <button id="new-canvas" type="button" class="button secondary" aria-label="Новый холст" data-en-aria="New canvas" aria-keyshortcuts="Control+Shift+N" title="Создать заметку-холст (Ctrl+Shift+N)" data-en-title="Create a canvas note (Ctrl+Shift+N)"><i data-i="newCanvas"></i><span data-en="New canvas">Новый холст</span></button>
             <button id="new-data" type="button" class="button secondary" aria-label="Создать заметку с данными" data-en-aria="Create data note" title="Создать заметку с данными" data-en-title="Create data note"><i data-i="newData"></i><span data-en="Data">Данные</span></button>
+            <button id="new-quick" type="button" class="button secondary" aria-label="Создать быструю заметку" data-en-aria="Create quick note" title="Создать быструю заметку" data-en-title="Create quick note"><i data-i="newQuick"></i><span data-en="Quick note">Быстрая</span></button>
           </div>
           <div class="create-control map-options">
             <button id="routes" class="button secondary" type="button" aria-expanded="false" aria-label="Маршруты" data-en-aria="Routes" title="Маршруты" data-en-title="Routes"><i data-i="route"></i><span data-en="Routes">Маршруты</span></button>
@@ -124,6 +127,7 @@
             <h2 data-en="Start with a single thought">Начните с одной мысли</h2>
             <p><span data-en="Create a note to place it on the map.">Создайте заметку, и она появится на карте.</span><br><span data-en="Shared tags link related notes.">Общие теги связывают заметки.</span></p>
             <button class="button primary first-note" id="first-note"><i data-i="plus"></i><span data-en="Create a note">Создать заметку</span></button>
+            <button class="text-button" id="import-notes-empty" type="button" hidden><i data-i="import"></i><span data-en="Import notes…">Импорт заметок…</span></button>
             <button class="text-button" id="try-demo"><span data-en="Explore the demo">Посмотреть пример</span><i data-i="arrowUpRight"></i></button>
           </div>
           <div id="selection" class="selection" hidden></div>

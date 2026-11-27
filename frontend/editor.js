@@ -19,6 +19,7 @@ import { readClipboardParagraphs } from './clipboard-runs.js'
 import { sliceRuns, selectedBlocks, replaceTextRange, moveTextRange } from './editor-text-range.js'
 import { installTextMove } from './editor-text-move.js'
 import { createCredentialBlock } from './credential-block.js'
+import { attachVerticalReorder, moveListItem } from './vertical-reorder.js'
 import { hasCredentialBlock } from './data.js'
 import { offsetAt, textRangeCursor } from './note-text-dom.js'
 import { mountNoteFind } from './note-find.js'
@@ -43,6 +44,7 @@ const icons = {
   search: 'M16 10a6 6 0 1 1-12 0 6 6 0 1 1 12 0m-1.5 4.5L21 21',
   findInNote: 'M10 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v1 M13 3v5h5 M18 15a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0m-1 2.5 4 4',
   back: 'M19 12H5m7 7-7-7 7-7', file: 'M6 3h8l4 4v14H6z M14 3v5h4',
+  plus: 'M12 5v14M5 12h14',
   folder: 'M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z M3 9h18',
   bold: 'M6 4h7a4 4 0 0 1 0 8H6z M6 12h8a4 4 0 0 1 0 8H6z',
   italic: 'M19 4h-9m4 16H5m11-16-8 16', link: 'm10 13 4-4m-5 6-2 2a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m2 1 2-2a3.5 3.5 0 0 1 5 5l-4 4a3.5 3.5 0 0 1-5 0',
@@ -189,7 +191,8 @@ function modal(root, label, className = '', requestDismiss = dlg => dlg.close())
 }
 const hasTables = block => block?.board?.elements?.some(e=>e.type==='table')
 
-export { button as editorButton, noteRelations, noteDetails, notePrivacyButton, noteSearchButton, finishNoteSession, keepTabInEditor }
+export { button as editorButton, noteRelations, noteDetails, notePrivacyButton, noteSearchButton, finishNoteSession, keepTabInEditor,
+  appendRuns, readRuns, marksForElement, setCaret, safeLink, safeColor, modal as editorDialog }
 
 function noteRelations(note) {
   return {links:[...(note.links || [])], pinned:!!note.pinned, areaId:note.areaId || null, slot:note.slot ?? null}
@@ -371,13 +374,12 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   const root=el('section','vd-editor ve-canvas-editor'), head=el('header','ve-head')
   root.setAttribute('role','region')
   root.setAttribute('aria-label',tr('Заметка-холст','Canvas note'))
-  const title=el('input','ve-canvas-title')
-  title.type='text';title.value=note.title||'';title.placeholder=tr('Холст без названия','Untitled canvas')
+  const title=el('input','ve-head-title ve-canvas-title')
+  title.type='text';title.value=note.title||'';title.placeholder=tr('Без названия','Untitled')
   title.setAttribute('aria-label',tr('Название заметки','Note title'))
   const searchReveal=createSearchReveal({root,title})
+  const toolbar=el('div','ve-under-head ve-board-tools')
   const workspace=el('div','ve-board-layout'), host=el('div','ve-board-host')
-  const crumb=el('div','ve-crumb')
-  crumb.append(icon('board'),el('span','',tr('Холст','Canvas')))
   let boardDoc=normalizeBoard(note.board), summary=boardSummary(boardDoc), relations=noteRelations(note)
   let finished=false, closePending, navigating=false, savedTitle=title.value, localFind
   async function navigateTo(id){
@@ -401,7 +403,7 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   }
   title.oninput=saveTitle
   const back=button(backLabel,'back',goBack,true)
-  head.append(back,el('span','ve-head-divider'),crumb,title,saveIndicator ?? el('span','ve-spacer'))
+  head.append(back,el('span','ve-head-divider'),title,saveIndicator ?? el('span','ve-spacer'))
   const findBtn=button(shortcutLabel(tr('Найти в заметке (Ctrl+F)','Find in note (Ctrl+F)')),'findInNote',()=>localFind.open())
   findBtn.setAttribute('aria-keyshortcuts',shortcutAria('Ctrl+F'))
   findBtn.onmousedown=e=>e.preventDefault()
@@ -411,8 +413,8 @@ function canvasEditor({note,notes,areas,onChange,onClose,onOpenNote,onSearch,bac
   if(manageProtection)head.append(notePrivacyButton(manageProtection,isProtected))
   head.append(details.toggle)
   const tasks=mountAgentTaskList(note.id,notes,{...agentTaskActions,openNote:navigateTo})
-  workspace.append(host,details.panel);root.append(head,workspace,tasks.element);document.body.append(root)
-  const board=mountBoard(host,{document:boardDoc,noteTitle:title,historySession,onFileMenu:openBoardFiles,textAreaDefaults,
+  workspace.append(host,details.panel);root.append(head,toolbar,workspace,tasks.element);document.body.append(root)
+  const board=mountBoard(host,{document:boardDoc,noteTitle:title,toolbarHost:toolbar,historySession,onFileMenu:openBoardFiles,textAreaDefaults,
     mountRichText:(host,options)=>openEditor({
       note:{id:note.id,body:options.body,plain:options.text},notes,
       onChange:options.onChange,onOpenNote:onOpenNote && navigateTo,embed:{...options,host}
@@ -505,11 +507,16 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   const root = el('section',embed?'vd-editor ve-embedded-editor':'vd-editor')
   if(!embed)root.setAttribute('role','region')
   root.setAttribute('aria-label',embed?tr('Текстовая область','Text area'):tr('Редактор заметки','Note editor'))
-  const head = el('header','ve-head'), crumb = el('div','ve-crumb'), scroll = el('div','ve-scroll'), layout = el('div','ve-layout')
+  const head = el('header','ve-head'), scroll = el('div','ve-scroll'), layout = el('div','ve-layout')
   const main = el('main','ve-main')
-  const titleBox = el('textarea','ve-title')
-  titleBox.rows=1; titleBox.placeholder=tr('Без названия','Untitled');titleBox.setAttribute('aria-label',tr('Название заметки','Note title'));titleBox.value=title
-  const toolbar=el('div','ve-toolbar'), content=el('div','ve-content'), count=el('span','ve-count'), message=el('span','ve-message')
+  const titleBox = el('input','ve-head-title ve-title')
+  titleBox.type='text';titleBox.placeholder=tr('Без названия','Untitled');titleBox.setAttribute('aria-label',tr('Название заметки','Note title'));titleBox.value=title
+  const toolbar=el('div',embed?'ve-toolbar':'ve-toolbar ve-under-head'), content=el('div','ve-content'), count=el('span','ve-count'), message=el('span','ve-message')
+  const prepend=!embed && button(tr('Текст выше','Add text above'),'plus',()=>{
+    if(finished || closePending || textTypes.has(body[0]?.type))return
+    remember();applyBody([paragraph(),...body],0)
+  },true)
+  if(prepend)prepend.classList.add('ve-add-text-above')
   let privacyControl, localFind, addingCredentials=false
   toolbar.setAttribute('role','group')
   toolbar.setAttribute('aria-label',tr('Форматирование текста','Text formatting'))
@@ -576,7 +583,6 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   const tagNav=createTagNavigator({root,notes,noteId:note.id,onOpenNote:onOpenNote && navigateTo})
   if(!embed)tagNav.trackTitle(titleBox)
   const searchReveal=createSearchReveal({root,scroll:embed?content:scroll,title:titleBox,focusBlock,
-    visibleTop:embed?undefined:()=>toolbar.getBoundingClientRect().bottom,
     onSearchPoint:embed?.onSearchPoint,blockAt(index,persistent){
     const block=body[index],row=blockRefs[index]
     if(!row||!block)return null
@@ -587,19 +593,10 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     if(!persistent && row.textContent!==blockText(block)){row.replaceChildren();appendRuns(row,block.runs);tagNav.paint(row)}
     return {node:row}
   }})
-  const resizeTitle=()=>{
-    titleBox.style.height='auto'
-    titleBox.style.height=titleBox.scrollHeight+'px'
-    tagNav.syncTitle()
-  }
   // offsetHeight/clientHeight are layout pixels, independent of board zoom and rotation.
   const overflowHeight=()=>Math.max(0,content.offsetHeight-embed.host.clientHeight)
-  const sizeObserver = new ResizeObserver(entries => {
-    if(embed){if(overflowHeight())embed.onOverflow?.();return}
-    for(const {target,contentRect} of entries){
-      if(target===toolbar)scroll.style.scrollPaddingTop=(toolbar.offsetHeight+4)+'px'
-      if(target===titleBox && sizeObserver.lastWidth!==contentRect.width){sizeObserver.lastWidth=contentRect.width;resizeTitle()}
-    }
+  const sizeObserver = new ResizeObserver(() => {
+    if(overflowHeight())embed.onOverflow?.()
   })
   function currentSelection() {
     if(textSelection.across)return null
@@ -688,7 +685,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     const snap=from.pop()
     const moved=snap.relations.areaId!==relations.areaId||snap.relations.slot!==relations.slot
     ;({title,body,relations}=snap)
-    lastKey='';titleBox.value=title;resizeTitle()
+    lastKey='';titleBox.value=title;tagNav.syncTitle()
     render();emit(moved?snap.point:null);details.sync()
     if(activeInline && content.contains(activeInline.row) && activeInline.row.contains(document.activeElement)) {
       active=blockRefs.indexOf(activeInline.row)
@@ -1326,6 +1323,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     codeViews=new Map()
     const keep=new Set()
     const markers=listMarkers(body)
+    if(prepend)prepend.hidden=textTypes.has(body[0]?.type)
     const rows=body.map((b,i)=>{
       if(textTypes.has(b.type)){
         const row=el('div','ve-text ve-'+b.type);row.contentEditable='true';row.dataset.index=i
@@ -1374,7 +1372,13 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
           if(finished || !isProtected())return
           remember(key?'credentials-'+i+'-'+key:undefined)
           body=[...body];body[i]=next;emit()
-        },onRemove:()=>removeBlock(i)})
+        },onRemove:()=>removeBlock(i),moveBlock:body.length<2?null:(handle,node)=>{
+          attachVerticalReorder(handle,content,node,(from,to)=>{
+            if(finished || closePending || !isProtected())return
+            remember();applyBody(moveListItem(body,from,to),to)
+            blockRefs[to]?.querySelector('.ve-credential-block-grip')?.focus({preventScroll:true})
+          })
+        }})
         row.addEventListener('focusin',()=>{active=i;syncTools()})
         blockRefs.push(row)
         return row
@@ -1638,7 +1642,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
   for(const [control,key] of [[boldBtn,'Ctrl+B'],[italicBtn,'Ctrl+I'],[linkBtn,'Ctrl+K']])control.setAttribute('aria-keyshortcuts',shortcutAria(key))
   const folderBtn=button(tr('Ссылка на папку','Link to folder'),'folder',insertFolder)
   const outdentBtn=button(tr('Уменьшить отступ','Decrease indent'),'outdent',()=>indent(-1)),indentBtn=button(tr('Увеличить отступ','Increase indent'),'indent',()=>indent(1))
-  toolbar.append(kind,el('span','ve-divider'),taskFormats,el('span','ve-divider'),boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,el('span','ve-divider'),outdentBtn,indentBtn,el('span','ve-divider'),imageBtn,...(embed?[]:[sketchBtn,tableBtn]),codeBtn,...(credentialsBtn?[credentialsBtn]:[]),el('span','ve-spacer'),...(findBtn?[findBtn]:[]),undoBtn,redoBtn)
+  toolbar.append(kind,el('span','ve-divider'),taskFormats,el('span','ve-divider'),boldBtn,italicBtn,colorBtn,linkBtn,folderBtn,el('span','ve-divider'),outdentBtn,indentBtn,el('span','ve-divider'),imageBtn,...(embed?[]:[sketchBtn,tableBtn]),codeBtn,...(credentialsBtn?[credentialsBtn]:[]),el('span',embed?'ve-spacer':'ve-divider'),...(findBtn?[findBtn]:[]),undoBtn,redoBtn)
   toolbar.addEventListener('mousedown',e=>{if(e.target.closest('button'))e.preventDefault()})
   function syncTools(){
     const b=body[active]
@@ -1659,7 +1663,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
     remember();relations={...relations,...patch};emit(point);details.sync()
   },openNote:onOpenNote && navigateTo,openTag:onOpenNote && tagNav.open})
   titleBox.onfocus=()=>textSelection.clear()
-  titleBox.oninput=()=>{remember('title');title=titleBox.value;resizeTitle();emit()}
+  titleBox.oninput=()=>{remember('title');title=titleBox.value;tagNav.syncTitle();emit()}
   titleBox.onkeydown=e=>{
     if(!e.isComposing&&e.key==='Enter'){e.preventDefault();focusBlock(0,0)}
   }
@@ -1776,16 +1780,15 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
         refreshEmbeddedHistory()
       }}
   }
-  crumb.append(icon('file'),el('span','',tr('Заметка','Note')))
-  head.append(button(backLabel,'back',goBack,true),el('span','ve-head-divider'),crumb,saveIndicator ?? el('span','ve-spacer'),message,count)
+  head.append(button(backLabel,'back',goBack,true),el('span','ve-head-divider'),titleBox,saveIndicator ?? el('span','ve-spacer'),message,count)
   if(onSearch)head.append(noteSearchButton(onSearch))
   if(agentButton)head.append(agentButton)
   if(manageProtection){privacyControl=notePrivacyButton(changeNoteProtection,isProtected);head.append(privacyControl)}
   head.append(details.toggle)
   const tasks=mountAgentTaskList(note.id,notes,{...agentTaskActions,openNote:navigateTo})
-  main.append(titleBox,toolbar,content,tasks.element)
-  layout.append(main,details.panel);scroll.append(layout);root.append(head,scroll,filePicker)
-  document.body.append(root);sizeObserver.observe(titleBox);sizeObserver.observe(toolbar);document.addEventListener('selectionchange',syncTools)
+  main.append(prepend,content,tasks.element)
+  layout.append(main,details.panel);scroll.append(layout);root.append(head,toolbar,scroll,filePicker)
+  document.body.append(root);document.addEventListener('selectionchange',syncTools)
   let paintedMatches,paintedPage,clearInlineFind
   localFind=mountNoteFind(root,{
     records:()=>[{id:'title',text:title},...documentFindRecords(body)],
@@ -1853,7 +1856,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       const titleChanges=edits.filter(edit=>edit.id==='title')
       if(titleChanges.length){
         title=replaceNoteString(title,titleChanges)
-        titleBox.value=title;resizeTitle()
+        titleBox.value=title;tagNav.syncTitle()
       }
       const bodyChanges=edits.filter(edit=>edit.id!=='title')
       if(bodyChanges.length){
@@ -1873,7 +1876,7 @@ export function openEditor({note, notes = [], areas = [], onChange, onClose, onO
       else focusBlock(inlineFindTarget(match.id)?.index??Number(match.id),match.from,match.to)
     },
   })
-  render();details.sync();indicators(meta());resizeTitle()
+  render();details.sync();indicators(meta())
   const focus=()=>{
     if(!title||body[0]?.type==='drawing'){titleBox.focus();if(!title)titleBox.select()}
     else focusBlock(0,0,0,false)

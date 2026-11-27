@@ -30,15 +30,17 @@ type App struct {
 	folderSessions       foldersession.Manager
 	sessionLockPending   atomic.Bool
 	sessionLockListening atomic.Bool
+	noteExportGeneration atomic.Uint64
 	stopSessionMonitor   func()
 }
 
 // Hooks provide the native UI operations used by the desktop client.
 type Hooks struct {
-	Emit       func(context.Context, string, ...any)
-	Quit       func(context.Context)
-	PickFolder func(context.Context, string) (string, error)
-	SaveFile   func(context.Context, SaveFileOptions) (string, error)
+	Emit           func(context.Context, string, ...any)
+	Quit           func(context.Context)
+	PickFolder     func(context.Context, string) (string, error)
+	PickImportFile func(context.Context, string) (string, error)
+	SaveFile       func(context.Context, SaveFileOptions) (string, error)
 }
 
 // Lifecycle is kept separate from the methods exposed to the WebView.
@@ -79,6 +81,7 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) sessionLocked(ctx context.Context) {
 	a.folderSessions.SetRevoking(true)
 	a.sessionLockPending.Store(true)
+	a.noteExportGeneration.Add(1)
 	a.ResetAgentConnections()
 	a.serverTickets.Reset()
 	if a.sessionLockListening.Load() {
@@ -117,6 +120,7 @@ func (a *App) revokeWorkspaceGrants() {
 	// Every grant belongs to the current library session, including during
 	// a reload that fails or discovers an externally replaced catalog.
 	a.ResetAgentConnections()
+	a.noteExportGeneration.Add(1)
 	// A pending connection carries a verified server credential. Expire it
 	// together with the vault session, including verifications still in flight.
 	a.serverTickets.Reset()

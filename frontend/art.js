@@ -3,6 +3,9 @@ import { isLightTheme } from './theme.js';
 const paths = {
   agent:'<path d="M12 3c0 5.8 2.4 8.2 8 9-5.6.8-8 3.2-8 9-.6-5.8-3.2-8.2-8-9 4.8-.8 7.4-3.2 8-9Z"/><path d="M19 2v4m-2-2h4"/>',
   copy:'<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 5V4a1 1 0 0 0-1-1H5a2 2 0 0 0-2 2v10a1 1 0 0 0 1 1h1"/>',
+  import:'<path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/>',
+  export:'<path d="M12 15V3m-4 4 4-4 4 4M4 16v4h16v-4"/>',
+  newQuick:'<path d="M9 3h9a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8m5-15-4 6h5l-4 6M4 7h3m-4 5h3m-2 5h3"/>',
   newData:'<path d="M8 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V7l-4-4H8Zm7 0v5h5M9 11l-3 3 3 3m5-6 3 3-3 3"/>',
   zoomIn:'<circle cx="10" cy="10" r="6.5"/><path d="M15 15l5 5M7 10h6m-3-3v6"/>',
   route:'<circle cx="5" cy="16" r="2.3"/><circle cx="19" cy="7" r="2.3"/><path d="M7.4 16h5.3a2.3 2.3 0 0 0 0-4.6H10a2.2 2.2 0 0 1 0-4.4h6.5"/>',

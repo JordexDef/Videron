@@ -379,7 +379,7 @@ export class Graph {
       const title = titleConcealed ? tr('Зашифрованная заметка','Encrypted note') : note.title || tr('Без названия', 'Untitled');
       const task = agentTaskInfo(note);
       const appearanceAndLayout = {
-        index, title, titleConcealed, inputX: x, inputY: y, mapGroupId:note.mapGroupId,
+        index, title, titleConcealed, quickEntry:note.type==='quick' && !protectedNote, inputX: x, inputY: y, mapGroupId:note.mapGroupId,
         taskRoot:task?.rootId, taskStatus:task?.status,
         r, naturalRadius, pinned: !!note.pinned, areaId:note.areaId ?? null, slot:note.slot, seated, tags, links, layoutKey,
         geometry: geometryFor(appearance.shape), icon: appearance.icon || (protectedNote ? lockSticker : null), customColor: !!appearance.color,
@@ -1396,9 +1396,9 @@ export class Graph {
     return true;
   }
 
-  fit({readable=false}={}) {
+  contentBounds() {
     const ink = this.callbacks?.inkBounds?.();
-    if (!this.nodes.size && !this.groups.length && !ink) { this.center(); return; }
+    if (!this.nodes.size && !this.groups.length && !ink) return null;
     this.measureGroups();
     let l = ink?.left ?? Infinity, r = ink?.right ?? -Infinity;
     let t = ink?.top ?? Infinity, b = ink?.bottom ?? -Infinity;
@@ -1412,6 +1412,13 @@ export class Graph {
       l = Math.min(l, box?.left ?? hull.x-hull.r); r = Math.max(r, box?.right ?? hull.x+hull.r);
       t = Math.min(t, box?.top ?? hull.y-hull.r); b = Math.max(b, (box?.bottom ?? hull.y+hull.r) + 20);
     }
+    return {left:l, right:r, top:t, bottom:b};
+  }
+
+  fit({readable=false}={}) {
+    const bounds = this.contentBounds();
+    if (!bounds) { this.center(); return; }
+    const {left:l, right:r, top:t, bottom:b} = bounds;
     const zoom = Math.min(this.width * 0.78 / (r - l), this.height * 0.72 / (b - t));
     if (readable && zoom < .38 && this.groups.some(g=>g.grid)) {
       let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;

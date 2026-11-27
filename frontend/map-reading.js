@@ -200,7 +200,7 @@ export function mountMapReading({stage, getNote, getMetric, isActive = () => tru
   const title = el('button', 'map-reading-title'), foot = el('footer'), count = el('span');
   const series = el('figure','map-reading-series'), plot = el('div'), chart = el('canvas'), latest = el('figcaption');
   plot.append(chart); series.append(plot, latest); series.hidden = true;
-  let graph, pointer, pointerEvent, id, note, fragments, fragment, closedId, route, lastPosition, needsContent = true;
+  let graph, pointer, pointerEvent, id, note, fragments, fragment, paused, route, lastPosition, needsContent = true;
   let metric = null, plotWidth = 0;
   let panelWidth = 290, panelHeight = 150;
   title.type = 'button';
@@ -242,8 +242,7 @@ export function mountMapReading({stage, getNote, getMetric, isActive = () => tru
     showFragment(body, fragment); paintControls(); graph?.repaint();
   }
   function dismiss() {
-    closedId = id;
-    hide();
+    suspend();
     graph?.canvas.focus({preventScroll:true});
   }
   function paintSeries() {
@@ -276,17 +275,29 @@ export function mountMapReading({stage, getNote, getMetric, isActive = () => tru
     id = note = fragments = fragment = lastPosition = null;
     needsContent = true;
   }
+  function suspend(noteId = id) {
+    paused = {id:noteId ?? paused?.id, left:false};
+    pointerEvent = pointer = route = null;
+    hide();
+  }
   function sync(current) {
     graph = current;
-    if (!isActive()) { if (note || !card.hidden) hide(); pointerEvent = pointer = closedId = route = null; return; }
+    if (!isActive()) { if (note || !card.hidden) hide(); pointerEvent = pointer = route = null; return; }
     if (pointerEvent && !graph.drag?.moved && !graph.pinch && graph.view.reading && graph.zoom >= 1.62) {
       pointer = graph.local(pointerEvent);
+      // A stationary pointer and camera restoration can pick the same note
+      // again. Require a fresh hover or a wheel gesture after closing it.
+      if (paused && pointerEvent.moved) {
+        const hovered = graph.hover;
+        if (hovered && (paused.left || hovered !== paused.id)) paused = null;
+        else if (hovered !== paused.id) paused.left = true;
+      }
       pointerEvent = null;
     }
+    if (paused && !route) return;
     const hold = !card.hidden && (card.matches(':hover') || card.contains(document.activeElement));
     const point = readingCandidate(graph, pointer, id, hold, route?.id);
-    if (point?.id !== closedId) closedId = null;
-    const record = point && point.id !== closedId && getNote(point.id);
+    const record = point && getNote(point.id);
     if (!isReadable(record)) { if (note || !card.hidden) hide(); return; }
     if (record !== note || needsContent) {
       const oldKey = record === note ? fragment?.key : null;
@@ -329,10 +340,12 @@ export function mountMapReading({stage, getNote, getMetric, isActive = () => tru
   const abort = new AbortController();
   const events = {signal:abort.signal};
   function remember(event) {
-    if (event.target !== graph?.canvas) return;
+    if (event.target !== graph?.canvas || !isActive()) return;
     // Keep just the latest position until the reading card can use it. In
     // particular, dragging a note should never force a canvas layout read here.
-    pointerEvent = {clientX:event.clientX, clientY:event.clientY};
+    if (event.type === 'wheel') paused = null;
+    pointerEvent = {clientX:event.clientX, clientY:event.clientY,
+      moved:!!(event.movementX || event.movementY || pointerEvent?.moved)};
   }
   stage.addEventListener('pointermove', remember, events);
   stage.addEventListener('wheel', remember, {...events, capture:true, passive:true});
@@ -351,12 +364,12 @@ export function mountMapReading({stage, getNote, getMetric, isActive = () => tru
     }
   }, events);
   return {
-    sync, hide() { hide(); pointerEvent = pointer = closedId = route = null; },
+    sync, suspend, resume() { paused = null; }, hide() { hide(); pointerEvent = pointer = paused = route = null; },
     invalidate() { needsContent = true; if (graph) { if (!isActive()) hide(); graph.repaint(); } },
     present(current, noteId, key = null) {
-      route = {id:noteId,key}; closedId = null; needsContent = true; sync(current); current.repaint();
+      route = {id:noteId,key}; paused = null; needsContent = true; sync(current); current.repaint();
     },
-    release() { route = null; closedId = id; hide(); graph?.repaint(); },
+    release() { suspend(); graph?.repaint(); },
     destroy() { abort.abort(); observer.disconnect(); hide(); card.remove(); }
   };
 }

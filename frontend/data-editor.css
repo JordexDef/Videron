@@ -12,7 +12,7 @@ html[data-theme="light"] .vd-data-main {
   min-width: 0;
   min-height: 0;
 }
-.vd-data-bar, .vd-data-footer {
+.vd-data-footer {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -20,7 +20,6 @@ html[data-theme="light"] .vd-data-main {
   padding: 5px 16px;
   background: var(--ve-panel);
 }
-.vd-data-bar { border-bottom: 1px solid var(--ve-line); }
 .vd-data-bar .ve-divider { margin-inline: 5px; }
 .vd-data-table-host { flex:1; min-width:0; min-height:0; overflow:hidden; }
 .vd-data-view-switch {
@@ -105,6 +104,5 @@ html[data-theme="light"] .vd-data-main {
   .vd-data-bar .ve-divider { margin-inline: 2px; }
   .vd-data-format { max-width: 90px; }
   .vd-data-bar .ve-btn { padding-inline: 5px; }
-  .ve-data-editor .ve-crumb { display: none; }
   .vd-data-host .cm-scroller { font-size: 13px; }
 }

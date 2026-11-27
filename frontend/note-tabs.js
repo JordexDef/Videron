@@ -3,7 +3,7 @@ import { iconSvg } from './icons/node-art.js';
 import { tr } from './i18n.js';
 import { animateTitleSpoiler } from './note-title-particles.js';
 
-const kindIcon = { text: 'newTextNote', canvas: 'newCanvas', data: 'newData' };
+const kindIcon = { text: 'newTextNote', canvas: 'newCanvas', data: 'newData', quick: 'newQuick' };
 
 export function mountNoteTabs(root, { onOpen, onClose, onMove }) {
   const doc = root.ownerDocument;

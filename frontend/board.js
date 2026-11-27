@@ -785,14 +785,22 @@ export function mountBoard(container, options = {}) {
   file.type = 'file';
   file.multiple = true;
   file.accept = 'image/png,image/jpeg,image/gif,image/webp,image/bmp,image/avif';
-  root.append(stage, top, swatches, actions, zoom, panel, file, alert);
+  const toolbarHost = !inline && options.toolbarHost;
+  root.append(stage, swatches, actions, zoom, panel, file, alert);
+  if (toolbarHost) {
+    top.setAttribute('role', 'group');
+    top.setAttribute('aria-label', tr('Инструменты рисования', 'Drawing tools'));
+    toolbarHost.append(top);
+  } else stage.after(top);
   // WebKit can leave focus on the page after a pointer click on a toolbar button.
   // Restore the board's shortcut target before the command opens any editor or menu.
-  listen(root, 'click', event => {
+  function restoreStageFocus(event) {
     if (!event.detail || document.activeElement !== document.body) return;
     const button = event.target.closest('.vb-dock button, .vb-props button');
-    if (button?.closest('.vb') === root) stage.focus({preventScroll:true});
-  }, {capture:true});
+    if (button && (top.contains(button) || button.closest('.vb') === root)) stage.focus({preventScroll:true});
+  }
+  listen(root, 'click', restoreStageFocus, {capture:true});
+  if (toolbarHost) listen(top, 'click', restoreStageFocus, {capture:true});
   const textRuler = node('span', 'vb-text-measure');
   textRuler.setAttribute('aria-hidden', 'true');
   root.append(textRuler);
@@ -853,7 +861,7 @@ export function mountBoard(container, options = {}) {
       finishChain();
       if (closeFileMenu) { closeFileMenu(true); return; }
       closeFileMenu = options.onFileMenu({
-        anchor: b, getDocument, getWorkbook: () => currentWorkbook(elements), replaceDocument,
+        anchor: b, board: root, getDocument, getWorkbook: () => currentWorkbook(elements), replaceDocument,
         addFolder: canPickFolder() ? addFolder : null,
         onClose() { closeFileMenu = null; }
       });
@@ -3003,7 +3011,7 @@ export function mountBoard(container, options = {}) {
     KeyT: 'text',
     KeyE: 'erase'
   };
-  listen(root, 'keydown', (e) => {
+  function keyboardTools(e) {
     if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.altKey) return;
     if (e.target.closest('.vb-rich-item')) {
       if (e.key === 'Escape') {
@@ -3103,7 +3111,9 @@ export function mountBoard(container, options = {}) {
     else return;
     e.preventDefault();
     e.stopPropagation();
-  });
+  }
+  listen(root, 'keydown', keyboardTools);
+  if (toolbarHost) listen(top, 'keydown', keyboardTools);
   function releaseSpace() {
     spaceDown = false;
     root.classList.remove('vb-space');
@@ -3161,12 +3171,14 @@ export function mountBoard(container, options = {}) {
     // An unfinished connector lives outside the saved drawing.
     if (chain) updateView(chain.ghost, chainElement([...chain.nodes, chain.preview]));
   });
-  listen(root, 'pointerdown', (e) => {
+  function dismissProperties(e) {
     if (!panel.hidden && !panel.contains(e.target) && !styleButton.contains(e.target)) {
       panel.hidden = true;
       styleButton.setAttribute('aria-expanded', 'false');
     }
-  });
+  }
+  listen(root, 'pointerdown', dismissProperties);
+  if (toolbarHost) listen(top, 'pointerdown', dismissProperties);
   let previousWidth = stage.clientWidth, previousHeight = stage.clientHeight;
   const resize = new ResizeObserver(() => {
     const w = stage.clientWidth, h = stage.clientHeight;
@@ -3275,6 +3287,7 @@ export function mountBoard(container, options = {}) {
       controller.abort();
       resize.disconnect();
       clearTimeout(alertTimer);
+      if (toolbarHost) top.remove();
       root.remove();
     }
   };

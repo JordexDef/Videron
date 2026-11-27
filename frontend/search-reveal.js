@@ -103,9 +103,10 @@ export function createSearchReveal({root, title, scroll, blockAt, focusBlock, on
     }
     syncInner()
     const contentTop=target.kind==='body'?visibleTop:undefined
+    const contentScroll=target.kind==='body'?scroll:null
     if (scrollTo) {
       if (first.clip) { panTo(first.clip, bounds(), first.range.getBoundingClientRect()); syncInner() }
-      if (scroll) panTo(scroll, bounds(), first.range.getBoundingClientRect(),contentTop?.())
+      if (contentScroll) panTo(contentScroll, bounds(), first.range.getBoundingClientRect(),contentTop?.())
       if (onSearchPoint) onSearchPoint(bounds())
     }
 
@@ -113,7 +114,7 @@ export function createSearchReveal({root, title, scroll, blockAt, focusBlock, on
     function draw() {
       frame = null
       alignTitle?.()
-      const outer = viewport(scroll || root)
+      const outer = viewport(contentScroll || root)
       if(contentTop)outer.top=Math.max(outer.top,contentTop())
       const fragment = document.createDocumentFragment()
       for (const {node,range,clip} of ranges) {

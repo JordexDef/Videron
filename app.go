@@ -21,6 +21,12 @@ func newApp() *App {
 		Emit:       runtime.EventsEmit,
 		Quit:       runtime.Quit,
 		PickFolder: desktop.PickFolder,
+		PickImportFile: func(ctx context.Context, title string) (string, error) {
+			return runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
+				Title:   title,
+				Filters: []runtime.FileFilter{{DisplayName: "Markdown / CSV / TSV / ZIP", Pattern: "*.md;*.markdown;*.csv;*.tsv;*.zip"}},
+			})
+		},
 		SaveFile: func(ctx context.Context, file client.SaveFileOptions) (string, error) {
 			return runtime.SaveFileDialog(ctx, runtime.SaveDialogOptions{
 				Title:           file.Title,

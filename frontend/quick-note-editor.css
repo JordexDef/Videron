@@ -1,0 +1,64 @@
+.ve-quick-editor .ve-layout {
+  width: min(900px,100%);
+  padding-top: clamp(24px,5vh,48px);
+}
+.ve-quick-editor.ve-with-details .ve-layout { width: min(1220px,100%); }
+.ve-quick-list { display: grid; gap: 18px; }
+.ve-quick-entry {
+  position: relative;
+  min-width: 0;
+  border-bottom: 1px solid var(--ve-line);
+  padding: 4px 0 15px;
+}
+.ve-quick-entry-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 28px;
+  margin-bottom: 4px;
+  color: var(--ve-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ve-quick-entry-actions { display: flex; gap: 3px; opacity: .35; }
+.ve-quick-entry:is(:hover,:focus-within) .ve-quick-entry-actions { opacity: 1; }
+.vd-editor .ve-quick-entry-actions .ve-btn { width: 28px; min-width: 28px; height: 26px; padding: 0; }
+.ve-quick-editor .ve-btn :is(span,svg:not(.ve-icon)) { display: inline-flex; }
+.ve-quick-editor .ve-btn svg:not(.ve-icon) { width: 16px; height: 16px; }
+.vd-editor .ve-quick-entry-actions .ve-quick-grip { cursor: grab; touch-action: none; }
+.ve-quick-grip::before {
+  content: '';
+  width: 8px;
+  height: 12px;
+  background: radial-gradient(circle,currentColor 1px,transparent 1.3px) 0 0 / 4px 4px;
+}
+.ve-quick-entry[data-dragging] { opacity: .45; }
+.ve-quick-entry:is([data-drop-before],[data-drop-after])::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--ve-accent);
+  pointer-events: none;
+}
+.ve-quick-entry[data-drop-before]::after { top: -5px; }
+.ve-quick-entry[data-drop-after]::after { bottom: -5px; }
+.ve-quick-entry-text { margin: 0; overflow-wrap: anywhere; }
+.ve-quick-entry-text:focus-visible { outline: none; }
+.ve-quick-empty { margin: 24px auto; }
+.ve-quick-empty[hidden] { display: none; }
+.ve-quick-color {
+  width: 31px;
+  height: 32px;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.ve-quick-color:hover:enabled { background: var(--ve-hover); }
+.ve-quick-color:disabled { opacity: .34; cursor: default; }
+.ve-quick-color::-webkit-color-swatch-wrapper { padding: 2px; }
+.ve-quick-color::-webkit-color-swatch { border: 1px solid var(--ve-line); border-radius: 3px; }
+.ve-quick-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

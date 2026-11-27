@@ -39,6 +39,11 @@ import { appearanceOf } from './icons/node-art.js';
 import { mountNoteTabs } from './note-tabs.js';
 import { configureTitleSpoilers } from './note-title-particles.js';
 import { mapNoteColor } from './map-palette.js';
+import { noteImportAction, planNoteImport } from './note-import.js';
+import { openWorkspaceNoteExport, dismissWorkspaceNoteExport } from './workspace-note-export.js';
+import { createQuickEntry, quickNotePatch } from './quick-note.js';
+import { openQuickNoteCapture, dismissQuickNoteCapture, updateQuickNoteCapturePosition } from './quick-note-capture.js';
+import { mountMapQuickEntry } from './map-quick-entry.js';
 import { openVaultSettings, openVaultPassword, showVaultUnlock, interruptVaultDialogs } from './vault-ui.js';
 import { createIdleLock, normalizeIdleMinutes } from './idle-lock.js';
 import { showLockScreen } from './lock-screen.js';
@@ -78,7 +83,9 @@ let rememberedNotes=new Map(), expiringNote=null;
 const rememberedTitles=new Map();
 let rememberedTitleTimer, rememberedTitleDeadline=0;
 const noteTabsBySpace=new Map();
-let noteTabs, changingTab=false;
+let noteTabs, changingTab=false, tabHandoff=null;
+let dismissNoteImport=null;
+let mapQuickEntry, quickCaptureId=null;
 let idle=null, lockScreen=null, locking=null, lockDuringStartup=false;
 const storageKey='videron.library.v1';
 const mapCameraMemory=createMapCameraMemory();
@@ -92,7 +99,7 @@ const emptyMap=blankWorkspace();
 const workspace=()=>folderSession?.data ?? library.spaces[library.active] ?? emptyMap;
 function historyRef(record,type=record.type){
   const protection=isProtectedNote(record)?'note':folderSession?.encrypted?'folder':projectProtected?'project':'plain';
-  const kind=type==='canvas'||type==='data'?type:'text';
+  const kind=type==='canvas'||type==='data'||type==='quick'?type:'text';
   return {space:library.active,folder:folderSession?.folder||'',note:record.id,kind,protection};
 }
 function byId(id){
@@ -173,7 +180,16 @@ async function changeNoteTab(id,close=false){
     if(scope!==library.active || lockScreen || closingApp)return;
     const active=editor && noteSession?.note.id===id;
     if(!close && (active || !byId(id)))return;
-    if(editor && (active || !close) && !await editor.prepareClose('tab'))return;
+    if(editor && (active || !close)){
+      if(!close || ids.length>1){
+        // Keep the editor background in place while the next note loads.
+        // The outgoing editor can tear down without keeping its contents visible.
+        tabHandoff=element('div','note-transition-sheet');
+        tabHandoff.setAttribute('aria-hidden','true');
+        editor.element.before(tabHandoff);
+      }
+      if(!await editor.prepareClose('tab'))return;
+    }
     if(scope!==library.active || lockScreen || closingApp)return;
     if(close){
       const position=ids.indexOf(id);
@@ -185,7 +201,14 @@ async function changeNoteTab(id,close=false){
       else if(active)(showingMap()?$('graph'):listNoteRow(id)||$('new-note')).focus({preventScroll:true});
     }else await edit(id);
   }catch(error){reportWriteError(error)}
-  finally{changingTab=false}
+  finally{
+    changingTab=false;
+    if(tabHandoff){
+      tabHandoff.remove();tabHandoff=null;
+      $('shell').inert=!!(editor || editorMerge || spaceOperation || reviewing || activeSearch);
+      syncMapVisibility();
+    }
+  }
 }
 function moveNoteTab(id,before){
   const ids=tabsForSpace(),from=ids.indexOf(id);
@@ -294,7 +317,12 @@ async function manualTaskStatus(rootId,key,status){
 }
 function syncMapVisibility(){
   if(ink?.active && (editor || lockScreen || !showingMap()))chooseTool('select');
-  graph?.setVisible(showingMap() && !document.hidden && !editor && !lockScreen);
+  const visible=showingMap() && !document.hidden && !editor && !tabHandoff && !lockScreen;
+  graph?.setVisible(visible);
+  if(!visible)mapQuickEntry?.hide();
+}
+function zoomMap(factor){
+  reading?.resume();graph.zoomBy(factor);
 }
 function rememberMapView(){
   // A route temporarily borrows the camera. Resume the overview it started from.
@@ -529,6 +557,9 @@ async function setIdleMinutes(minutes){
 function requestLock(expired=null){
   if(!native || (expired && (expired!==noteSession || !expired.expiresAt)))return;
   document.querySelector('.ap-dialog[open]')?.close();
+  dismissNoteImport?.();
+  dismissWorkspaceNoteExport();
+  dismissQuickNoteCapture();
   const hadRemembered=rememberedNotes.size>0;
   if(!expired){
     // A full lock also takes precedence if it arrives during a timed note lock.
@@ -691,12 +722,12 @@ function clearSpacePassphrases(root){
     input.value='';input.setCustomValidity('');
   }
 }
-function dialog(title, dismissible=true){
+function dialog(title, dismissible=true, onClose){
   closeMenu();
   const focus=document.activeElement;
   const shade=element('div','shade'),box=element('div','dialog'),heading=element('div','dialog-title');
   box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-label',title);
-  function close(){clearSpacePassphrases(box);shade.remove();focus?.focus?.({preventScroll:true})}
+  function close(){clearSpacePassphrases(box);shade.remove();onClose?.();focus?.focus?.({preventScroll:true})}
   heading.append(element('h2','',title));if(dismissible)heading.append(iconButton('x',tr('Закрыть','Close'),close));
   box.append(heading);shade.append(box);document.body.append(shade);
   shade.addEventListener('pointerdown',e=>{if(e.target===shade&&dismissible)close()});
@@ -1040,6 +1071,7 @@ function showHelp(){
 }
 function changeSpace(work,message){
   if(spaceOperation || !ready || lockScreen || editor || openingNote)return Promise.reject(new Error('VD_LOCKED'));
+  dismissQuickNoteCapture();
   ink?.flushText();
   $('shell').inert=true;
   cancelTransfers();graph.flushPositions();
@@ -1059,6 +1091,9 @@ function changeSpace(work,message){
 }
 async function showSpace(next,session){
   document.querySelector('.ap-dialog[open]')?.close();
+  dismissNoteImport?.();
+  dismissWorkspaceNoteExport();
+  dismissQuickNoteCapture();
   if(library.active!==next.active || folderSession!==session){
     rememberedNotes=new Map();forgetRememberedTitles();renderNoteTabs();
     await native?.ForgetRememberedNotes?.();
@@ -1446,7 +1481,7 @@ function pollFolder(force){
       branchSaved(session);
       library.spaces[library.active]=session.link;
       session.incoming=null;session.deferred=null;session.nextExchange=0;session.syncError='';
-      routes.reset();reading.hide();closeMenu();
+      routes.reset();reading.suspend();closeMenu();
       if(selected && !byId(selected))selected=null;
       if(currentArea && !areaById(currentArea)){page='map';currentArea=null}
       $('toast').hidden=true;render();dirty({catalogOnly:true});
@@ -1629,11 +1664,105 @@ function spaceMenu(anchor){
   });
   items.push(null,{name:tr('Создать пространство…','Create space…'),icon:'plus',run:()=>newSpaceForm()});
   if(native)items.push({name:tr('Открыть из папки…','Open from folder…'),icon:'folder',run:attachSpace});
+  if(native?.ReadNoteImport && library.active)items.push({name:tr('Импорт заметок…','Import notes…'),icon:'import',run:showNoteImport});
+  if(native?.WriteNoteExport && library.active)items.push({name:tr('Экспорт заметок…','Export notes…'),icon:'export',run:showNoteExport});
   if(native?.ConnectSpaceServer)items.push({name:tr('Свой сервер…','Your server…'),icon:'globe',run:serverSettings});
   items.push({name:tr('Пространства на этом компьютере…','Spaces on this computer…'),icon:'sliders',run:manageSpaces});
   menu(anchor,items,{scrollChoices:true});
 }
+function noteImportError(error){
+  switch(String(error?.message||error).split('|')[0]){
+    case 'VD_IMPORT_FORMAT': return tr('Выберите Markdown, CSV, TSV или ZIP с такими файлами.','Choose Markdown, CSV, TSV or a ZIP containing those files.');
+    case 'VD_IMPORT_EMPTY': return tr('В источнике нет подходящих заметок.','This source contains no supported notes.');
+    case 'VD_IMPORT_LIMIT': return tr('Источник слишком большой. Разделите его на несколько частей.','This source is too large. Split it into smaller batches.');
+    case 'VD_IMPORT_READ': return tr('Не удалось прочитать источник. Проверьте доступ к файлам.','Could not read the source. Check access to its files.');
+    default: return storageErrorMessage(error);
+  }
+}
+function showNoteExport(){
+  if(!native?.WriteNoteExport || !ready || !library.active || spaceOperation || editor || openingNote || lockScreen || reviewing || closingApp)return;
+  const scope=library.active,session=folderSession;
+  const encrypted=!!(projectProtected || session?.encrypted);
+  const name=spaceTitle(scope,session?.link??workspace());
+  const isCurrent=()=>ready && library.active===scope && folderSession===session && !spaceOperation && !lockScreen && !closingApp &&
+    encrypted===!!(projectProtected || folderSession?.encrypted);
+  openWorkspaceNoteExport({dialog,native,workspace,folder:session?.folder??'',name,encrypted,isCurrent,onError:storageErrorMessage,
+    onExported:(folder,result)=>{
+      let message=tr('Заметок экспортировано · {count}','Exported notes · {count}',{count:result.notes});
+      if(result.skippedImages)message+=' · '+tr('пропущено изображений {count}','{count} images skipped',{count:result.skippedImages});
+      notify(message,button(tr('Открыть папку','Open folder'),()=>native.OpenFolder(folder).catch(error=>notify(storageErrorMessage(error))),'quiet'));
+    }});
+}
+function showNoteImport(){
+  if(!native?.ReadNoteImport || !ready || !library.active || spaceOperation || editor || openingNote || lockScreen || reviewing || closingApp || dismissNoteImport)return;
+  const scope=library.active,space=workspace();
+  const d=dialog(tr('Импорт заметок','Import notes'),true,()=>{dismissNoteImport=null});
+  dismissNoteImport=d.close;
+  d.box.classList.add('note-import-dialog');
+  const valid=()=>ready && scope===library.active && space===workspace() && !lockScreen && !closingApp;
+  const hint=tr('Выберите папку Obsidian, Logseq или экспорт в Markdown, CSV, TSV или ZIP.',
+    'Choose an Obsidian or Logseq folder, or a Markdown, CSV, TSV or ZIP export.');
+  let source,files,busy=false;
+  const choices=element('div','note-import-sources');
+  const folder=button(tr('Папка…','Folder…'),()=>void pick('folder'));
+  const file=button(tr('Файл…','File…'),()=>void pick('file'));
+  folder.prepend(iconEl('folder'));file.prepend(iconEl('import'));choices.append(folder,file);
+  const summary=element('p','note-import-summary',hint);
+  summary.setAttribute('role','status');
+  const confirm=button(tr('Импортировать','Import notes'),()=>void apply(),'primary');confirm.disabled=true;
+  const actions=element('div','dialog-actions');actions.append(button(tr('Отмена','Cancel'),d.close),confirm);
+  d.box.append(choices,summary,actions);folder.focus();
+
+  function setBusy(value){
+    busy=value;folder.disabled=file.disabled=value;confirm.disabled=value || !files?.length;
+    summary.classList.toggle('workspace-activity',value);
+    d.box.setAttribute('aria-busy',String(value));
+  }
+  async function pick(kind){
+    if(busy || !valid())return;
+    const previous=summary.textContent;
+    summary.textContent=tr('Читаем заметки…','Reading notes…');setBusy(true);
+    try{
+      const result=await native.ReadNoteImport(kind,kind==='folder'?tr('Выберите папку заметок','Choose a notes folder'):
+        tr('Выберите файл экспорта','Choose an export file'));
+      if(!d.box.isConnected || !valid())return;
+      if(!result){summary.textContent=previous;return}
+      const {parseImportedNotes}=await import('./note-import-markdown.js');
+      if(!d.box.isConnected || !valid())return;
+      files=parseImportedNotes(result);source=result.name;
+      if(!files.length)throw new Error('VD_IMPORT_EMPTY');
+      summary.textContent=tr('«{name}» · подготовлено заметок {count}','“{name}” · {count} notes ready',{name:source,count:files.length});
+      if(result.skipped)summary.textContent+=' · '+tr('пропущено файлов {count}','{count} files skipped',{count:result.skipped});
+      const omitted=files.reduce((sum,note)=>sum+(note.omittedImages||0),0);
+      if(omitted)summary.textContent+=' · '+tr('пропущено изображений {count}','{count} images skipped',{count:omitted});
+    }catch(error){files=null;summary.textContent=noteImportError(error)}
+    finally{setBusy(false);if(d.box.isConnected && files?.length)confirm.focus()}
+  }
+  async function apply(){
+    if(busy || !files?.length || !valid())return;
+    summary.textContent=tr('Импортируем заметки…','Importing notes…');setBusy(true);
+    let batch;
+    try{
+      await changeSpace(async()=>{
+        if(!d.box.isConnected || !valid())return;
+        batch=planNoteImport(space,files,{name:tr('Импорт · {name}','Import · {name}',{name:source}),
+          bounds:graph.contentBounds(),center:graph.worldCenter()});
+        space.notes.push(...batch.notes);space.areas.push(...batch.areas);
+        rememberMapAction(space,noteImportAction(batch));
+        dirty({notes:batch.notes,areas:batch.areas});
+        d.close();navigate('map');graph.resize();graph.focusArea(batch.root.id);
+        await flush();
+      });
+      if(!batch || !valid())return;
+      $('graph').focus({preventScroll:true});
+      notify(tr('Импортировано заметок · {count}','Notes imported · {count}',{count:batch.notes.length}),undoButton());
+    }catch(error){
+      if(batch)reportWriteError(error);else summary.textContent=noteImportError(error);
+    }finally{setBusy(false)}
+  }
+}
 function navigate(target,area=null){
+  dismissQuickNoteCapture();
   ink?.flushText();
   cancelNoteTransition();
   routes?.reset();reading?.hide();
@@ -1651,13 +1780,14 @@ function editFromSidebar(id){
 function edit(id,returnToResults=null,searchTarget=null,navigation={}){
   if(editorMerge)return editorMerge.then(()=>edit(id,returnToResults,searchTarget,navigation),()=>{});
   const record=byId(id);if(!record||editor||openingNote||spaceOperation||lockScreen||closingApp||!ready)return;
+  dismissQuickNoteCapture();
   ink?.flushText();
   cancelNoteTransition();
   const origin=navigation.origin,fromMap=origin==='map' && showingMap();
   const visit=fromMap || origin==='sidebar'
     ? {origin,space:library.active,noteId:id,camera:showingMap()?graph.captureCamera():null}
     : navigation.visit;
-  routes?.reset();reading?.hide();
+  routes?.reset();reading?.suspend(id);
   // A route can start flying back to its first view as it closes.
   if(origin && visit?.camera)graph.restoreCamera(visit.camera);
   cancelTransfers();closeMenu();
@@ -1709,7 +1839,8 @@ async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
   if(!session)return;
   noteSession=session;
   try{
-    openEditor=session.note.type==='data'?(await import('./data-editor.js')).openDataEditor:(await import('./editor.js')).openEditor;
+    openEditor=session.note.type==='data'?(await import('./data-editor.js')).openDataEditor:
+      session.note.type==='quick'?(await import('./quick-note-editor.js')).openQuickNoteEditor:(await import('./editor.js')).openEditor;
     historyHandle=await noteHistories.open(historyRef(record,session.note.type||'text'));
   }catch(error){
     if(await session.beforeClose())noteSession=null;
@@ -1759,7 +1890,7 @@ async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
         rememberedTitles.set(id,{title:session.note.title,sealed:record.sealed,deadline:rememberedDeadline});
         scheduleRememberedTitles();
       }
-      saveStatus.close();editor=null;noteSession=null;$('shell').inert=!!editorMerge;syncIdle();
+      saveStatus.close();editor=null;noteSession=null;$('shell').inert=!!(editorMerge || tabHandoff);syncIdle();
       if(lockScreen)return;
       render();
       if(reason==='back' && showingMap() && !returnToResults && !closingApp)
@@ -1785,6 +1916,32 @@ async function openRecord(record,returnToResults,searchTarget,visit,fromMap){
   if(searchTarget)editor.revealSearchMatch(searchTarget);
   if(source && !lockScreen)playNoteTransition('open',source,editor.element);
 }
+function canQuickCapture(id){
+  if(!ready || !showingMap() || tool!=='select' || editor || openingNote || spaceOperation || lockScreen || reviewing || closingApp || routes?.isEditing())return false;
+  const record=byId(id);
+  return record?.type==='quick' && !isProtectedNote(record);
+}
+function captureOnMap(id,focusTarget=$('graph')){
+  if(!canQuickCapture(id))return;
+  dismissQuickNoteCapture();closeMenu();reading?.suspend(id);
+  const scope=library.active;
+  quickCaptureId=id;graph.repaint();
+  openQuickNoteCapture({focusTarget,
+    anchor:()=>{
+      const rect=graph.noteViewportRect(id);
+      return rect && new DOMRect(rect.left-5,rect.top+rect.height/2,rect.width+10,0);
+    },
+    onClose:()=>{quickCaptureId=null;graph.repaint()},onError:storageErrorMessage,
+    onSave(text){
+      if(scope!==library.active || !canQuickCapture(id))return false;
+      const record=byId(id),entry=createQuickEntry(text);
+      if(!entry)return false;
+      Object.assign(record,quickNotePatch(record.title,[entry,...record.body]),{modified:Date.now()});
+      dirty({notes:[record]});render();
+      flush().catch(reportWriteError);
+      return true;
+    }});
+}
 function addNote(pos=graph.worldCenter(),type='text',seat=null){
   if(!ready || !library.active || editor || openingNote || spaceOperation || lockScreen)return;
   const space=workspace(),n=createNote(pos.x,pos.y,null,type);
@@ -1795,16 +1952,22 @@ function addNote(pos=graph.worldCenter(),type='text',seat=null){
   }
   const changed=[n];
   for(const {id} of placement?.after??[])if(id!==n.id)changed.push(byId(id));
-  selected=n.id;dirty({notes:changed});render();edit(n.id);
+  selected=n.id;dirty({notes:changed});render();
+  if(type==='quick' && showingMap()){
+    routes?.reset();chooseTool('select');captureOnMap(n.id);
+  }
+  else edit(n.id);
 }
 function noteTypeItems(pos,seat=null){
   return [
     {icon:'newTextNote', name:tr('Текстовая заметка','Text note'),run:()=>addNote(pos,'text',seat)},
     {icon:'newCanvas',name:tr('Заметка-холст','Canvas note'),run:()=>addNote(pos,'canvas',seat)},
-    {icon:'newData',name:tr('Заметка с данными','Data note'),run:()=>addNote(pos,'data',seat)}
+    {icon:'newData',name:tr('Заметка с данными','Data note'),run:()=>addNote(pos,'data',seat)},
+    {icon:'newQuick',name:tr('Быстрая заметка','Quick note'),run:()=>addNote(pos,'quick',seat)}
   ];
 }
 function chooseTool(next){
+  if(next!=='select')dismissQuickNoteCapture();
   if(tool==='ink' && next!==tool)ink?.flushText();
   if(next!=='select')routes?.reset();
   if(next==='ink' && (!library.active || lockScreen || editor || spaceOperation || !showingMap()))return;
@@ -1902,6 +2065,11 @@ function undoWorkspaceChange(){
   const change=undoMapAction(workspace());
   if(!change){
     notify(tr('Прежнее место больше недоступно.','The previous location is no longer available.'),undoButton());return;
+  }
+  if(change.kind==='note-import'){
+    selected=null;graph.select(null);dirty();render();
+    if(showingMap()){$('graph').focus({preventScroll:true});graph.fit({readable:true})}
+    notify(tr('Импорт отменён','Import undone'),undoButton());return;
   }
   if(change.kind==='ink-delete'){
     const restored=change.removed.map(({item})=>item);
@@ -2080,6 +2248,7 @@ function context(id,x,y,gridId=null,openNote=edit){
   }
   if(!grouping.length){selected=id;graph.select(id);renderSelection()}
   menu({x,y},[...grouping,{icon:isProtectedNote(n)?'lock':'edit',name:tr('Открыть заметку','Open note'),run:()=>openNote(id)},
+    ...(canQuickCapture(id)?[{icon:'plus',name:tr('Добавить запись','Add entry'),run:()=>captureOnMap(id)}]:[]),
     {icon:'appearance',name:tr('Внешний вид','Appearance'),run:()=>appearance(n)},
     ...(isProtectedNote(n)?[]:[metricAction(n,'note',{x,y})]),{icon:inSlot(n)?'slots':'pin',name:pinLabel(n),run:()=>pin(n)},
     {icon:'link',name:tr('Связать с заметкой','Link to another note'),run:()=>chooseTool('link')},...(sizeAction?[sizeAction]:[]),
@@ -2187,9 +2356,10 @@ function renderList(){
     check.onclick=e=>selectListNote(n.id,e.shiftKey,check);
     const row=element('button','note-row'),symbol=element('span','row-symbol'),summary=element('span','note-summary');
     row.dataset.noteId=n.id;
-    const canvas=n.type==='canvas',data=n.type==='data',locked=isProtectedNote(n);
-    symbol.title=locked?protectedNoteTitle():canvas?tr('Заметка-холст','Canvas note'):data?tr('Заметка с данными','Data note'):tr('Текстовая заметка','Text note');
-    symbol.append(iconEl(locked?'lock':canvas?'board':data?'newData':inSlot(n)?'slots':n.pinned?'pin':'list'));
+    const canvas=n.type==='canvas',data=n.type==='data',quick=n.type==='quick',locked=isProtectedNote(n);
+    symbol.title=locked?protectedNoteTitle():canvas?tr('Заметка-холст','Canvas note'):data?tr('Заметка с данными','Data note'):
+      quick?tr('Быстрая заметка','Quick note'):tr('Текстовая заметка','Text note');
+    symbol.append(iconEl(locked?'lock':canvas?'board':data?'newData':quick?'newQuick':inSlot(n)?'slots':n.pinned?'pin':'list'));
     const content=data?n.dataText:n.plain;
     const snippet=locked?tr('Открыть по паролю','Open with password'):
       typeof content==='string' && content?content:canvas?tr('Холст','Canvas'):tr('Пустая заметка','Empty note');
@@ -2252,7 +2422,8 @@ function sidebarRow(item){
     row.append(open,more);
   }else if(item.kind==='note'){
     open.dataset.noteId=item.id;
-    const kind=item.icon==='board'?tr('Заметка-холст','Canvas note'):item.icon==='newData'?tr('Заметка с данными','Data note'):tr('Текстовая заметка','Text note');
+    const kind=item.icon==='board'?tr('Заметка-холст','Canvas note'):item.icon==='newData'?tr('Заметка с данными','Data note'):
+      item.icon==='newQuick'?tr('Быстрая заметка','Quick note'):tr('Текстовая заметка','Text note');
     open.title=item.icon==='lock'?item.title:item.title+' · '+kind;
     open.onclick=()=>editFromSidebar(item.id);
     open.oncontextmenu=e=>{
@@ -2280,7 +2451,7 @@ function renderAreas(areas){
     sidebarTree.clear();treeSpaceId=library.active;$('areas').closest('nav').scrollTop=0;
   }
   const rows=sidebarRows(areas,workspace().notes,collapsedAreas,n=>({
-    title:noteTitle(n),concealed:concealsTitle(n),icon:isProtectedNote(n)?'lock':n.type==='canvas'?'board':n.type==='data'?'newData':'newTextNote'
+    title:noteTitle(n),concealed:concealsTitle(n),icon:isProtectedNote(n)?'lock':n.type==='canvas'?'board':n.type==='data'?'newData':n.type==='quick'?'newQuick':'newTextNote'
   }));
   if(!rows.length)rows.push({kind:'add',depth:0,parentId:null,icon:'folder',title:tr('Создать область','Create area')});
   sidebarTree.update(rows,tr('Области и заметки','Areas and notes'));
@@ -2499,11 +2670,14 @@ function bindUI(){
   $('new-note').onclick=$('first-note').onclick=()=>addNote();
   $('new-canvas').onclick=()=>addNote(graph.worldCenter(),'canvas');
   $('new-data').onclick=()=>addNote(graph.worldCenter(),'data');
+  $('new-quick').onclick=()=>addNote(graph.worldCenter(),'quick');
+  $('import-notes-empty').hidden=!native?.ReadNoteImport;
+  $('import-notes-empty').onclick=showNoteImport;
   $('routes').onclick=e=>{closeMenu();if(tool!=='select')chooseTool('select');routes.open(e.currentTarget)};
   $('cancel-link').onclick=()=>chooseTool('select');
   for(const [id,changeView] of [
-    ['plus',()=>graph.zoomBy(1.2)],['minus',()=>graph.zoomBy(1/1.2)],
-    ['actual-size',()=>graph.zoomBy(1/graph.zoom)],['fit',()=>graph.fit()]
+    ['plus',()=>zoomMap(1.2)],['minus',()=>zoomMap(1/1.2)],
+    ['actual-size',()=>zoomMap(1/graph.zoom)],['fit',()=>graph.fit()]
   ]){
     $(id).onclick=event=>{
       changeView();
@@ -2611,8 +2785,8 @@ function bindUI(){
     if(!mapFocused || graph.drag || graph.pinch)return;
     if(e.key==='+' || e.key==='=' || e.key==='-' || e.key==='0'){
       e.preventDefault();
-      if(e.key==='0')graph.zoomBy(1/graph.zoom);
-      else graph.zoomBy(e.key==='-'?1/1.2:1.2);
+      if(e.key==='0')zoomMap(1/graph.zoom);
+      else zoomMap(e.key==='-'?1/1.2:1.2);
       return;
     }
     if(e.shiftKey || e.repeat)return;
@@ -2707,6 +2881,9 @@ async function init(){
         ink?.flushText();
         saveMapView();
         closingApp=true;endAgentAccess();dismissWorkspaceConflicts();dismissWorkspaceServer();
+        dismissNoteImport?.();
+        dismissWorkspaceNoteExport();
+        dismissQuickNoteCapture();
         if(folderPoll)await folderPoll.catch(()=>{});
         if(spaceOperation){await interruptVaultDialogs();await spaceOperation.catch(()=>{})}
         if(openingNote){await interruptVaultDialogs();await openingNote}
@@ -2739,7 +2916,9 @@ async function init(){
     onExpand:id=>{if(collapsedAreas.delete(id))renderAreas(workspace().areas)}
   });
   const stage=$('map-stage');
-  reading=mountMapReading({stage,getNote:byId,getMetric:id=>mapMetrics?.notes.get(id),isActive:()=>ready && showingMap() && tool!=='ink' && !lockScreen && !editor && !openingNote && !routes?.isEditing(),
+  reading=mountMapReading({stage,getNote:byId,getMetric:id=>mapMetrics?.notes.get(id),
+    isActive:()=>ready && showingMap() && tool!=='ink' && !lockScreen && !editor && !openingNote && !tabHandoff && !quickCaptureId &&
+      !spaceOperation && !reviewing && !closingApp && !routes?.isEditing(),
     onChange:note=>dirty({notes:[note]}),onOpen:editFromMap});
   routes=mountMapRoutes({stage,getSpace:workspace,getFragments:readingFragments,onChange:()=>dirty({meta:true}),
     onVisit:(id,fragment)=>{
@@ -2758,6 +2937,7 @@ async function init(){
     areaDialog(area,{anchor,stageIndex});
   };
   stageControls=mountStageControls({canvas:$('graph'),onEdit:editMapGrid,onInsert:insertMapStage});
+  mapQuickEntry=mountMapQuickEntry($('graph'),canQuickCapture,captureOnMap,()=>graph.repaint());
   graph=new Graph($('graph'),{onSelect:id=>{selected=id;renderSelection()},onAreaAction:pickForNotes,onOpen:editFromMap,onLink:linkClick,
     concealsTitle,
     getInkItems:()=>workspace().mapInk??[],inkItemAt:point=>ink?.itemAt(point),
@@ -2788,7 +2968,10 @@ async function init(){
     onNewGridNote:(areaId,slot,point)=>addNote(point,'text',{areaId,slot}),
     recordingRoute:routes.isEditing,onRoutePick:routes.pick,onMapFrame:g=>{
       rememberMapView();
-      reading.sync(g);if(showingMap()){stageControls.sync(g);popover?.followMap?.()}
+      reading.sync(g);if(showingMap()){
+        stageControls.sync(g);popover?.followMap?.();mapQuickEntry.sync(g,quickCaptureId);
+        if(quickCaptureId)updateQuickNoteCapturePosition();
+      }
     },onDrawRoute:routes.draw,
     onDrawAreaMetric:(ctx,group,view)=>{const metric=mapMetrics?.areas.get(group.id);if(metric)drawAreaMetric(ctx,group,metric,view)},
     onDrawNoteMetric:(ctx,id,point)=>{const metric=mapMetrics?.notes.get(id);if(metric)drawNoteMetric(ctx,metric,point)},

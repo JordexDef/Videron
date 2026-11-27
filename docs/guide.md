@@ -16,6 +16,26 @@ On first launch, **Settings → Theme → Use system setting** follows the appea
 
 The sidebar groups notes by area. Notes outside any area appear at the top level. Click the arrow beside an area to collapse its branch, or click a note to open it. Use the arrow keys to navigate the tree and **Enter** to open the selected note.
 
+### Import notes
+
+Open the space menu and select **Import notes…**. Choose **Folder…** for an Obsidian vault, a Logseq Markdown folder, or an unpacked export. Choose **File…** for a Markdown, CSV, or TSV file, or a ZIP containing those formats, such as a Notion **Markdown & CSV** export. Choose the entire folder or ZIP to bring notes and their referenced local images together.
+
+Review the note count, then select **Import notes**. Videron copies the notes into an **Import · source name** area on the map. Subfolders become nested areas, links between imported notes become map connections, and CSV and TSV files open as data notes. You can rename the area or move its notes. Immediately after importing, **Ctrl+Z** (or **⌘Z** on macOS) undoes the batch.
+
+### Export to Markdown or Obsidian
+
+Open **Export notes…** in the space menu. Select **Markdown folder…** to create an export folder inside the directory you choose, or **ZIP archive…** for the same files in a single archive. Unzip the archive before opening the exported folder as a vault in Obsidian. Keep the folders and attachments together for relative links and embeds to work.
+
+Areas become folders. Notes retain the supported text formatting, links, tags and embedded images. Data notes become fenced blocks. Canvas notes and drawings export their supported text, images and tables as Markdown, with no editable map or drawing layout.
+
+Markdown and ZIP exports are unencrypted. An encrypted workspace requires explicit confirmation. The export excludes individually encrypted notes and the contents of credential blocks.
+
+### Quick notes
+
+Choose **Quick note** on the map. Hover over or select its bubble and click **+** to add an entry in place. Use the check mark or **Ctrl+Enter** (on a Mac, **⌘Enter**) to save. Each new entry appears at the top. While the text field is focused, use **Win+H** on Windows or your system dictation shortcut on macOS to dictate the text.
+
+Open the note to format entries, move them with the drag handles, or delete them. Use the title field in the editor header to rename the note. The centered strip below the header holds the controls for the current note type.
+
 ## Data notes
 
 Choose **Data** to create a note with a line editor. Type, paste text, or use **Insert file…**. When you insert a file into an empty note, its extension helps the editor select the format. Supported formats include JSON, JSON Lines, CSV, TSV, JavaScript, TypeScript, Python and SQL.

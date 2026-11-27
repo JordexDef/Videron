@@ -465,11 +465,10 @@ async function saveScene(doc, workbook) {
   return true;
 }
 
-export function openBoardFiles({ anchor, getDocument, getWorkbook, replaceDocument, addFolder, onClose }) {
-  const board = anchor.closest('.vb') || anchor.closest('.vt-table, .vt-chart');
+export function openBoardFiles({ anchor, board = anchor.closest('.vb') || anchor.closest('.vt-table, .vt-chart'), getDocument, getWorkbook, replaceDocument, addFolder, onClose }) {
   const menu = document.createElement('div');
   menu.className = 'diagram-files vb-file-menu';
-  const floating = !board.classList.contains('vb') && typeof menu.showPopover === 'function';
+  const floating = (!board.classList.contains('vb') || !board.contains(anchor)) && typeof menu.showPopover === 'function';
   if (floating) menu.setAttribute('popover', 'manual');
   menu.id = 'drawing-files-' + crypto.randomUUID();
   menu.setAttribute('role', 'group');

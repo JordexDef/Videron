@@ -1,4 +1,9 @@
 .space-dialog {width:min(440px,100%)}
+.note-import-dialog {width:min(440px,100%)}
+.note-import-sources {display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.note-import-summary {overflow-wrap:anywhere}
+.note-import-summary.workspace-activity {margin-bottom:0}
+.note-export-summary {white-space:pre-line;overflow-wrap:anywhere}
 .space-dialog [hidden] {display:none}
 .workspace-activity {
   display:flex;

@@ -79,7 +79,7 @@ func (a *App) editorHistoryKey(r EditorHistoryRef) (*vault.Key, error) {
 	if !a.library.Loaded() {
 		return nil, errLocked
 	}
-	if r.Space == "" || r.Note == "" || (r.Kind != "text" && r.Kind != "canvas" && r.Kind != "data") {
+	if r.Space == "" || r.Note == "" || (r.Kind != "text" && r.Kind != "canvas" && r.Kind != "data" && r.Kind != "quick") {
 		return nil, errInvalid
 	}
 	var key *vault.Key
